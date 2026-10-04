@@ -114,6 +114,12 @@ keyPassword=...
 
 Without that file the release build is signed with the debug key so that you can still install it. A build signed that way must not be published or handed to other people. An app signed with a different key cannot update one signed with another, so the key has to stay the same for the life of the hub.
 
+### Releasing
+
+Every push to `main` runs the tests and uploads the debug APKs as a workflow artifact. Pushing a tag such as `v1.0.0` runs the release workflow, which builds the hub signed with the release key and attaches the APK to a GitHub release. The tag has to match `versionName` in `hub/build.gradle.kts`.
+
+The workflow needs four repository secrets: `KEYSTORE_BASE64` (the keystore file, base64 encoded), `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`.
+
 ### Testing across processes
 
 The probe app starts senders and receivers in separate processes and checks the behavior that unit tests cannot: hub death, sender death, a receiver that disappears, and misuse of the API. With the hub installed:

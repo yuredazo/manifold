@@ -1,0 +1,61 @@
+name: Release
+
+# Runs when a version tag such as v1.0.0 is pushed. The tag must match the
+# hub's versionName, and the signing key comes from repository secrets.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Check the tag against the hub version
+        run: |
+          version=$(grep -oP 'versionName = "\K[^"]+' hub/build.gradle.kts)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match the hub versionName $version"
+            exit 1
+          fi
+
+      - name: Restore the signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "The release secrets are not set on this repository"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$RUNNER_TEMP/release.jks" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+
+      - name: Test and build
+        run: ./gradlew :sdk:testDebugUnitTest :hub:testDebugUnitTest :sdk:apiCheck :hub:assembleRelease
+
+      - name: Check the APK carries the release signature
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$apksigner" verify --print-certs hub/build/outputs/apk/release/hub-release.apk | tee certs.txt
+          grep -q 'CN=Manifold, O=mkzk' certs.txt
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk="manifold-hub-$GITHUB_REF_NAME.apk"
+          cp hub/build/outputs/apk/release/hub-release.apk "$apk"
+          gh release create "$GITHUB_REF_NAME" "$apk" --title "Manifold Hub ${GITHUB_REF_NAME#v}" --notes ""
