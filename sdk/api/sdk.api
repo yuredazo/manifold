@@ -1,0 +1,184 @@
+public abstract interface class dev/mkzk/manifold/IManifoldHub : android/os/IInterface {
+	public static final field DESCRIPTOR Ljava/lang/String;
+	public abstract fun protocolVersion ()I
+	public abstract fun registerReceiver (Ldev/mkzk/manifold/IManifoldReceiver;)V
+	public abstract fun registerSender (Ldev/mkzk/manifold/SenderInfo;Ldev/mkzk/manifold/IManifoldSender;)Ljava/lang/String;
+	public abstract fun subscribe (Ldev/mkzk/manifold/IManifoldReceiver;Ljava/lang/String;Landroid/view/Surface;IILandroid/os/ParcelFileDescriptor;)Ljava/lang/String;
+	public abstract fun unregisterReceiver (Ldev/mkzk/manifold/IManifoldReceiver;)V
+	public abstract fun unregisterSender (Ldev/mkzk/manifold/IManifoldSender;)V
+	public abstract fun unsubscribe (Ljava/lang/String;)V
+	public abstract fun updateSender (Ldev/mkzk/manifold/SenderInfo;Ldev/mkzk/manifold/IManifoldSender;)V
+}
+
+public class dev/mkzk/manifold/IManifoldHub$Default : dev/mkzk/manifold/IManifoldHub {
+	public fun <init> ()V
+	public fun asBinder ()Landroid/os/IBinder;
+	public fun protocolVersion ()I
+	public fun registerReceiver (Ldev/mkzk/manifold/IManifoldReceiver;)V
+	public fun registerSender (Ldev/mkzk/manifold/SenderInfo;Ldev/mkzk/manifold/IManifoldSender;)Ljava/lang/String;
+	public fun subscribe (Ldev/mkzk/manifold/IManifoldReceiver;Ljava/lang/String;Landroid/view/Surface;IILandroid/os/ParcelFileDescriptor;)Ljava/lang/String;
+	public fun unregisterReceiver (Ldev/mkzk/manifold/IManifoldReceiver;)V
+	public fun unregisterSender (Ldev/mkzk/manifold/IManifoldSender;)V
+	public fun unsubscribe (Ljava/lang/String;)V
+	public fun updateSender (Ldev/mkzk/manifold/SenderInfo;Ldev/mkzk/manifold/IManifoldSender;)V
+}
+
+public abstract class dev/mkzk/manifold/IManifoldHub$Stub : android/os/Binder, dev/mkzk/manifold/IManifoldHub {
+	public fun <init> ()V
+	public fun asBinder ()Landroid/os/IBinder;
+	public static fun asInterface (Landroid/os/IBinder;)Ldev/mkzk/manifold/IManifoldHub;
+	public fun onTransact (ILandroid/os/Parcel;Landroid/os/Parcel;I)Z
+}
+
+public class dev/mkzk/manifold/IManifoldHub$_Parcel {
+	public fun <init> ()V
+}
+
+public abstract interface class dev/mkzk/manifold/IManifoldReceiver : android/os/IInterface {
+	public static final field DESCRIPTOR Ljava/lang/String;
+	public abstract fun onSenders (Ljava/util/List;)V
+}
+
+public class dev/mkzk/manifold/IManifoldReceiver$Default : dev/mkzk/manifold/IManifoldReceiver {
+	public fun <init> ()V
+	public fun asBinder ()Landroid/os/IBinder;
+	public fun onSenders (Ljava/util/List;)V
+}
+
+public abstract class dev/mkzk/manifold/IManifoldReceiver$Stub : android/os/Binder, dev/mkzk/manifold/IManifoldReceiver {
+	public fun <init> ()V
+	public fun asBinder ()Landroid/os/IBinder;
+	public static fun asInterface (Landroid/os/IBinder;)Ldev/mkzk/manifold/IManifoldReceiver;
+	public fun onTransact (ILandroid/os/Parcel;Landroid/os/Parcel;I)Z
+}
+
+public class dev/mkzk/manifold/IManifoldReceiver$_Parcel {
+	public fun <init> ()V
+}
+
+public abstract interface class dev/mkzk/manifold/IManifoldSender : android/os/IInterface {
+	public static final field DESCRIPTOR Ljava/lang/String;
+	public abstract fun onSubscribe (Ljava/lang/String;Landroid/view/Surface;IILandroid/os/ParcelFileDescriptor;)V
+	public abstract fun onUnsubscribe (Ljava/lang/String;)V
+}
+
+public class dev/mkzk/manifold/IManifoldSender$Default : dev/mkzk/manifold/IManifoldSender {
+	public fun <init> ()V
+	public fun asBinder ()Landroid/os/IBinder;
+	public fun onSubscribe (Ljava/lang/String;Landroid/view/Surface;IILandroid/os/ParcelFileDescriptor;)V
+	public fun onUnsubscribe (Ljava/lang/String;)V
+}
+
+public abstract class dev/mkzk/manifold/IManifoldSender$Stub : android/os/Binder, dev/mkzk/manifold/IManifoldSender {
+	public fun <init> ()V
+	public fun asBinder ()Landroid/os/IBinder;
+	public static fun asInterface (Landroid/os/IBinder;)Ldev/mkzk/manifold/IManifoldSender;
+	public fun onTransact (ILandroid/os/Parcel;Landroid/os/Parcel;I)Z
+}
+
+public class dev/mkzk/manifold/IManifoldSender$_Parcel {
+	public fun <init> ()V
+}
+
+public final class dev/mkzk/manifold/Manifold {
+	public static final field ACTION_BIND Ljava/lang/String;
+	public static final field AUDIO_CHANNELS I
+	public static final field AUDIO_SAMPLE_RATE I
+	public static final field HUB_PACKAGE Ljava/lang/String;
+	public static final field INSTANCE Ldev/mkzk/manifold/Manifold;
+	public static final field MAX_DIMENSION I
+	public static final field MAX_FPS I
+	public static final field MAX_NAME_LENGTH I
+	public static final field PROTOCOL_VERSION I
+	public final fun isValidName (Ljava/lang/String;)Z
+}
+
+public final class dev/mkzk/manifold/ManifoldReceiver {
+	public fun <init> (Landroid/content/Context;Ldev/mkzk/manifold/ManifoldReceiver$Listener;)V
+	public fun <init> (Landroid/content/Context;Ldev/mkzk/manifold/ManifoldReceiver$Listener;Ljava/util/concurrent/Executor;)V
+	public synthetic fun <init> (Landroid/content/Context;Ldev/mkzk/manifold/ManifoldReceiver$Listener;Ljava/util/concurrent/Executor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun start ()V
+	public final fun stop ()V
+	public final fun subscribe (Ljava/lang/String;Landroid/view/Surface;II)Ldev/mkzk/manifold/ManifoldReceiver$Subscription;
+	public final fun subscribe (Ljava/lang/String;Landroid/view/Surface;IILandroid/os/ParcelFileDescriptor;)Ldev/mkzk/manifold/ManifoldReceiver$Subscription;
+	public static synthetic fun subscribe$default (Ldev/mkzk/manifold/ManifoldReceiver;Ljava/lang/String;Landroid/view/Surface;IILandroid/os/ParcelFileDescriptor;ILjava/lang/Object;)Ldev/mkzk/manifold/ManifoldReceiver$Subscription;
+	public final fun unsubscribe (Ldev/mkzk/manifold/ManifoldReceiver$Subscription;)V
+}
+
+public abstract interface class dev/mkzk/manifold/ManifoldReceiver$Listener {
+	public fun onConnectionChanged (Z)V
+	public fun onRegistrationRefused ()V
+	public abstract fun onSenders (Ljava/util/List;)V
+	public fun onSubscriptionRefused (Ldev/mkzk/manifold/ManifoldReceiver$Subscription;)V
+}
+
+public final class dev/mkzk/manifold/ManifoldReceiver$Subscription {
+	public final fun getSenderName ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/mkzk/manifold/ManifoldSender {
+	public fun <init> (Landroid/content/Context;Ldev/mkzk/manifold/ManifoldSender$Config;Ldev/mkzk/manifold/ManifoldSender$Listener;)V
+	public fun <init> (Landroid/content/Context;Ldev/mkzk/manifold/ManifoldSender$Config;Ldev/mkzk/manifold/ManifoldSender$Listener;Ljava/util/concurrent/Executor;)V
+	public synthetic fun <init> (Landroid/content/Context;Ldev/mkzk/manifold/ManifoldSender$Config;Ldev/mkzk/manifold/ManifoldSender$Listener;Ljava/util/concurrent/Executor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun start ()V
+	public final fun stop ()V
+	public final fun update (Ldev/mkzk/manifold/ManifoldSender$Config;)V
+}
+
+public final class dev/mkzk/manifold/ManifoldSender$Config {
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;I)V
+	public fun <init> (Ljava/lang/String;II)V
+	public fun <init> (Ljava/lang/String;III)V
+	public fun <init> (Ljava/lang/String;IIIZ)V
+	public synthetic fun <init> (Ljava/lang/String;IIIZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun copy ()Ldev/mkzk/manifold/ManifoldSender$Config;
+	public final fun copy (Ljava/lang/String;)Ldev/mkzk/manifold/ManifoldSender$Config;
+	public final fun copy (Ljava/lang/String;I)Ldev/mkzk/manifold/ManifoldSender$Config;
+	public final fun copy (Ljava/lang/String;II)Ldev/mkzk/manifold/ManifoldSender$Config;
+	public final fun copy (Ljava/lang/String;III)Ldev/mkzk/manifold/ManifoldSender$Config;
+	public final fun copy (Ljava/lang/String;IIIZ)Ldev/mkzk/manifold/ManifoldSender$Config;
+	public static synthetic fun copy$default (Ldev/mkzk/manifold/ManifoldSender$Config;Ljava/lang/String;IIIZILjava/lang/Object;)Ldev/mkzk/manifold/ManifoldSender$Config;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFps ()I
+	public final fun getHasAudio ()Z
+	public final fun getHeight ()I
+	public final fun getName ()Ljava/lang/String;
+	public final fun getWidth ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/mkzk/manifold/ManifoldSender$Listener {
+	public fun onHubLost ()V
+	public fun onRegistered (Ljava/lang/String;)V
+	public fun onRegistrationRefused ()V
+	public abstract fun onSubscribe (Ldev/mkzk/manifold/ManifoldSender$Subscription;)V
+	public abstract fun onUnsubscribe (Ljava/lang/String;)V
+}
+
+public final class dev/mkzk/manifold/ManifoldSender$Subscription {
+	public final fun getAudioSink ()Landroid/os/ParcelFileDescriptor;
+	public final fun getHeight ()I
+	public final fun getId ()Ljava/lang/String;
+	public final fun getSurface ()Landroid/view/Surface;
+	public final fun getWidth ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public class dev/mkzk/manifold/SenderInfo : android/os/Parcelable {
+	public static final field CREATOR Landroid/os/Parcelable$Creator;
+	public field fps I
+	public field hasAudio Z
+	public field height I
+	public field label Ljava/lang/String;
+	public field name Ljava/lang/String;
+	public field packageName Ljava/lang/String;
+	public field width I
+	public fun <init> ()V
+	public fun describeContents ()I
+	public final fun readFromParcel (Landroid/os/Parcel;)V
+	public final fun writeToParcel (Landroid/os/Parcel;I)V
+}
+

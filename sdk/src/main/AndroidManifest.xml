@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Merged into every app that includes the SDK, so they can see and bind the hub. -->
+    <queries>
+        <package android:name="dev.mkzk.manifold" />
+    </queries>
+</manifest>

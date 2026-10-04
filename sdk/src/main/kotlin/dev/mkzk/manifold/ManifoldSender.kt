@@ -1,0 +1,210 @@
+package dev.mkzk.manifold
+
+import android.content.Context
+import android.os.ParcelFileDescriptor
+import android.os.RemoteException
+import android.util.Log
+import android.view.Surface
+import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicReference
+
+private const val TAG = "Manifold"
+
+/**
+ * Publishes a video feed, and optionally audio, through the Manifold hub.
+ *
+ * Call [start] once to announce the feed, then wait. Nothing needs to be drawn
+ * until [Listener.onSubscribe], and drawing must stop when
+ * [Listener.onUnsubscribe] fires. If the hub restarts, every subscription ends
+ * and is delivered again once it is back. [stop] ends them too.
+ *
+ * The sender owns the surface and audio pipe of each [Subscription] and has to
+ * release them when it ends. Methods can be called from any thread. Listener
+ * methods run on [callbackExecutor], which is the main thread by default.
+ * Use one instance per feed, start it once, and always stop it.
+ */
+public class ManifoldSender @JvmOverloads constructor(
+    context: Context,
+    config: Config,
+    private val listener: Listener,
+    private val callbackExecutor: Executor = MainThreadExecutor,
+) {
+    /** What the feed announces about itself. A [width] or [height] of 0 means "no preference". */
+    public class Config @JvmOverloads constructor(
+        public val name: String,
+        public val width: Int = 0,
+        public val height: Int = 0,
+        public val fps: Int = 0,
+        public val hasAudio: Boolean = false,
+    ) {
+        init {
+            require(Manifold.isValidName(name)) {
+                "name must be 1 to ${Manifold.MAX_NAME_LENGTH} characters without control characters"
+            }
+            require(width in 0..Manifold.MAX_DIMENSION && height in 0..Manifold.MAX_DIMENSION) {
+                "width and height must be between 0 and ${Manifold.MAX_DIMENSION}"
+            }
+            require(fps in 0..Manifold.MAX_FPS) { "fps must be between 0 and ${Manifold.MAX_FPS}" }
+        }
+
+        @JvmOverloads
+        public fun copy(
+            name: String = this.name,
+            width: Int = this.width,
+            height: Int = this.height,
+            fps: Int = this.fps,
+            hasAudio: Boolean = this.hasAudio,
+        ): Config = Config(name, width, height, fps, hasAudio)
+
+        override fun equals(other: Any?): Boolean =
+            other is Config && name == other.name && width == other.width && height == other.height &&
+                fps == other.fps && hasAudio == other.hasAudio
+
+        override fun hashCode(): Int {
+            var result = name.hashCode()
+            result = 31 * result + width
+            result = 31 * result + height
+            result = 31 * result + fps
+            result = 31 * result + hasAudio.hashCode()
+            return result
+        }
+
+        override fun toString(): String = "Config(name=$name, width=$width, height=$height, fps=$fps, hasAudio=$hasAudio)"
+    }
+
+    /** One receiver watching this feed. Render into [surface] at [width] x [height]. */
+    public class Subscription internal constructor(
+        public val id: String,
+        public val surface: Surface,
+        public val width: Int,
+        public val height: Int,
+        /** Write [Manifold.AUDIO_SAMPLE_RATE] Hz stereo 16-bit PCM here, or null if the receiver wants no audio. */
+        public val audioSink: ParcelFileDescriptor?,
+    ) {
+        override fun toString(): String = "Subscription(id=$id, ${width}x$height, audio=${audioSink != null})"
+    }
+
+    public interface Listener {
+        /** The hub accepted the feed under [registeredName], which has a suffix if another app already holds the name. */
+        public fun onRegistered(registeredName: String) {}
+
+        /** The hub turned the feed down, for example because it already has too many senders. */
+        public fun onRegistrationRefused() {}
+
+        /** The hub is unreachable. Existing subscriptions have ended; the sender reconnects by itself. */
+        public fun onHubLost() {}
+
+        public fun onSubscribe(subscription: Subscription)
+
+        public fun onUnsubscribe(subscriptionId: String)
+    }
+
+    private enum class State { NEW, STARTED, STOPPED }
+
+    @Volatile private var config: Config = config
+    @Volatile private var hub: IManifoldHub? = null
+    private val state = AtomicReference(State.NEW)
+    private val activeIds = LinkedHashSet<String>()
+
+    private val callback = object : IManifoldSender.Stub() {
+        override fun onSubscribe(
+            subscriptionId: String,
+            surface: Surface,
+            width: Int,
+            height: Int,
+            audioSink: ParcelFileDescriptor?,
+        ) {
+            // Going through the worker keeps "ended" to exactly one report per subscription.
+            connection.worker.post {
+                activeIds.add(subscriptionId)
+                callbackExecutor.execute {
+                    listener.onSubscribe(Subscription(subscriptionId, surface, width, height, audioSink))
+                }
+            }
+        }
+
+        override fun onUnsubscribe(subscriptionId: String) {
+            connection.worker.post {
+                if (activeIds.remove(subscriptionId)) {
+                    callbackExecutor.execute { listener.onUnsubscribe(subscriptionId) }
+                }
+            }
+        }
+    }
+
+    private val connection: ManifoldConnection = ManifoldConnection(context, object : ManifoldConnection.Listener {
+        override fun onHubReady(hub: IManifoldHub) {
+            this@ManifoldSender.hub = hub
+            val name = try {
+                hub.registerSender(info(), callback)
+            } catch (e: RemoteException) {
+                Log.w(TAG, "register failed", e)
+                return
+            } catch (e: RuntimeException) {
+                Log.e(TAG, "hub refused the sender", e)
+                null
+            }
+            if (name != null) {
+                callbackExecutor.execute { listener.onRegistered(name) }
+            } else {
+                callbackExecutor.execute { listener.onRegistrationRefused() }
+            }
+        }
+
+        override fun onHubLost() {
+            hub = null
+            val ended = activeIds.toList()
+            activeIds.clear()
+            callbackExecutor.execute {
+                ended.forEach { listener.onUnsubscribe(it) }
+                listener.onHubLost()
+            }
+        }
+    })
+
+    /** Announces the feed. Throws [IllegalStateException] if called twice. */
+    public fun start() {
+        check(state.compareAndSet(State.NEW, State.STARTED)) { "start() can only be called once" }
+        connection.open()
+    }
+
+    /** Changes the announced size, frame rate or audio flag. The name stays as it was. */
+    public fun update(config: Config) {
+        check(state.get() == State.STARTED) { "the sender is not running" }
+        require(config.name == this.config.name) { "the name of a running sender cannot change" }
+        this.config = config
+        connection.worker.post {
+            val current = hub ?: return@post
+            try {
+                current.updateSender(info(), callback)
+            } catch (e: RemoteException) {
+                Log.w(TAG, "update failed", e)
+            }
+        }
+    }
+
+    /** Unannounces the feed. Subscriptions still running end with [Listener.onUnsubscribe]. Safe to call more than once. */
+    public fun stop() {
+        if (state.getAndSet(State.STOPPED) == State.STOPPED) return
+        connection.worker.post {
+            try {
+                hub?.unregisterSender(callback)
+            } catch (e: RemoteException) {
+                Log.w(TAG, "unregister failed", e)
+            }
+            val ended = activeIds.toList()
+            activeIds.clear()
+            callbackExecutor.execute { ended.forEach { listener.onUnsubscribe(it) } }
+        }
+        connection.close()
+    }
+
+    private fun info() = SenderInfo().also {
+        val c = config
+        it.name = c.name
+        it.width = c.width
+        it.height = c.height
+        it.fps = c.fps
+        it.hasAudio = c.hasAudio
+    }
+}

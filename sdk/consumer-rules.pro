@@ -1,0 +1,2 @@
+-keep class dev.mkzk.manifold.IManifold* { *; }
+-keep class dev.mkzk.manifold.SenderInfo { *; }

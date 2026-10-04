@@ -1,0 +1,29 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Manifold"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <!-- No permission on purpose. A custom permission is only granted to apps installed
+             after the app that defines it, so a sender or receiver installed before the hub
+             could never bind. The hub works out who is calling and limits what they can do. -->
+        <service
+            android:name=".HubService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="dev.mkzk.manifold.BIND" />
+            </intent-filter>
+        </service>
+
+        <activity
+            android:name=".HubActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
