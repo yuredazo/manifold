@@ -105,6 +105,7 @@ final class Updater extends ChangeNotifier {
 
   UpdateState _state = const Idle();
   DateTime? _checkedAt;
+  Release? _announcement;
 
   UpdateState get state => _state;
 
@@ -138,7 +139,19 @@ final class Updater extends ChangeNotifier {
     }
   }
 
-  Future<void> check() async {
+  Release? get announcement => _announcement;
+
+  void dismissAnnouncement() {
+    _announcement = null;
+    notifyListeners();
+  }
+
+  Future<void> check() => _check(announce: false);
+
+  /// Only this check raises [announcement]; one the user asked for already shows its answer on the About page.
+  Future<void> checkOnLaunch() => _check(announce: true);
+
+  Future<void> _check({required bool announce}) async {
     if (busy) return;
     _set(const Checking());
     final client = HttpClient()..connectionTimeout = _networkTimeout;
@@ -164,7 +177,9 @@ final class Updater extends ChangeNotifier {
       }
       final body = await _readLimited(response, _maxApiBytes).timeout(_networkTimeout);
       _checkedAt = DateTime.now();
-      _set(_interpret(jsonDecode(utf8.decode(body))));
+      final result = _interpret(jsonDecode(utf8.decode(body)));
+      if (announce && result is Available) _announcement = result.release;
+      _set(result);
     } on TimeoutException {
       _set(const UpdateFailed('GitHub did not answer in time.'));
     } on SocketException {

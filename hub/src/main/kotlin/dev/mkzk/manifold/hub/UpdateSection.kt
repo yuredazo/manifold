@@ -10,6 +10,7 @@ import androidx.compose.material.icons.outlined.ArrowCircleUp
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -30,6 +31,24 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+internal fun UpdateAnnouncement(updater: Updater) {
+    val release by updater.announcement.collectAsStateWithLifecycle()
+    val found = release ?: return
+    AlertDialog(
+        onDismissRequest = updater::dismissAnnouncement,
+        title = { Text(stringResource(R.string.update_announce_title, found.version)) },
+        text = { Text(stringResource(R.string.update_you_have, updater.version)) },
+        confirmButton = {
+            TextButton(onClick = {
+                updater.dismissAnnouncement()
+                updater.install()
+            }) { Text(stringResource(R.string.update_install)) }
+        },
+        dismissButton = { TextButton(onClick = updater::dismissAnnouncement) { Text(stringResource(R.string.update_later)) } },
+    )
+}
 
 @Composable
 internal fun UpdateSection(updater: Updater) {

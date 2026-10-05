@@ -146,6 +146,27 @@ void main() {
       expect(state.release.sha256, 'abcd');
     });
 
+    test('only the check at launch announces a newer release, and dismissing clears it', () async {
+      github.release = github.releaseOf('v1.2.0', digest: 'abcd');
+
+      final asked = updater();
+      await asked.check();
+      expect(asked.announcement, isNull);
+
+      final launched = updater();
+      await launched.checkOnLaunch();
+      expect(launched.announcement?.version, '1.2.0');
+      launched.dismissAnnouncement();
+      expect(launched.announcement, isNull);
+    });
+
+    test('nothing is announced when the version is current', () async {
+      github.release = github.releaseOf('v1.0.0', digest: 'abcd');
+      final subject = updater();
+      await subject.checkOnLaunch();
+      expect(subject.announcement, isNull);
+    });
+
     test('a release without a checksum is not offered', () async {
       github.release = github.releaseOf('v1.2.0');
       final subject = updater();

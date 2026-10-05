@@ -119,6 +119,8 @@
     <string name="update_available">Version %1$s available</string>
     <string name="update_you_have">You have %1$s</string>
     <string name="update_install">Update</string>
+    <string name="update_later">Later</string>
+    <string name="update_announce_title">Version %1$s is available</string>
     <string name="update_downloading">Downloading %1$s</string>
     <string name="update_confirming">Waiting for Android</string>
     <string name="update_confirming_detail">Confirm the install in the system prompt</string>

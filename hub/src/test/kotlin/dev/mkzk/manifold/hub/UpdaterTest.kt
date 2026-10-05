@@ -12,6 +12,7 @@ import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -100,6 +101,34 @@ class UpdaterTest {
         val updater = updater()
         updater.check()
         assertEquals(UpdateState.UpToDate(42L), updater.state.value)
+    }
+
+    @Test
+    fun onlyTheCheckAtLaunchAnnouncesANewerRelease() {
+        latest = release("v1.2.0")
+
+        val asked = updater()
+        asked.check()
+        assertNull(asked.announcement.value)
+
+        val launched = updater()
+        launched.checkOnLaunchIfWanted()
+        assertEquals("1.2.0", launched.announcement.value?.version)
+        launched.dismissAnnouncement()
+        assertNull(launched.announcement.value)
+    }
+
+    @Test
+    fun nothingIsAnnouncedWhenTheVersionIsCurrentOrLaunchChecksAreOff() {
+        latest = release("v1.0.0")
+        val current = updater()
+        current.checkOnLaunchIfWanted()
+        assertNull(current.announcement.value)
+
+        latest = release("v1.2.0")
+        val off = updater(checkOnLaunch = false)
+        off.checkOnLaunchIfWanted()
+        assertNull(off.announcement.value)
     }
 
     @Test

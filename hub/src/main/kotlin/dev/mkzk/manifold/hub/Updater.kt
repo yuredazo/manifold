@@ -92,11 +92,15 @@ internal class Updater(
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val flow = MutableStateFlow<UpdateState>(UpdateState.Idle)
     private val checkFlow = MutableStateFlow(checkOnLaunch)
+    private val announcementFlow = MutableStateFlow<Release?>(null)
     private var launchCheckDone = false
     private var pending: Release? = null
 
     val state: StateFlow<UpdateState> = flow
     val checkOnLaunch: StateFlow<Boolean> = checkFlow
+
+    /** Set only by the check at launch; one the user asked for already shows its answer on the About screen. */
+    val announcement: StateFlow<Release?> = announcementFlow
 
     val version: String get() = currentVersion
 
@@ -111,13 +115,23 @@ internal class Updater(
     fun checkOnLaunchIfWanted() {
         if (launchCheckDone || !checkFlow.value) return
         launchCheckDone = true
-        check()
+        run(announce = true)
     }
 
-    fun check() {
+    fun dismissAnnouncement() {
+        announcementFlow.value = null
+    }
+
+    fun check() = run(announce = false)
+
+    private fun run(announce: Boolean) {
         if (busy) return
         flow.value = UpdateState.Checking
-        scope.launch { flow.value = fetchLatest() }
+        scope.launch {
+            val result = fetchLatest()
+            flow.value = result
+            if (announce && result is UpdateState.Available) announcementFlow.value = result.release
+        }
     }
 
     fun install() {

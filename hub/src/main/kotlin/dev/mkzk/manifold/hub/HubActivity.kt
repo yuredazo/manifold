@@ -142,4 +142,5 @@ private fun HubShell(notificationsOn: Boolean, openNotificationSettings: () -> U
             Tab.About -> AboutScreen(Updater.instance, modifier)
         }
     }
+    UpdateAnnouncement(Updater.instance)
 }

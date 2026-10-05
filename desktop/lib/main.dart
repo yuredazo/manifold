@@ -39,7 +39,7 @@ Future<void> main() async {
     workDirectory: Directory('${Directory.systemTemp.path}${Platform.pathSeparator}manifold-update'),
     exitApp: () => window.quit(),
   )..cleanUp();
-  if (settings.checkOnLaunch) updater.check();
+  if (settings.checkOnLaunch) updater.checkOnLaunch();
 
   runApp(HubApp(network, settings, updater));
 }

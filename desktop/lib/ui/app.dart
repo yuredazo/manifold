@@ -57,6 +57,40 @@ class _Shell extends StatefulWidget {
 
 class _ShellState extends State<_Shell> {
   _Page _page = _Page.watch;
+  bool _asking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.updater.addListener(_offerUpdate);
+  }
+
+  @override
+  void dispose() {
+    widget.updater.removeListener(_offerUpdate);
+    super.dispose();
+  }
+
+  void _offerUpdate() {
+    final release = widget.updater.announcement;
+    if (release == null || _asking) return;
+    _asking = true;
+    showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Version ${release.version} is available'),
+        content: Text('You have ${widget.updater.currentVersion}. The update downloads, then Manifold restarts.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Later')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Download and restart')),
+        ],
+      ),
+    ).then((install) {
+      _asking = false;
+      widget.updater.dismissAnnouncement();
+      if (install == true) widget.updater.install();
+    });
+  }
 
   void _openDevices() => setState(() => _page = _Page.devices);
 
