@@ -50,6 +50,13 @@ android {
         compose = true
     }
 
+    packaging {
+        resources {
+            // BouncyCastle and jspecify both ship this OSGi file; Android never reads it.
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -72,10 +79,17 @@ dependencies {
 
     implementation(platform("androidx.compose:compose-bom:2025.10.00"))
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
+    // Lightweight API only (X25519 and ChaCha20-Poly1305), so it works on every supported Android version.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.86")
+
     testImplementation("junit:junit:4.13.2")
+    // The android.jar used by unit tests only has stubs for org.json.
+    testImplementation("org.json:json:20250517")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

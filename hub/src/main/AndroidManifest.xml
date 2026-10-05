@@ -1,6 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets the About page hand a downloaded update to the system installer. The user still confirms it. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- Android only allows the connectedDevice service type together with one of a short list of
+         permissions. This is the harmless one: the hub does not change network state. -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
     <application
+        android:name=".HubApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="Manifold"
@@ -16,6 +29,26 @@
                 <action android:name="dev.mkzk.manifold.BIND" />
             </intent-filter>
         </service>
+
+        <service
+            android:name=".NetworkService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!-- Sent by the system when an app is uninstalled. Its decision is dropped so a later
+             install starts undecided instead of inheriting the old one. -->
+        <receiver
+            android:name=".PackageRemovedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.PACKAGE_FULLY_REMOVED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".InstallResultReceiver"
+            android:exported="false" />
 
         <activity
             android:name=".HubActivity"

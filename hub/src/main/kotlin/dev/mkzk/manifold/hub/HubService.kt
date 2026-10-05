@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
@@ -13,12 +14,16 @@ import dev.mkzk.manifold.IManifoldReceiver
 import dev.mkzk.manifold.IManifoldSender
 import dev.mkzk.manifold.Manifold
 import dev.mkzk.manifold.SenderInfo
+import java.security.MessageDigest
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
-/**
- * Binder front door of the hub. It checks what comes in, works out who the
- * caller really is, and hands the rest to [Registry]. A caller can only
- * change what it registered itself.
- */
+/** A caller can only change what it registered itself. */
 class HubService : Service() {
 
     private enum class Role { SENDER, RECEIVER }
@@ -27,6 +32,7 @@ class HubService : Service() {
 
     private val registry = Registry.instance
     private val watched = HashMap<WatchKey, IBinder.DeathRecipient>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val binder = object : IManifoldHub.Stub() {
         override fun protocolVersion() = Manifold.PROTOCOL_VERSION
@@ -96,9 +102,21 @@ class HubService : Service() {
         }
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        scope.launch {
+            registry.state.map { it.pending }.distinctUntilChanged().collect { PendingNotice.update(this@HubService, it) }
+        }
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        PendingNotice.update(this, emptyList())
+        super.onDestroy()
+    }
+
     override fun onBind(intent: Intent): IBinder? = if (intent.action == Manifold.ACTION_BIND) binder else null
 
-    /** Runs [onDeath] if [target] dies. False if it is already dead. */
     private fun watch(target: IBinder, role: Role, onDeath: () -> Unit): Boolean {
         val key = WatchKey(target, role)
         val recipient = IBinder.DeathRecipient {
@@ -129,6 +147,19 @@ class HubService : Service() {
         } catch (_: PackageManager.NameNotFoundException) {
             packageName
         }
-        return Owner(uid, packageName, label)
+        return Owner(uid, packageName, label, signingCertificate(packageName))
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signingCertificate(packageName: String): String = try {
+        val signature = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                .signingInfo?.apkContentsSigners?.firstOrNull()
+        } else {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures?.firstOrNull()
+        }
+        signature?.let { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } } ?: ""
+    } catch (_: PackageManager.NameNotFoundException) {
+        ""
     }
 }

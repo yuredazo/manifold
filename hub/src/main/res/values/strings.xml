@@ -1,0 +1,132 @@
+<resources>
+    <string name="app_name">Manifold</string>
+
+    <string name="channel_requests">Requests to watch</string>
+    <string name="notice_one">%1$s wants to watch your feeds</string>
+    <string name="notice_many">%1$d apps want to watch your feeds</string>
+
+    <string name="tab_live">Live</string>
+    <string name="tab_apps">Apps</string>
+    <string name="tab_devices">Devices</string>
+    <string name="tab_about">About</string>
+
+    <string name="channel_network">Network connections</string>
+    <string name="network_notice_title">Manifold is on the network</string>
+    <string name="network_notice_text">Devices you paired can connect to this one.</string>
+
+    <string name="devices_fingerprint">Fingerprint %1$s</string>
+    <string name="devices_accept">Accept connections</string>
+    <string name="devices_off">Off. Other devices cannot connect.</string>
+    <string name="devices_no_address">Listening, but no network address was found.</string>
+    <string name="devices_listening">Listening on %1$s</string>
+    <string name="devices_pair">Pair a device</string>
+    <string name="devices_allow_pairing">Allow pairing</string>
+    <string name="devices_pairing_open">Pairing open, %1$s left</string>
+    <string name="devices_paired_header">Paired devices</string>
+    <string name="devices_none">No device is paired yet.</string>
+
+    <string name="device_online">online</string>
+    <string name="device_offline">offline</string>
+    <string name="device_receive">Receive their feeds</string>
+    <string name="device_send">Share my feeds</string>
+    <string name="device_offers">Offers %1$s</string>
+    <string name="device_offers_nothing">Offers no feeds right now</string>
+    <string name="device_unpair">Unpair</string>
+    <string name="device_unpair_title">Unpair %1$s?</string>
+    <string name="device_unpair_body">It has to be paired again before it can connect.</string>
+
+    <string name="pair_address_title">Pair a device</string>
+    <string name="pair_address_help">On the other device, open Devices, switch on Accept connections and tap Allow pairing. It shows its address.</string>
+    <string name="pair_address_hint">Address of the other device</string>
+    <string name="pair_start">Pair</string>
+    <string name="pair_connecting">Connecting to %1$s...</string>
+    <string name="pair_code_title">Pair with %1$s?</string>
+    <string name="pair_code_body">Check that this code is the same on both devices.</string>
+    <string name="pair_match">They match</string>
+    <string name="pair_nomatch">They do not match</string>
+    <string name="pair_waiting">Waiting for %1$s to confirm.</string>
+    <string name="pair_failed_title">Pairing failed</string>
+    <string name="pair_failed_body">Reason: %1$s.</string>
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">Cancel</string>
+
+    <string name="live_waiting_header">Waiting for you</string>
+    <string name="live_feeds_header">Feeds</string>
+    <string name="live_empty_title">Nothing connected yet</string>
+    <string name="live_empty_body">Apps that send or receive video through Manifold show up here.</string>
+    <string name="live_no_feeds">No feed is announced.</string>
+    <string name="notifications_off">Notifications are off, so you will not be told when an app asks to watch.</string>
+    <string name="notifications_turn_on">Turn on</string>
+
+    <string name="pending_wants">wants to watch %1$s</string>
+    <string name="cert_changed_pending">This app is signed with a different certificate than when you last decided.</string>
+    <string name="action_allow">Allow</string>
+    <string name="action_block">Block</string>
+
+    <string name="feed_audio">audio</string>
+    <string name="feed_not_announced">Not announced yet</string>
+    <string name="feed_no_watchers">Nobody watching</string>
+    <string name="feed_tap_preview">Tap to preview</string>
+    <string name="preview_watcher">Preview</string>
+    <string name="preview_waiting">Waiting for the feed</string>
+    <string name="preview_close">Close the preview</string>
+    <string name="preview_mute">Mute</string>
+    <string name="preview_unmute">Unmute</string>
+    <string name="preview_refused">The preview could not start. Close it and try again.</string>
+    <string name="feed_more_watchers">+%1$d more</string>
+
+    <string name="watch_short_waiting">waiting</string>
+    <string name="watch_short_pending">pending</string>
+    <string name="watch_short_blocked">blocked</string>
+
+    <string name="apps_intro">Apps that asked to watch a feed. An allowed app can watch any feed.</string>
+    <string name="apps_empty">No app has asked to watch a feed yet.</string>
+    <string name="access_allowed">Allowed</string>
+    <string name="access_ask">Asks</string>
+    <string name="access_blocked">Blocked</string>
+    <string name="menu_allow">Allow</string>
+    <string name="menu_ask">Ask each time</string>
+    <string name="menu_block">Block</string>
+    <string name="app_connected">connected</string>
+    <string name="cert_changed">Signing certificate changed</string>
+
+    <string name="about_version">Version %1$s</string>
+    <string name="about_body">Manifold lets one app send live video to another on this phone. This app only introduces them. Video never passes through it.</string>
+    <string name="about_source">Source code</string>
+    <string name="about_how">How it works</string>
+    <string name="about_report">Report a vulnerability</string>
+    <string name="about_license">License: Apache 2.0</string>
+    <string name="about_updates">Updates</string>
+    <string name="about_project">Project</string>
+
+    <string name="update_idle">Not checked yet</string>
+    <string name="update_check_now">Check now</string>
+    <string name="update_checking">Checking for updates</string>
+    <string name="update_uptodate">Up to date</string>
+    <string name="update_checked_at">Checked %1$s</string>
+    <string name="update_check_again">Check again</string>
+    <string name="update_available">Version %1$s available</string>
+    <string name="update_you_have">You have %1$s</string>
+    <string name="update_install">Update</string>
+    <string name="update_downloading">Downloading %1$s</string>
+    <string name="update_confirming">Waiting for Android</string>
+    <string name="update_confirming_detail">Confirm the install in the system prompt</string>
+    <string name="update_check_failed">Update check failed</string>
+    <string name="update_failed">Update failed</string>
+    <string name="update_try_again">Try again</string>
+    <string name="update_on_launch">Check for updates on launch</string>
+    <string name="update_release_page">Release page</string>
+    <string name="problem_offline">Could not reach GitHub.</string>
+    <string name="problem_timeout">GitHub did not answer in time.</string>
+    <string name="problem_rate_limited">GitHub is limiting requests from this network. Try again later.</string>
+    <string name="problem_rate_limited_at">GitHub is limiting requests from this network. Try again after %1$s.</string>
+    <string name="problem_status">GitHub answered %1$s.</string>
+    <string name="problem_bad_answer">GitHub sent an answer this version does not understand.</string>
+    <string name="problem_no_download">Version %1$s is out, but it has no Android download that can be checked yet.</string>
+    <string name="problem_download_failed">The download failed or was interrupted.</string>
+    <string name="problem_too_large">The download is larger than expected.</string>
+    <string name="problem_bad_checksum">The download does not match the checksum GitHub lists for it, so it was thrown away.</string>
+    <string name="problem_signature">Android refused it because it is signed with a different key than the installed app. A build made from source cannot be updated this way.</string>
+    <string name="problem_install_failed">Android could not install it.</string>
+    <string name="problem_install_failed_detail">Android could not install it: %1$s</string>
+</resources>
