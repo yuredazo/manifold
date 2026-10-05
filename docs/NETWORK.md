@@ -117,7 +117,7 @@ Each paired device has a row with its status and address, and these controls:
 
 - Receive their feeds: their feeds appear here as local senders (on Windows, "Watch its feeds").
 - Share my feeds: they may watch this hub's feeds (on Windows, "Let it watch my windows"). Off by default, and it applies to every feed.
-- Unpair: forget the key; the device has to pair again.
+- Unpair: forget the key; the device has to pair again. Both hubs ask for confirmation first.
 
 A switch turns incoming connections on or off. On Windows and on Android the choice is remembered. Android brings the listener back when the app is opened and when it restarts the service after killing the app; it does not start it after a reboot until the app is opened. While it is on the hub listens on one UDP port and shows a persistent notification, which Android requires for a foreground service.
 

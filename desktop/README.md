@@ -17,7 +17,9 @@ The release build is in `build/windows/x64/runner/Release`. Capturing the sound 
 
 ## Pairing with a phone
 
-On the phone, open Devices in the Manifold hub, switch on Accept connections and tap Allow pairing. In this app, open Devices, switch on Accept connections, choose Pair and type the address the phone shows. Both screens show a six digit code; confirm it on both. Then switch on "Watch its feeds" to see what the phone shares on the Watch page, and "Let it watch my windows" to let it see windows you share on the Share page.
+On the phone, open Devices in the Manifold hub, switch on Accept connections and tap Allow pairing. In this app, open Devices, switch on Accept connections, choose "Pair with a device" and type the address the phone shows. Both screens show a six digit code; confirm it on both. Then switch on "Watch its feeds" to see what the phone shares on the Watch page, and "Let it watch my windows" to let it see windows you share on the Share page. Unpair, in the menu of a device, asks for confirmation first.
+
+Shared windows are remembered in `%APPDATA%\Manifold\shares.json`. After a restart, or when a window closes and opens again, the share finds its window the way OBS does: same program, then the exact title, then any window of the same type. Until one is found the share shows "waiting for the window".
 
 ## Closing, the tray and updates
 
