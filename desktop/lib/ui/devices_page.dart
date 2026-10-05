@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../net/devices.dart';
 import '../net/control.dart';
 import '../network.dart';
+import '../public_address.dart';
 import 'page_frame.dart';
 
 class DevicesPage extends StatefulWidget {
@@ -107,11 +109,15 @@ class _ThisComputer extends StatelessWidget {
                   ? 'Off. Your paired devices cannot reach this computer.'
                   : network.addresses.isEmpty
                       ? 'On, but no network address was found.'
-                      : 'On. Reachable at ${network.addresses.join(', ')}',
+                      : 'On. Another device on this network can reach it at:',
             ),
             value: network.listening,
             onChanged: (on) => on ? network.start() : network.stop(),
           ),
+          if (network.listening) ...[
+            for (final address in network.addresses) _CopyableAddress(label: 'Local', address: address),
+            const _PublicAddress(port: listenPort),
+          ],
           const Divider(height: 24),
           _PairingRow(
             title: 'Pair with a device',
@@ -128,6 +134,85 @@ class _ThisComputer extends StatelessWidget {
                 ? OutlinedButton(onPressed: network.closePairing, child: const Text('Close'))
                 : FilledButton.tonal(onPressed: network.openPairing, child: const Text('Allow')),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CopyableAddress extends StatelessWidget {
+  const _CopyableAddress({required this.label, required this.address});
+
+  final String label;
+  final String address;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Row(
+        children: [
+          SizedBox(width: 56, child: Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant))),
+          Expanded(child: SelectableText(address, style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'Consolas'))),
+          IconButton(
+            tooltip: 'Copy',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.copy_outlined, size: 18),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: address));
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)));
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Looked up only when asked, since it tells an outside service this computer's address.
+class _PublicAddress extends StatefulWidget {
+  const _PublicAddress({required this.port});
+
+  final int port;
+
+  @override
+  State<_PublicAddress> createState() => _PublicAddressState();
+}
+
+class _PublicAddressState extends State<_PublicAddress> {
+  String? _address;
+  bool _looking = false;
+  bool _failed = false;
+
+  Future<void> _find() async {
+    setState(() {
+      _looking = true;
+      _failed = false;
+    });
+    final found = await findPublicAddress();
+    if (!mounted) return;
+    setState(() {
+      _looking = false;
+      _address = found == null ? null : '$found:${widget.port}';
+      _failed = found == null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final address = _address;
+    if (address != null) return _CopyableAddress(label: 'Public', address: address);
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, top: 4),
+      child: Row(
+        children: [
+          SizedBox(width: 56, child: Text('Public', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant))),
+          TextButton(onPressed: _looking ? null : _find, child: Text(_looking ? 'Looking up...' : 'Look up')),
+          if (_failed) Text('Could not find it.', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
         ],
       ),
     );

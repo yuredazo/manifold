@@ -2,7 +2,7 @@
 
 Hubs on different devices can pair and share feeds. A feed from another device shows up in the local hub as an ordinary sender, so an app that receives through Manifold does not know it came over the network. Frames still never pass through the hub on the local path; only feeds that cross the network are encoded, sent and decoded.
 
-There is no relay, no NAT traversal and no automatic discovery on the internet. To reach a hub from outside its network, give its public address and forward one UDP port (47200).
+There is no relay, no NAT traversal and no automatic discovery on the internet. To reach a hub from outside its network, give its public address and forward one UDP port (47200). The Devices screen of both hubs lists the local addresses of this device with a copy button. The public address is looked up only when you press Look up, with one request to `api.ipify.org`, which sees the address the request comes from.
 
 ## Pairing and identity
 

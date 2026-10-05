@@ -18,7 +18,14 @@
     <string name="devices_accept">Accept connections</string>
     <string name="devices_off">Off. Other devices cannot connect.</string>
     <string name="devices_no_address">Listening, but no network address was found.</string>
-    <string name="devices_listening">Listening on %1$s</string>
+    <string name="devices_reachable">Another device on this network can reach it at:</string>
+    <string name="address_local">Local</string>
+    <string name="address_public">Public</string>
+    <string name="address_lookup">Look up</string>
+    <string name="address_looking">Looking up...</string>
+    <string name="address_failed">Could not find it.</string>
+    <string name="address_copy">Copy</string>
+    <string name="address_copied">Copied</string>
     <string name="devices_pair">Pair a device</string>
     <string name="devices_allow_pairing">Allow pairing</string>
     <string name="devices_pairing_open">Pairing open, %1$s left</string>

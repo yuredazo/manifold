@@ -1,18 +1,28 @@
 package dev.mkzk.manifold.hub
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -25,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,7 +50,10 @@ import dev.mkzk.manifold.hub.net.StreamSnapshot
 import dev.mkzk.manifold.hub.net.details
 import dev.mkzk.manifold.hub.net.headline
 import dev.mkzk.manifold.hub.net.readableFingerprint
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<Device>, modifier: Modifier = Modifier) {
@@ -129,7 +143,7 @@ private fun ThisDevice(network: Network, state: NetworkState, onListening: (Bool
                     when {
                         !state.listening -> stringResource(R.string.devices_off)
                         state.addresses.isEmpty() -> stringResource(R.string.devices_no_address)
-                        else -> stringResource(R.string.devices_listening, state.addresses.joinToString(", "))
+                        else -> stringResource(R.string.devices_reachable)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -137,6 +151,57 @@ private fun ThisDevice(network: Network, state: NetworkState, onListening: (Bool
             }
             Switch(checked = state.listening, onCheckedChange = onListening)
         }
+        if (state.listening) {
+            state.addresses.forEach { CopyableAddress(stringResource(R.string.address_local), it) }
+            PublicAddress(state.port)
+        }
+    }
+}
+
+@Composable
+private fun CopyableAddress(label: String, address: String) {
+    val context = LocalContext.current
+    val copied = stringResource(R.string.address_copied)
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(56.dp))
+        Text(address, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
+        IconButton(onClick = {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText(label, address))
+            Toast.makeText(context, copied, Toast.LENGTH_SHORT).show()
+        }) { Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.address_copy), modifier = Modifier.size(18.dp)) }
+    }
+}
+
+/** Looked up only when asked, since it tells an outside service this phone's address. */
+@Composable
+private fun PublicAddress(port: Int) {
+    var address by remember { mutableStateOf<String?>(null) }
+    var looking by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val known = address
+    if (known != null) {
+        CopyableAddress(stringResource(R.string.address_public), "$known:$port")
+        return
+    }
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            stringResource(R.string.address_public),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(56.dp),
+        )
+        TextButton(enabled = !looking, onClick = {
+            looking = true
+            failed = false
+            scope.launch {
+                address = withContext(Dispatchers.IO) { fetchPublicAddress() }
+                failed = address == null
+                looking = false
+            }
+        }) { Text(stringResource(if (looking) R.string.address_looking else R.string.address_lookup)) }
+        if (failed) Text(stringResource(R.string.address_failed), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
     }
 }
 
