@@ -60,6 +60,19 @@ class _FakeGitHub {
 }
 
 void main() {
+  test('the launcher really runs a PowerShell script', () async {
+    final directory = Directory.systemTemp.createTempSync('manifold_launch');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final marker = File('${directory.path}${Platform.pathSeparator}ran.txt');
+
+    await Updater.launchPowerShell(['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', 'Set-Content -Path "${marker.path}" -Value ran']);
+
+    for (var waited = 0; waited < 100 && !marker.existsSync(); waited++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    expect(marker.existsSync(), isTrue);
+  });
+
   test('versions compare by number, not by text', () {
     expect(isNewer('v1.0.1', '1.0.0'), isTrue);
     expect(isNewer('1.10.0', '1.9.0'), isTrue);

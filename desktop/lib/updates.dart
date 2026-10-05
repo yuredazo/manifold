@@ -89,7 +89,7 @@ final class Updater extends ChangeNotifier {
     this.apiBase = 'https://api.github.com',
     this.assetPrefix = 'https://github.com/$_repo/releases/download/',
     this.exitApp = _exit,
-    this.launch = _launchDetached,
+    this.launch = launchPowerShell,
   });
 
   final String currentVersion;
@@ -114,7 +114,8 @@ final class Updater extends ChangeNotifier {
 
   static void _exit() => exit(0);
 
-  static Future<void> _launchDetached(List<String> arguments) => Process.start('powershell.exe', arguments, mode: ProcessStartMode.detached);
+  /// Not detached: PowerShell started that way never runs its script, and a normal child outlives this process anyway.
+  static Future<void> launchPowerShell(List<String> arguments) => Process.start('powershell.exe', arguments);
 
   void _set(UpdateState state) {
     _state = state;
