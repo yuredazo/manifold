@@ -1,7 +1,10 @@
 name: Release
 
-# Runs when a version tag such as v1.0.0 is pushed. The tag must match the
-# hub's versionName, and the signing key comes from repository secrets.
+# Runs when a version tag such as v1.0.0 is pushed. The tag must match the hub's
+# versionName and the Windows app's version, because both hubs compare their own
+# version with the tag to offer updates. The Android signing key comes from
+# repository secrets.
+# The Windows hub is built after the Android release exists and attached to it.
 on:
   push:
     tags: ['v*']
@@ -20,11 +23,12 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v6
 
-      - name: Check the tag against the hub version
+      - name: Check the tag against the app versions
         run: |
-          version=$(grep -oP 'versionName = "\K[^"]+' hub/build.gradle.kts)
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match the hub versionName $version"
+          hub=$(grep -oP 'versionName = "\K[^"]+' hub/build.gradle.kts)
+          windows=$(grep -oP '^version: \K[^+]+' desktop/pubspec.yaml)
+          if [ "v$hub" != "$GITHUB_REF_NAME" ] || [ "v$windows" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match the hub versionName ($hub) or the version in desktop/pubspec.yaml ($windows)"
             exit 1
           fi
 
@@ -59,3 +63,26 @@ jobs:
           apk="manifold-hub-$GITHUB_REF_NAME.apk"
           cp hub/build/outputs/apk/release/hub-release.apk "$apk"
           gh release create "$GITHUB_REF_NAME" "$apk" --title "Manifold Hub ${GITHUB_REF_NAME#v}" --notes ""
+
+  desktop:
+    needs: hub
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build windows --release
+      - name: Zip the build
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "manifold-hub-windows-$env:GITHUB_REF_NAME.zip"
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:GITHUB_REF_NAME" "manifold-hub-windows-$env:GITHUB_REF_NAME.zip"
