@@ -28,7 +28,7 @@ Defined in `sdk/src/main/aidl/dev/mkzk/manifold/`.
 | Call | Who | Meaning |
 | --- | --- | --- |
 | `registerSender(info, callback)` | sender | Announce a feed. Returns the name it got, or null if refused. |
-| `updateSender(info, callback)` | sender | Change size, fps or the audio flag. The name cannot change. |
+| `updateSender(info, callback)` | sender | Change size, fps, the audio flag or the sound-only flag. The name cannot change. |
 | `unregisterSender(callback)` | sender | Remove the feed. |
 | `registerReceiver(callback)` | receiver | Start getting the sender list. The current list is pushed at once. |
 | `unregisterReceiver(callback)` | receiver | Stop, and drop all of this receiver's subscriptions. |
@@ -41,7 +41,7 @@ Callbacks from the hub are `oneway`:
 - `IManifoldReceiver.onSenders(list)`, always the full list.
 - `IManifoldReceiver.onAccess(id, access)`, where `access` is 0 (pending), 1 (allowed) or 2 (blocked). It is sent when a subscription is made and whenever the owner changes the decision.
 
-`SenderInfo` carries `name`, `label`, `packageName`, `width`, `height`, `fps` and `hasAudio`.
+`SenderInfo` carries `name`, `label`, `packageName`, `width`, `height`, `fps`, `hasAudio` and `soundOnly`. A sound-only feed needs `hasAudio`; the hub ignores the flag otherwise. Its subscribers still pass a surface, and the sender is expected not to draw into it.
 
 ## Behavior you can rely on
 

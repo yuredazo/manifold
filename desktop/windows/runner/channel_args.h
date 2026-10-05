@@ -29,6 +29,12 @@ inline bool Bool(const flutter::EncodableMap& arguments, const char* key) {
   return flag && *flag;
 }
 
+inline bool BoolOr(const flutter::EncodableMap& arguments, const char* key, bool fallback) {
+  const auto* value = Find(arguments, key);
+  const auto* flag = value ? std::get_if<bool>(value) : nullptr;
+  return flag ? *flag : fallback;
+}
+
 inline std::string Text(const flutter::EncodableMap& arguments, const char* key) {
   const auto* value = Find(arguments, key);
   const auto* text = value ? std::get_if<std::string>(value) : nullptr;
@@ -47,6 +53,17 @@ inline bool IsMonitor(int64_t handle) { return (handle & kMonitorTag) != 0; }
 inline int64_t FromMonitor(HMONITOR monitor) { return static_cast<int64_t>(reinterpret_cast<intptr_t>(monitor)) | kMonitorTag; }
 
 inline HMONITOR ToMonitor(int64_t handle) { return reinterpret_cast<HMONITOR>(static_cast<intptr_t>(handle & ~kMonitorTag)); }
+
+// Cameras have no handle of their own, so one is made from the device id: the same camera gets the same handle every time.
+constexpr int64_t kCameraTag = int64_t{1} << 61;
+
+inline bool IsCamera(int64_t handle) { return (handle & kCameraTag) != 0 && !IsMonitor(handle); }
+
+inline int64_t FromCamera(const std::wstring& id) {
+  uint32_t hash = 2166136261u;  // FNV-1a
+  for (wchar_t unit : id) hash = (hash ^ static_cast<uint32_t>(unit)) * 16777619u;
+  return kCameraTag | hash;
+}
 
 }  // namespace channel
 

@@ -8,6 +8,7 @@ import 'net/control.dart';
 import 'net/devices.dart';
 import 'net/endpoint.dart';
 import 'net/wire.dart';
+import 'activity.dart';
 import 'sharing.dart';
 import 'watching.dart';
 
@@ -62,6 +63,7 @@ final class Network extends ChangeNotifier {
       sendVideo: (deviceKey, streamId, fragments) => _endpoint.sendVideo(deviceKey, streamId, fragments),
       sendAudio: (deviceKey, streamId, timestamp, frame) => _endpoint.sendAudio(deviceKey, streamId, timestamp, frame),
       feedsChanged: _offerToAll,
+      watchChanged: (deviceKey, feed, watching) => activity.record(device: book.find(deviceKey)?.name ?? 'A device', feed: feed, started: watching),
       saved: savedShares,
       saveShares: saveShares,
     );
@@ -73,6 +75,7 @@ final class Network extends ChangeNotifier {
   late final Endpoint _endpoint;
 
   late final Sharing sharing;
+  final Activity activity = Activity();
 
   final Stopwatch _clock = Stopwatch()..start();
   final Map<String, InternetAddress> _resolved = {};
@@ -202,6 +205,10 @@ final class Network extends ChangeNotifier {
     book.update(publicKey, (device) => device.copyWith(send: on));
   }
 
+  void setSendCamera(String publicKey, bool on) {
+    book.update(publicKey, (device) => device.copyWith(sendCamera: on));
+  }
+
   void unpair(String publicKey) {
     sharing.dropDevice(publicKey);
     _endpoint.unpair(publicKey);
@@ -249,7 +256,7 @@ final class Network extends ChangeNotifier {
     // A device that stopped being received from loses its stream at once.
     watching.stopWhere((session) => book.find(session.deviceKey)?.receive != true);
     for (final device in book.devices.value) {
-      if (!device.send) sharing.dropDevice(device.publicKey);
+      sharing.enforce(device);
     }
     _offerToAll();
     notifyListeners();
@@ -276,6 +283,7 @@ final class Network extends ChangeNotifier {
   void dispose() {
     book.devices.removeListener(_devicesChanged);
     sharing.dispose();
+    activity.dispose();
     watching.dispose();
     _timer?.cancel();
     _pollTimer?.cancel();
@@ -325,7 +333,7 @@ final class Network extends ChangeNotifier {
   void _offerFeeds(Device device) {
     final current = book.find(device.publicKey);
     if (current == null || !_endpoint.isLinked(current.publicKey)) return;
-    _endpoint.sendFeeds(current.publicKey, current.send ? sharing.feeds : const []);
+    _endpoint.sendFeeds(current.publicKey, sharing.feedsFor(current));
   }
 
   void _offerToAll() {
@@ -336,7 +344,8 @@ final class Network extends ChangeNotifier {
 
   Future<void> _subscribed(Device device, Subscribe request) async {
     void refuse(Refusal reason) => _endpoint.refuseSubscribe(device.publicKey, request.streamId, reason);
-    if (book.find(device.publicKey)?.send != true) return refuse(Refusal.notShared);
+    final current = book.find(device.publicKey);
+    if (current == null || !sharing.permits(current, request.feed)) return refuse(Refusal.notShared);
     final reason = await sharing.subscribe(device.publicKey, request);
     if (reason != null) refuse(reason);
   }

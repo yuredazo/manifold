@@ -34,6 +34,7 @@ void main() {
       'control_feedlist',
       ControlCodec.encode(4, const FeedList([FeedInfo('alpha', 720, 1080, 30, false), FeedInfo('camera', 1280, 720, 30, true)])),
     );
+    check('control_feedlist_sound', ControlCodec.encode(5, const FeedList([FeedInfo('PC sound', 0, 0, 0, true, soundOnly: true)])));
     check('control_keyframe', ControlCodec.encode(5, const KeyframeRequest(9)));
     check('control_refused', ControlCodec.encode(7, const SubscribeRefused(9, Refusal.notShared)));
     check('control_ack', ControlCodec.encodeAck(77));

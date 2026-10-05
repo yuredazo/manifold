@@ -21,6 +21,18 @@ class ControlTest {
     }
 
     @Test
+    fun theSoundOnlyFlagSurvivesEncodingAndANoSizeFeedWithSoundIsNotTakenForOne() {
+        val sound = FeedInfo("PC sound", 0, 0, 0, true, soundOnly = true)
+        val noPreference = FeedInfo("no size", 0, 0, 0, true)
+        val feeds = Control.FeedList(listOf(sound, noPreference, FeedInfo("picture", 1280, 720, 30, true)))
+
+        val decoded = roundTrip(feeds) as Control.FeedList
+
+        assertEquals(feeds, decoded)
+        assertEquals(listOf(true, false, false), decoded.feeds.map { it.soundOnly })
+    }
+
+    @Test
     fun theIdAndAckAreCarried() {
         assertEquals(Decoded.Ack(42), ControlCodec.decode(ControlCodec.encodeAck(42)))
         assertEquals(Decoded.Message(9, Control.Bye), ControlCodec.decode(ControlCodec.encode(9, Control.Bye)))

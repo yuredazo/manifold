@@ -27,6 +27,19 @@ class ConfigTest {
     }
 
     @Test
+    fun aSoundOnlyFeedNeedsSoundAndIsNotTheDefault() {
+        assertFalse(ManifoldSender.Config("avatar", hasAudio = true).soundOnly)
+
+        val config = ManifoldSender.Config("radio", hasAudio = true, soundOnly = true)
+
+        assertTrue(config.soundOnly)
+        assertNotEquals(config, config.copy(soundOnly = false))
+        assertTrue(config.copy(name = "other").soundOnly)
+        rejected { ManifoldSender.Config("radio", soundOnly = true) }
+        rejected { config.copy(hasAudio = false) }
+    }
+
+    @Test
     fun badNamesAreRejectedBeforeAnythingIsSent() {
         rejected { ManifoldSender.Config("") }
         rejected { ManifoldSender.Config("   ") }
@@ -63,7 +76,7 @@ class ConfigTest {
 
         assertEquals(a, b)
         assertEquals(a.hashCode(), b.hashCode())
-        assertEquals("Config(name=avatar, width=1, height=2, fps=3, hasAudio=true)", a.toString())
+        assertEquals("Config(name=avatar, width=1, height=2, fps=3, hasAudio=true, soundOnly=false)", a.toString())
     }
 
     @Test

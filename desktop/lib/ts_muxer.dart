@@ -14,11 +14,11 @@ final class TsMuxer {
 
   final _counters = <int, int>{};
 
-  /// Repeat them often, and before every keyframe.
-  Uint8List tables({bool withAudio = false}) {
+  /// Repeat them often, and before every keyframe. Without video the clock comes with the audio.
+  Uint8List tables({bool withAudio = false, bool withVideo = true}) {
     final out = BytesBuilder(copy: false)
       ..add(_tablePacket(0, _programAssociation()))
-      ..add(_tablePacket(pmtPid, _programMap(withAudio)));
+      ..add(_tablePacket(pmtPid, _programMap(withAudio: withAudio, withVideo: withVideo)));
     return out.toBytes();
   }
 
@@ -29,7 +29,9 @@ final class TsMuxer {
     return _packetize(videoPid, _pes(0xE0, unit, pts, boundedLength: false), pcr: (pts - _clockLead) & _timestampMask, randomAccess: keyframe);
   }
 
-  Uint8List audioFrame(Uint8List adts, int pts) => _packetize(audioPid, _pes(0xC0, adts, pts, boundedLength: true));
+  /// [withClock] is for a stream that has no video to carry the clock.
+  Uint8List audioFrame(Uint8List adts, int pts, {bool withClock = false}) =>
+      _packetize(audioPid, _pes(0xC0, adts, pts, boundedLength: true), pcr: withClock ? (pts - _clockLead) & _timestampMask : null);
 
   Uint8List _pes(int streamId, Uint8List payload, int pts, {required bool boundedLength}) {
     const headerData = 5;
@@ -115,14 +117,17 @@ final class TsMuxer {
         0xE0 | (pmtPid >> 8), pmtPid & 0xFF,
       ]);
 
-  Uint8List _programMap(bool withAudio) => _section(0x02, [
-        0x00, 0x01, // program 1
-        0xC1, 0x00, 0x00,
-        0xE0 | (videoPid >> 8), videoPid & 0xFF, // the clock comes with the video
-        0xF0, 0x00, // no program descriptors
-        0x1B, 0xE0 | (videoPid >> 8), videoPid & 0xFF, 0xF0, 0x00, // H.264
-        if (withAudio) ...[0x0F, 0xE0 | (audioPid >> 8), audioPid & 0xFF, 0xF0, 0x00], // AAC with ADTS
-      ]);
+  Uint8List _programMap({required bool withAudio, required bool withVideo}) {
+    final clockPid = withVideo ? videoPid : audioPid;
+    return _section(0x02, [
+      0x00, 0x01, // program 1
+      0xC1, 0x00, 0x00,
+      0xE0 | (clockPid >> 8), clockPid & 0xFF,
+      0xF0, 0x00, // no program descriptors
+      if (withVideo) ...[0x1B, 0xE0 | (videoPid >> 8), videoPid & 0xFF, 0xF0, 0x00], // H.264
+      if (withAudio) ...[0x0F, 0xE0 | (audioPid >> 8), audioPid & 0xFF, 0xF0, 0x00], // AAC with ADTS
+    ]);
+  }
 
   Uint8List _section(int tableId, List<int> body) {
     final length = body.length + 4;

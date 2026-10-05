@@ -1,5 +1,6 @@
 package dev.mkzk.manifold.hub
 
+import android.graphics.SurfaceTexture
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
 import android.view.Surface
@@ -12,19 +13,28 @@ import dev.mkzk.manifold.SenderInfo
 internal class BinderSender(private val callback: IManifoldSender) : SenderLink {
     override val key: Any = callback.asBinder()
 
+    // A subscriber to a sound-only feed has no picture to show, but the sender's callback always receives a surface.
+    private val placeholders = HashMap<String, SurfaceTexture>()
+
     override fun deliver(subscriptionId: String, surface: Surface?, width: Int, height: Int, audioSink: ParcelFileDescriptor?) {
+        val target = surface ?: placeholderFor(subscriptionId)
         try {
-            callback.onSubscribe(subscriptionId, surface, width, height, audioSink)
+            callback.onSubscribe(subscriptionId, target, width, height, audioSink)
         } catch (_: RemoteException) {
         }
     }
 
     override fun revoke(subscriptionId: String) {
+        synchronized(placeholders) { placeholders.remove(subscriptionId) }?.release()
         try {
             callback.onUnsubscribe(subscriptionId)
         } catch (_: RemoteException) {
         }
     }
+
+    private fun placeholderFor(subscriptionId: String): Surface = synchronized(placeholders) {
+        placeholders.getOrPut(subscriptionId) { SurfaceTexture(0).apply { setDefaultBufferSize(1, 1) } }
+    }.let(::Surface)
 }
 
 internal class BinderReceiver(private val callback: IManifoldReceiver) : ReceiverLink {

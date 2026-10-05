@@ -3,15 +3,21 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'settings.dart';
+import 'sharing.dart';
 
 const _showKey = 'show';
+const _pauseKey = 'pause';
 const _exitKey = 'exit';
 
 final class WindowControl with WindowListener, TrayListener {
-  WindowControl(this._settings);
+  /// A hub started [hidden] has no window to bring back but the tray icon, so it always has one.
+  WindowControl(this._settings, this._sharing, {this.hidden = false});
 
   final Settings _settings;
+  final Sharing _sharing;
+  final bool hidden;
   bool _trayShown = false;
+  bool? _menuPaused;
 
   Future<void> start() async {
     await windowManager.ensureInitialized();
@@ -21,6 +27,7 @@ final class WindowControl with WindowListener, TrayListener {
     windowManager.addListener(this);
     trayManager.addListener(this);
     _settings.addListener(_syncTray);
+    _sharing.addListener(_syncMenu);
     await _syncTray();
   }
 
@@ -46,7 +53,7 @@ final class WindowControl with WindowListener, TrayListener {
 
   @override
   void onWindowClose() {
-    if (_settings.closeToTray) {
+    if (_trayShown) {
       windowManager.setSkipTaskbar(true);
       windowManager.hide();
     } else {
@@ -65,20 +72,36 @@ final class WindowControl with WindowListener, TrayListener {
     switch (menuItem.key) {
       case _showKey:
         show();
+      case _pauseKey:
+        _sharing.paused = !_sharing.paused;
       case _exitKey:
         quit();
     }
   }
 
+  Future<void> _syncMenu() async {
+    if (!_trayShown || _menuPaused == _sharing.paused) return;
+    _menuPaused = _sharing.paused;
+    await trayManager.setContextMenu(_menu());
+  }
+
+  Menu _menu() => Menu(items: [
+        MenuItem(key: _showKey, label: 'Show Manifold'),
+        MenuItem(key: _pauseKey, label: _sharing.paused ? 'Resume sharing' : 'Stop all sharing'),
+        MenuItem.separator(),
+        MenuItem(key: _exitKey, label: 'Exit'),
+      ]);
+
   Future<void> _syncTray() async {
-    final wanted = _settings.closeToTray;
+    final wanted = _settings.closeToTray || hidden;
     if (wanted == _trayShown) return;
     _trayShown = wanted;
     try {
       if (wanted) {
         await trayManager.setIcon('assets/tray.ico');
         await trayManager.setToolTip('Manifold');
-        await trayManager.setContextMenu(Menu(items: [MenuItem(key: _showKey, label: 'Show Manifold'), MenuItem.separator(), MenuItem(key: _exitKey, label: 'Exit')]));
+        _menuPaused = _sharing.paused;
+        await trayManager.setContextMenu(_menu());
       } else {
         await trayManager.destroy();
       }
@@ -87,6 +110,7 @@ final class WindowControl with WindowListener, TrayListener {
       debugPrint('tray: $error');
       _trayShown = false;
       _settings.closeToTray = false;
+      if (hidden) await show();
     }
   }
 }

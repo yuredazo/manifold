@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -59,6 +60,7 @@ internal fun LiveScreen(
         EmptyLive(notificationsOn, openNotificationSettings, modifier)
         return
     }
+    val ownPackage = LocalContext.current.packageName
 
     val tiles = tilesOf(snapshot)
     // Saved, so turning the phone does not close the preview.
@@ -94,7 +96,9 @@ internal fun LiveScreen(
         if (tiles.isEmpty()) {
             item(span = StaggeredGridItemSpan.FullLine) { Hint(R.string.live_no_feeds) }
         }
-        items(tiles, key = { "feed-${it.name}" }) { tile -> FeedTile(tile, onPreview = { previewed = tile.name }) }
+        items(tiles, key = { "feed-${it.name}" }) { tile ->
+            FeedTile(tile, previewable = tile.feed != null && tile.feed.packageName != ownPackage, onPreview = { previewed = tile.name })
+        }
     }
 }
 
@@ -194,11 +198,12 @@ private fun PendingRequest(row: PendingRow) {
 }
 
 @Composable
-private fun FeedTile(tile: Tile, onPreview: () -> Unit) {
+private fun FeedTile(tile: Tile, previewable: Boolean, onPreview: () -> Unit) {
     val feed = tile.feed
+    // The hub's own screen would show itself.
     Card(
         onClick = onPreview,
-        enabled = feed != null,
+        enabled = previewable,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -210,9 +215,13 @@ private fun FeedTile(tile: Tile, onPreview: () -> Unit) {
             } else {
                 buildList {
                     add(feed.app)
-                    if (feed.width > 0 && feed.height > 0) add("${feed.width}x${feed.height}")
-                    if (feed.fps > 0) add("${feed.fps} fps")
-                    if (feed.hasAudio) add(stringResource(R.string.feed_audio))
+                    if (feed.soundOnly) {
+                        add(stringResource(R.string.feed_sound_only))
+                    } else {
+                        if (feed.width > 0 && feed.height > 0) add("${feed.width}x${feed.height}")
+                        if (feed.fps > 0) add("${feed.fps} fps")
+                        if (feed.hasAudio) add(stringResource(R.string.feed_audio))
+                    }
                 }.joinToString(" · ")
             }
             Text(
@@ -234,7 +243,7 @@ private fun FeedTile(tile: Tile, onPreview: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (feed != null) {
+            if (previewable) {
                 Text(
                     stringResource(R.string.feed_tap_preview),
                     style = MaterialTheme.typography.labelSmall,

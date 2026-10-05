@@ -76,6 +76,28 @@ BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM parameter) {
   return TRUE;
 }
 
+std::wstring Utf16FromUtf8(const std::string& text) {
+  if (text.empty()) return L"";
+  const int length = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+  std::wstring wide(length, L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), length);
+  return wide;
+}
+
+EncodableList ListCameras() {
+  EncodableList list;
+  for (const auto& camera : CameraCapturer::List()) {
+    list.push_back(EncodableValue(EncodableMap{
+        {EncodableValue("handle"), EncodableValue(channel::FromCamera(camera.id))},
+        {EncodableValue("title"), EncodableValue(Utf8FromUtf16(camera.name.c_str()))},
+        {EncodableValue("device"), EncodableValue(Utf8FromUtf16(camera.id.c_str()))},
+        {EncodableValue("width"), EncodableValue(camera.width)},
+        {EncodableValue("height"), EncodableValue(camera.height)},
+    }));
+  }
+  return list;
+}
+
 // Which of the windows Dart asks about still exist, since a window that nobody is capturing cannot say it
 // closed.
 EncodableList StillOpen(const EncodableMap& arguments) {
@@ -114,6 +136,10 @@ CaptureHost::CaptureHost(flutter::BinaryMessenger* messenger, HWND message_windo
       result->Success(EncodableValue(list));
       return;
     }
+    if (call.method_name() == "cameras") {
+      result->Success(EncodableValue(ListCameras()));
+      return;
+    }
     const auto* arguments = std::get_if<EncodableMap>(call.arguments());
     if (!arguments) {
       result->Error("bad-arguments", "expected a map");
@@ -128,11 +154,11 @@ CaptureHost::CaptureHost(flutter::BinaryMessenger* messenger, HWND message_windo
       result->Success();
     } else if (call.method_name() == "bitrate") {
       auto found = sessions_.find(channel::Int(*arguments, "handle"));
-      if (found != sessions_.end()) found->second->video.SetBitrate(static_cast<int>(channel::Int(*arguments, "bitrateKbps")));
+      if (found != sessions_.end()) found->second->SetBitrate(static_cast<int>(channel::Int(*arguments, "bitrateKbps")));
       result->Success();
     } else if (call.method_name() == "keyframe") {
       auto found = sessions_.find(channel::Int(*arguments, "handle"));
-      if (found != sessions_.end()) found->second->video.RequestKeyframe();
+      if (found != sessions_.end()) found->second->RequestKeyframe();
       result->Success();
     } else {
       result->NotImplemented();
@@ -169,8 +195,54 @@ void CaptureHost::Send(const char* method, int64_t handle, EncodableMap fields) 
   channel_->InvokeMethod(method, std::make_unique<EncodableValue>(std::move(fields)));
 }
 
+H264Encoder::Sink CaptureHost::VideoSink(int64_t handle) {
+  return [this, handle](EncodedVideo frame) {
+    Post([this, handle, frame = std::move(frame)]() mutable {
+      Send("video", handle,
+           EncodableMap{{EncodableValue("timestamp"), EncodableValue(frame.timestamp)},
+                        {EncodableValue("keyframe"), EncodableValue(frame.keyframe)},
+                        {EncodableValue("data"), EncodableValue(std::move(frame.data))}});
+    });
+  };
+}
+
+std::function<void()> CaptureHost::ClosedCallback(int64_t handle) {
+  return [this, handle] {
+    Post([this, handle] {
+      if (sessions_.find(handle) == sessions_.end()) return;
+      Send("closed", handle, {});
+      Stop(handle);
+    });
+  };
+}
+
+void CaptureHost::StartCamera(const EncodableMap& arguments, std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
+  const int64_t handle = channel::Int(arguments, "handle");
+  Stop(handle);
+  auto session = std::make_unique<Session>();
+  session->is_camera = true;
+  const bool started = session->camera.Start(
+      Utf16FromUtf8(channel::Text(arguments, "device")), static_cast<int>(channel::Int(arguments, "width")),
+      static_cast<int>(channel::Int(arguments, "height")), static_cast<int>(channel::Int(arguments, "bitrateKbps")), NowIn100ns(),
+      VideoSink(handle), ClosedCallback(handle));
+  if (!started) {
+    result->Error("capture-failed", "Windows could not open that camera");
+    return;
+  }
+  const int width = session->camera.width();
+  const int height = session->camera.height();
+  sessions_[handle] = std::move(session);
+  result->Success(EncodableValue(EncodableMap{{EncodableValue("width"), EncodableValue(width)},
+                                              {EncodableValue("height"), EncodableValue(height)},
+                                              {EncodableValue("audio"), EncodableValue(false)}}));
+}
+
 void CaptureHost::Start(const EncodableMap& arguments, std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
   const int64_t handle = channel::Int(arguments, "handle");
+  if (channel::IsCamera(handle)) {
+    StartCamera(arguments, std::move(result));
+    return;
+  }
   const bool display = channel::IsMonitor(handle);
   HWND window = display ? nullptr : channel::ToWindow(handle);
   HMONITOR monitor = display ? channel::ToMonitor(handle) : nullptr;
@@ -194,28 +266,20 @@ void CaptureHost::Start(const EncodableMap& arguments, std::unique_ptr<flutter::
       return;
     }
   }
+  const bool picture = channel::BoolOr(arguments, "picture", true);
+  if (!picture && !channel::Bool(arguments, "audio")) {
+    result->Error("no-sound", "a share without a picture needs sound");
+    return;
+  }
   Stop(handle);
 
   auto session = std::make_unique<Session>();
   const int64_t epoch = NowIn100ns();
-  const bool started = session->video.Start(
-      window, monitor, static_cast<int>(channel::Int(arguments, "width")), static_cast<int>(channel::Int(arguments, "height")),
-      static_cast<int>(channel::Int(arguments, "bitrateKbps")), epoch,
-      [this, handle](EncodedVideo frame) {
-        Post([this, handle, frame = std::move(frame)]() mutable {
-          Send("video", handle,
-               EncodableMap{{EncodableValue("timestamp"), EncodableValue(frame.timestamp)},
-                            {EncodableValue("keyframe"), EncodableValue(frame.keyframe)},
-                            {EncodableValue("data"), EncodableValue(std::move(frame.data))}});
-        });
-      },
-      [this, handle] {
-        Post([this, handle] {
-          if (sessions_.find(handle) == sessions_.end()) return;
-          Send("closed", handle, {});
-          Stop(handle);
-        });
-      });
+  // A window that closes while only its sound is shared is noticed by Dart asking, since nothing is being captured.
+  const bool started = !picture || session->video.Start(window, monitor, static_cast<int>(channel::Int(arguments, "width")),
+                                                        static_cast<int>(channel::Int(arguments, "height")),
+                                                        static_cast<int>(channel::Int(arguments, "bitrateKbps")), epoch,
+                                                        channel::BoolOr(arguments, "cursor", true), VideoSink(handle), ClosedCallback(handle));
   if (!started) {
     result->Error("capture-failed", display ? "Windows could not capture that display" : "Windows could not capture that window");
     return;
@@ -235,8 +299,8 @@ void CaptureHost::Start(const EncodableMap& arguments, std::unique_ptr<flutter::
       });
     });
   }
-  const int width = session->video.width();
-  const int height = session->video.height();
+  const int width = picture ? session->video.width() : static_cast<int>(channel::Int(arguments, "width"));
+  const int height = picture ? session->video.height() : static_cast<int>(channel::Int(arguments, "height"));
   const bool with_audio = session->audio_requested;
   sessions_[handle] = std::move(session);
   result->Success(EncodableValue(EncodableMap{{EncodableValue("width"), EncodableValue(width)},
@@ -253,4 +317,5 @@ void CaptureHost::Stop(int64_t handle) {
   if (session->audio_start.valid()) session->audio_start.wait();
   session->audio.Stop();
   session->video.Stop();
+  session->camera.Stop();
 }

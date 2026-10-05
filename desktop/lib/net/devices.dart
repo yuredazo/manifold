@@ -33,7 +33,7 @@ final class Identity {
 
 @immutable
 final class Device {
-  const Device({required this.publicKey, required this.name, this.address, this.receive = false, this.send = false});
+  const Device({required this.publicKey, required this.name, this.address, this.receive = false, this.send = false, this.sendCamera = false});
 
   final String publicKey;
   final String name;
@@ -41,13 +41,22 @@ final class Device {
   final bool receive;
   final bool send;
 
+  /// Cameras are allowed separately from windows and displays.
+  final bool sendCamera;
+
   String get fingerprint {
     final bytes = fromHex(publicKey);
     return bytes == null ? '' : fingerprintOf(bytes);
   }
 
-  Device copyWith({String? name, String? address, bool? receive, bool? send}) =>
-      Device(publicKey: publicKey, name: name ?? this.name, address: address ?? this.address, receive: receive ?? this.receive, send: send ?? this.send);
+  Device copyWith({String? name, String? address, bool? receive, bool? send, bool? sendCamera}) => Device(
+        publicKey: publicKey,
+        name: name ?? this.name,
+        address: address ?? this.address,
+        receive: receive ?? this.receive,
+        send: send ?? this.send,
+        sendCamera: sendCamera ?? this.sendCamera,
+      );
 }
 
 final class DeviceBook {
@@ -86,15 +95,23 @@ final class DeviceBook {
 
   void _changed() {
     devices.value = List.unmodifiable(_entries.values);
-    _save(_entries.values.map((d) => [d.publicKey, d.name, d.address ?? '', d.receive, d.send].join('\t')).join('\n'));
+    _save(_entries.values.map((d) => [d.publicKey, d.name, d.address ?? '', d.receive, d.send, d.sendCamera].join('\t')).join('\n'));
   }
 
+  // Books saved before cameras could be shared have five fields, and the camera stays off for them.
   void _parse(String line) {
     final parts = line.split('\t');
-    if (parts.length != 5) return;
+    if (parts.length != 5 && parts.length != 6) return;
     final key = parts[0];
     if (key.length != 2 * Crypto.keyLength || fromHex(key) == null) return;
-    _entries[key] = Device(publicKey: key, name: parts[1], address: parts[2].isEmpty ? null : parts[2], receive: parts[3] == 'true', send: parts[4] == 'true');
+    _entries[key] = Device(
+      publicKey: key,
+      name: parts[1],
+      address: parts[2].isEmpty ? null : parts[2],
+      receive: parts[3] == 'true',
+      send: parts[4] == 'true',
+      sendCamera: parts.length == 6 && parts[5] == 'true',
+    );
   }
 
   String _clean(String name) {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'autostart.dart';
 import 'network.dart';
 import 'settings.dart';
 import 'storage.dart';
@@ -14,7 +15,7 @@ import 'window_control.dart';
 const _listeningKey = 'listening';
 const _sharesFile = 'shares.json';
 
-Future<void> main() async {
+Future<void> main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
 
@@ -30,8 +31,11 @@ Future<void> main() async {
   if (storage.read(_listeningKey) == 'on') network.start();
 
   final settings = Settings(storage);
-  final window = WindowControl(settings);
+  network.sharing.offerCameras = settings.offerCameras;
+  settings.addListener(() => network.sharing.offerCameras = settings.offerCameras);
+  final window = WindowControl(settings, network.sharing, hidden: arguments.contains(hiddenFlag));
   await window.start();
+  final autostart = Autostart(executable: Platform.resolvedExecutable)..refresh();
 
   final updater = Updater(
     currentVersion: (await PackageInfo.fromPlatform()).version,
@@ -41,5 +45,5 @@ Future<void> main() async {
   )..cleanUp();
   if (settings.checkOnLaunch) updater.checkOnLaunch();
 
-  runApp(HubApp(network, settings, updater));
+  runApp(HubApp(network, settings, updater, autostart));
 }

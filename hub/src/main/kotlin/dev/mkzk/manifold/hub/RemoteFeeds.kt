@@ -56,7 +56,7 @@ internal class RemoteFeeds(
         val streamId: Int,
         val feed: String,
         val subscriptionId: String,
-        val decoder: H264Decoder,
+        val decoder: H264Decoder?,
         val audio: AacDecoder?,
     ) {
         val buffer = FrameBuffer()
@@ -75,11 +75,17 @@ internal class RemoteFeeds(
 
     private class DueFrame(val frame: Frame, val showAt: Long)
 
-    private inner class RemoteSender(val deviceKey: String, val deviceName: String, val feed: String, val fps: Int) : SenderLink {
+    private inner class RemoteSender(
+        val deviceKey: String,
+        val deviceName: String,
+        val feed: String,
+        val fps: Int,
+        val soundOnly: Boolean,
+    ) : SenderLink {
         override val key = Any()
 
         override fun deliver(subscriptionId: String, surface: Surface?, width: Int, height: Int, audioSink: ParcelFileDescriptor?) {
-            if (surface == null) return
+            if (surface == null && !soundOnly) return
             post { start(this, subscriptionId, surface, width, height, audioSink) }
         }
 
@@ -99,13 +105,14 @@ internal class RemoteFeeds(
         known.keys.filter { it !in offered }.forEach { removeSender(device.publicKey, it) }
         for (feed in feeds) {
             if (feed.name in known) continue
-            val sender = RemoteSender(device.publicKey, device.name, feed.name, feed.fps)
+            val sender = RemoteSender(device.publicKey, device.name, feed.name, feed.fps, feed.soundOnly)
             val announced = SenderInfo().also {
                 it.name = "${feed.name} (${device.name})".take(Manifold.MAX_NAME_LENGTH)
                 it.width = feed.width
                 it.height = feed.height
                 it.fps = feed.fps
                 it.hasAudio = feed.hasAudio
+                it.soundOnly = feed.soundOnly
             }
             val owner = Owner(ownUid, REMOTE_PREFIX + device.fingerprint, device.name)
             if (Registry.instance.addSender(sender, announced, owner) != null) known[feed.name] = sender
@@ -150,7 +157,7 @@ internal class RemoteFeeds(
     private fun release(stream: Received, now: Long) {
         while (stream.videoDue.firstOrNull()?.let { it.showAt - DECODE_LEAD_NS <= now } == true) {
             val due = stream.videoDue.removeFirst()
-            stream.decoder.push(due.frame, due.showAt)
+            stream.decoder?.push(due.frame, due.showAt)
         }
     }
 
@@ -184,7 +191,7 @@ internal class RemoteFeeds(
     fun tick(now: Long) {
         var updated = false
         for (stream in streams.values) {
-            if (stream.buffer.needsKeyframe && now - stream.lastKeyframeRequest >= KEYFRAME_REQUEST_EVERY_MS) {
+            if (stream.decoder != null && stream.buffer.needsKeyframe && now - stream.lastKeyframeRequest >= KEYFRAME_REQUEST_EVERY_MS) {
                 stream.lastKeyframeRequest = now
                 stream.stats.keyframeRequested()
                 endpoint.requestKeyframe(stream.deviceKey, stream.streamId)
@@ -212,13 +219,15 @@ internal class RemoteFeeds(
     private fun start(
         sender: RemoteSender,
         subscriptionId: String,
-        surface: Surface,
+        surface: Surface?,
         width: Int,
         height: Int,
         audioSink: ParcelFileDescriptor?,
     ) {
+        // Sound alone has nothing to play without a pipe to play it into.
+        if (sender.soundOnly && audioSink == null) return
         val streamId = nextStreamId(sender.deviceKey)
-        val decoder = try {
+        val decoder = if (sender.soundOnly || surface == null) null else try {
             H264Decoder(
                 surface,
                 width,
@@ -255,6 +264,7 @@ internal class RemoteFeeds(
                 null
             }
         }
+        if (sender.soundOnly && audio == null) return
         streams[sender.deviceKey to streamId] = Received(sender.deviceKey, sender.deviceName, streamId, sender.feed, subscriptionId, decoder, audio)
         val fps = sender.fps.takeIf { it > 0 }?.coerceAtMost(Control.Subscribe.MAX_FPS) ?: DEFAULT_FPS
         val kbps = (width.toLong() * height * fps * 7 / 100 / 1000).toInt().coerceIn(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS)
@@ -265,7 +275,7 @@ internal class RemoteFeeds(
         val entry = streams.entries.firstOrNull { it.value.subscriptionId == subscriptionId } ?: return
         streams.remove(entry.key)
         endpoint.unsubscribe(entry.value.deviceKey, entry.value.streamId)
-        entry.value.decoder.stop()
+        entry.value.decoder?.stop()
         entry.value.audio?.stop()
         publishStats()
     }

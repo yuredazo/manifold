@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../autostart.dart';
 import '../settings.dart';
 import '../updates.dart';
 import 'page_frame.dart';
@@ -9,10 +10,11 @@ import 'page_frame.dart';
 const _rowPadding = EdgeInsets.symmetric(horizontal: 16, vertical: 10);
 
 class AboutPage extends StatelessWidget {
-  const AboutPage({required this.settings, required this.updater, super.key});
+  const AboutPage({required this.settings, required this.updater, required this.autostart, super.key});
 
   final Settings settings;
   final Updater updater;
+  final Autostart autostart;
 
   @override
   Widget build(BuildContext context) {
@@ -45,16 +47,42 @@ class AboutPage extends StatelessWidget {
         const SectionTitle('Updates'),
         _UpdatePanel(settings: settings, updater: updater),
         const SizedBox(height: 20),
-        const SectionTitle('Window'),
+        const SectionTitle('Sharing'),
         Panel(
           padding: EdgeInsets.zero,
           child: ListenableBuilder(
             listenable: settings,
             builder: (context, _) => _ToggleRow(
-              label: 'Keep running in the tray when the window is closed',
-              value: settings.closeToTray,
-              onChanged: (on) => settings.closeToTray = on,
+              label: 'Offer cameras in the Share list',
+              value: settings.offerCameras,
+              onChanged: (on) => settings.offerCameras = on,
             ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        const SectionTitle('Window'),
+        Panel(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              ListenableBuilder(
+                listenable: settings,
+                builder: (context, _) => _ToggleRow(
+                  label: 'Keep running in the tray when the window is closed',
+                  value: settings.closeToTray,
+                  onChanged: (on) => settings.closeToTray = on,
+                ),
+              ),
+              const Divider(height: 1),
+              ListenableBuilder(
+                listenable: autostart,
+                builder: (context, _) => _ToggleRow(
+                  label: 'Start with Windows, hidden in the tray',
+                  value: autostart.enabled,
+                  onChanged: autostart.set,
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 24),

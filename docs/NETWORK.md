@@ -97,6 +97,14 @@ To receive, the hub registers a remote feed as a sender named like `camera (Pixe
 
 Tapping a feed on the Live screen previews it full screen. The hub subscribes as a receiver of its own, so local and remote feeds preview the same way and no permission is asked. A feed with sound plays through an audio pipe with a mute button, and the hub does not take audio focus. If the sender goes away the preview keeps waiting, since a subscription outlives its sender.
 
+## Sharing the phone's screen
+
+The share-screen icon in the top bar offers the whole screen as a feed named `Screen`, with or without sound, and turns into a stop icon with the number of watchers while it runs. The feed is announced at the screen's size with the long edge capped at 1920 and at 30 frames a second. The hub registers it as a sender of its own, so paired devices and local apps subscribe to it like any other feed, with the same permissions. Android's consent dialog is asked for each time. Where the system offers it, the dialog lets the owner pick a single app instead of the whole screen, and the feed then follows the size of that app's window as Android reports it; the TECNO CK7n used for testing offers only the whole screen, so the single-app path is untested. The capture runs in a foreground service of type `mediaProjection`, and the notification has a Stop button.
+
+Android 14 allows one virtual display per capture, so a single `ScreenFrames` object draws the screen into each watcher's encoder surface with OpenGL and fits it with black bars to the size that watcher asked for. The virtual display is detached from its surface while nobody watches, and a watcher who joins a still screen gets the last picture at once. The feed's size follows a rotation of the phone.
+
+Sound is whatever the phone plays through media, game and unspecified audio usage, taken with playback capture (Android 10 and later) and written to every watcher that asked for sound. It needs the microphone permission, which the hub only asks for when sharing with sound; if it is refused the screen is shared without sound. An app that opts out of capture is not heard. On a TECNO CK7n (Android 14) the picture reached the Windows hub in portrait and, after rotating the phone, in landscape inside the portrait stream, and sound from a music player reached the encoder's pipe. Sound and picture timing of this feed has not been measured.
+
 ## Windows hub
 
 The Flutter app in `desktop/` speaks the same packets. Its protocol code is a Dart port of the Kotlin `net` package, and `desktop/test/fixtures/compat.txt` holds bytes the Kotlin code produced, which both test suites compare against.
@@ -109,6 +117,10 @@ A display is captured the same way as a window, and its sound is everything the 
 
 The stream is exactly the size the first watcher asked for, with the window scaled to fit and black bars for the rest. A second device watching the same window gets that stream, at that size and bitrate. A window that does not change is encoded again four times a second so the stream stays alive, and a keyframe goes out every 2 seconds. A window is captured only while a device watches it, and only if the owner switched on "Let it watch my windows" for that device. At most 4 streams per device and 8 in all are served. Capture is fixed at 30 frames a second.
 
+A window or a display can also be shared for its sound alone. The feed is announced with width 0, height 0, sound set and the sound-only flag, which is bit 1 of the audio byte in the feed list (bit 0 is "has audio"), so a hub that predates it still reads "has audio" and nothing more; a feed of size 0 with sound but without the flag is an ordinary feed with no size preference. The runner then captures only the sound (a window's application, or everything the PC plays except Manifold for a display) and sends no video. A display shared this way is named `PC sound`, a window `<title> (sound)`. An Android hub lists such a feed as "sound only" and plays it through the preview, and the Windows hub plays it without a window through libmpv, from a transport stream with only the audio, which carries the clock and repeats its tables about once a second since there are no keyframes to carry them. Neither asks for keyframes for it. An app using the SDK can announce one with `Config(soundOnly = true)`; the hub then publishes it to paired devices without an encoder, and gives the sender a placeholder surface when the subscriber is another device, since a sender's callback always receives one.
+
+A webcam is shared the same way, without sound. It is read through Media Foundation in the mode the camera offers closest to the size the watcher asked for, converted to NV12 and fitted with black bars. A camera is found again after a restart by its device id, or by its name when it moved to another USB port, and is only opened while a device watches it. Reading is asynchronous: stopping flushes the pending read before the camera is shut down, because shutting it down under a blocking read hung the app.
+
 On the PC, a missing fragment is requested again when it watches a phone. When a phone watches a window of the PC, the PC answers requests to send again and follows the phone's reports with the encoder bitrate. It does not smooth playout, since the player does its own.
 
 ## Devices
@@ -117,6 +129,7 @@ Each paired device has a row with its status and address, and these controls:
 
 - Receive their feeds: their feeds appear here as local senders (on Windows, "Watch its feeds").
 - Share my feeds: they may watch this hub's feeds (on Windows, "Let it watch my windows"). Off by default, and it applies to every feed.
+- Let it watch my camera (Windows only): they may watch the cameras this PC shares. Off by default, and separate from the switch above, so a device allowed to see windows does not see a camera, and its feed list does not show one.
 - Unpair: forget the key; the device has to pair again. Both hubs ask for confirmation first.
 
 A switch turns incoming connections on or off. On Windows and on Android the choice is remembered. Android brings the listener back when the app is opened and when it restarts the service after killing the app; it does not start it after a reboot until the app is opened. While it is on the hub listens on one UDP port and shows a persistent notification, which Android requires for a foreground service.
@@ -128,6 +141,7 @@ A switch turns incoming connections on or off. On Windows and on Android the cho
 - Anything that floods the port is not rate limited, and the port cannot be changed.
 - The mouse cursor is part of the captured picture.
 - The hardware codec code and the native Windows capture and audio code are tested by running them, not in unit tests.
+- Playing a sound-only feed on Windows, and handing a placeholder surface to an SDK sender that is watched by another device, are covered by unit tests of the pieces but have not been run against a live stream.
 
 ## Limits
 

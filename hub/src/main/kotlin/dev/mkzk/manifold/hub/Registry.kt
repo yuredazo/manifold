@@ -40,6 +40,7 @@ internal data class SenderRow(
     val fps: Int,
     val hasAudio: Boolean,
     val watchers: Int,
+    val soundOnly: Boolean = false,
 )
 
 internal data class SubscriptionRow(
@@ -298,6 +299,7 @@ internal class Registry(
         it.height = raw.height.coerceIn(0, limits.maxDimension)
         it.fps = raw.fps.coerceIn(0, limits.maxFps)
         it.hasAudio = raw.hasAudio
+        it.soundOnly = raw.soundOnly && raw.hasAudio
     }
 
     /** A blocked app is not told what is running either. */
@@ -322,6 +324,7 @@ internal class Registry(
                     fps = s.announced.fps,
                     hasAudio = s.announced.hasAudio,
                     watchers = subscriptions.values.count { it.senderName == s.announced.name && it.delivered },
+                    soundOnly = s.announced.soundOnly,
                 )
             },
             subscriptions = subscriptions.values.map {

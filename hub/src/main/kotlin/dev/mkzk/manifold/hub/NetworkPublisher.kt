@@ -33,7 +33,7 @@ internal class NetworkPublisher(
 ) {
     private class Served(
         val link: ReceiverLink,
-        val encoder: H264Encoder,
+        val encoder: H264Encoder?,
         val audio: AacEncoder?,
         val stats: SendStats,
         val rate: RateControl,
@@ -61,7 +61,8 @@ internal class NetworkPublisher(
         val height = request.height.coerceIn(1, MAX_SIZE)
         val stats = SendStats(System.nanoTime())
         val rate = RateControl(MIN_BITRATE_KBPS, request.bitrateKbps.coerceIn(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS))
-        val encoder = try {
+        // A feed with no picture has nothing to encode, only its sound to pass on.
+        val encoder = if (feed.soundOnly) null else try {
             H264Encoder(width, height, rate.kbps, request.fps) { frame ->
                 val producedAt = System.nanoTime()
                 post {
@@ -91,10 +92,10 @@ internal class NetworkPublisher(
         val registry = Registry.instance
         val owner = Owner(ownUid, REMOTE_PREFIX + current.fingerprint, "${current.name} (network)")
         val subscribed = registry.addReceiver(link, owner) &&
-            registry.subscribe(link.key, ownUid, feed.name, encoder.surface, width, height, audioSink) != null
+            registry.subscribe(link.key, ownUid, feed.name, encoder?.surface, width, height, audioSink) != null
         if (!subscribed) {
             registry.removeReceiver(link.key, ownUid)
-            encoder.stop()
+            encoder?.stop()
             audio?.stop()
             audioSink?.close()
             return refuse(Control.Refusal.FAILED)
@@ -142,7 +143,7 @@ internal class NetworkPublisher(
         stream.lastReport = report
         val kbps = stream.rate.onReport(report, System.nanoTime()) ?: return
         Log.i(STATS_TAG, "stream ${report.streamId}: ${report.lostFrames} lost, ${report.resendRequests} resends asked of ${report.fragments}, bitrate now $kbps kbps")
-        stream.encoder.setBitrate(kbps)
+        stream.encoder?.setBitrate(kbps)
     }
 
     fun onKeyframeRequest(device: Device, streamId: Int) {
@@ -165,7 +166,7 @@ internal class NetworkPublisher(
         val stream = streams.remove(key) ?: return
         // The feed is told to stop drawing before the encoder goes away.
         Registry.instance.removeReceiver(stream.link.key, ownUid)
-        stream.encoder.stop()
+        stream.encoder?.stop()
         stream.audio?.stop()
     }
 }

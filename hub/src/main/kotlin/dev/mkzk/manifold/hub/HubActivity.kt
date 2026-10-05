@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -51,6 +52,19 @@ class HubActivity : ComponentActivity() {
     private val askForNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshNotificationState() }
 
+    private var shareWithSound = false
+
+    // Sound is optional: a refusal still shares the picture.
+    private val askForSound = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        shareWithSound = granted
+        askForCapture()
+    }
+
+    private val capture = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val consent = result.data
+        if (result.resultCode == RESULT_OK && consent != null) ScreenShareService.start(this, consent, shareWithSound)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -62,8 +76,19 @@ class HubActivity : ComponentActivity() {
         NetworkService.restore(this)
 
         setContent {
-            HubTheme { HubShell(notificationsOn, ::openNotificationSettings) }
+            HubTheme { HubShell(notificationsOn, ::openNotificationSettings, ::startScreenShare) }
         }
+    }
+
+    private fun startScreenShare(withSound: Boolean) {
+        shareWithSound = withSound
+        val needsPermission = withSound && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+        if (needsPermission) askForSound.launch(Manifest.permission.RECORD_AUDIO) else askForCapture()
+    }
+
+    private fun askForCapture() {
+        capture.launch(getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent())
     }
 
     override fun onResume() {
@@ -104,7 +129,7 @@ private enum class Tab(val title: Int, val icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HubShell(notificationsOn: Boolean, openNotificationSettings: () -> Unit) {
+private fun HubShell(notificationsOn: Boolean, openNotificationSettings: () -> Unit, startScreenShare: (Boolean) -> Unit) {
     val snapshot by Registry.instance.state.collectAsStateWithLifecycle()
     val network = Network.instance
     val networkState by network.state.collectAsStateWithLifecycle()
@@ -112,7 +137,13 @@ private fun HubShell(notificationsOn: Boolean, openNotificationSettings: () -> U
     var selected by rememberSaveable { mutableIntStateOf(0) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
+        topBar = {
+            val ownPackage = LocalContext.current.packageName
+            TopAppBar(
+                title = { Text(stringResource(R.string.app_name)) },
+                actions = { ScreenShareAction(snapshot.senders.firstOrNull { it.packageName == ownPackage }?.watchers ?: 0, startScreenShare) },
+            )
+        },
         bottomBar = {
             NavigationBar {
                 Tab.entries.forEachIndexed { index, tab ->

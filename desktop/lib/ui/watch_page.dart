@@ -136,11 +136,13 @@ class _FeedTile extends StatelessWidget {
     final colors = theme.colorScheme;
     final session = network.watching.of(device, feed);
     final watching = session != null;
-    final details = [
-      if (feed.width > 0 && feed.height > 0) '${feed.width}x${feed.height}',
-      if (feed.fps > 0) '${feed.fps} fps',
-      if (feed.hasAudio) 'with sound',
-    ].join(' · ');
+    final details = feed.soundOnly
+        ? 'sound only'
+        : [
+            if (feed.width > 0 && feed.height > 0) '${feed.width}x${feed.height}',
+            if (feed.fps > 0) '${feed.fps} fps',
+            if (feed.hasAudio) 'with sound',
+          ].join(' · ');
     return SizedBox(
       width: 240,
       child: Material(
@@ -160,7 +162,7 @@ class _FeedTile extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(child: Text(feed.name, style: theme.textTheme.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    Icon(watching ? Icons.close : Icons.open_in_new, size: 18, color: colors.onSurfaceVariant),
+                    Icon(watching ? Icons.close : (feed.soundOnly ? Icons.volume_up_outlined : Icons.open_in_new), size: 18, color: colors.onSurfaceVariant),
                   ],
                 ),
                 if (details.isNotEmpty) ...[
@@ -169,12 +171,17 @@ class _FeedTile extends StatelessWidget {
                 ],
                 const SizedBox(height: 10),
                 if (session == null)
-                  Text('Open in a window', style: theme.textTheme.labelMedium?.copyWith(color: colors.primary))
+                  Text(feed.soundOnly ? 'Listen' : 'Open in a window', style: theme.textTheme.labelMedium?.copyWith(color: colors.primary))
                 else
                   ValueListenableBuilder<ViewerStats>(
                     valueListenable: session.stats,
                     builder: (context, stats, _) => Text(
-                      stats.frames == 0 ? 'Waiting for the first picture' : 'Playing in its window, click to close',
+                      switch ((feed.soundOnly, stats.frames == 0)) {
+                        (true, true) => 'Waiting for the sound',
+                        (true, false) => 'Playing, click to stop',
+                        (false, true) => 'Waiting for the first picture',
+                        (false, false) => 'Playing in its window, click to close',
+                      },
                       style: theme.textTheme.labelMedium?.copyWith(color: colors.primary),
                     ),
                   ),

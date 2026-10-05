@@ -14,24 +14,32 @@ bool isValidName(String name) {
   return !trimmed.codeUnits.any((unit) => unit <= 0x1F || (unit >= 0x7F && unit <= 0x9F));
 }
 
+/// A [soundOnly] feed has no picture, and its size is 0. It travels in bit 1 of the audio byte, so an older hub still reads "has audio".
 final class FeedInfo {
-  const FeedInfo(this.name, this.width, this.height, this.fps, this.hasAudio);
+  const FeedInfo(this.name, this.width, this.height, this.fps, this.hasAudio, {this.soundOnly = false});
 
   final String name;
   final int width;
   final int height;
   final int fps;
   final bool hasAudio;
+  final bool soundOnly;
 
   @override
   bool operator ==(Object other) =>
-      other is FeedInfo && other.name == name && other.width == width && other.height == height && other.fps == fps && other.hasAudio == hasAudio;
+      other is FeedInfo &&
+      other.name == name &&
+      other.width == width &&
+      other.height == height &&
+      other.fps == fps &&
+      other.hasAudio == hasAudio &&
+      other.soundOnly == soundOnly;
 
   @override
-  int get hashCode => Object.hash(name, width, height, fps, hasAudio);
+  int get hashCode => Object.hash(name, width, height, fps, hasAudio, soundOnly);
 
   @override
-  String toString() => 'FeedInfo($name, ${width}x$height, $fps fps, audio=$hasAudio)';
+  String toString() => 'FeedInfo($name, ${width}x$height, $fps fps, audio=$hasAudio${soundOnly ? ', sound only' : ''})';
 }
 
 sealed class Control {
@@ -266,6 +274,8 @@ abstract final class ControlCodec {
   static const _nack = 12;
   static const _streamReport = 13;
   static const _subscribeRefused = 14;
+  static const _audioBit = 1;
+  static const _soundOnlyBit = 2;
 
   /// Pings and measurements are never acknowledged or resent: a late measurement is worth nothing.
   static bool needsAck(Control control) =>
@@ -451,7 +461,7 @@ abstract final class ControlCodec {
       view.setUint16(1 + name.length, feed.width, Endian.big);
       view.setUint16(3 + name.length, feed.height, Endian.big);
       entry[5 + name.length] = feed.fps;
-      entry[6 + name.length] = feed.hasAudio ? 1 : 0;
+      entry[6 + name.length] = (feed.hasAudio ? _audioBit : 0) | (feed.soundOnly ? _soundOnlyBit : 0);
       if (used + entry.length > Session.maxPayload - 5) break;
       encoded.add(entry);
       used += entry.length;
@@ -471,9 +481,9 @@ abstract final class ControlCodec {
       final width = reader.u16();
       final height = reader.u16();
       final fps = reader.u8();
-      final audio = reader.u8() != 0;
+      final flags = reader.u8();
       if (isValidName(name) && width <= maxDimension && height <= maxDimension) {
-        feeds.add(FeedInfo(name.trim(), width, height, fps, audio));
+        feeds.add(FeedInfo(name.trim(), width, height, fps, flags != 0, soundOnly: flags & _soundOnlyBit != 0));
       }
     }
     return feeds;

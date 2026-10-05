@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:manifold_hub/net/control.dart';
+import 'package:manifold_hub/net/devices.dart';
 import 'package:manifold_hub/net/video.dart';
 import 'package:manifold_hub/sharing.dart';
 
@@ -27,6 +28,12 @@ class _Harness {
             {'handle': display.handle, 'title': display.title, 'width': display.width, 'height': display.height, 'primary': display.primary},
         ];
       }
+      if (call.method == 'cameras') {
+        return [
+          for (final camera in webcams)
+            {'handle': camera.handle, 'title': camera.title, 'device': camera.device, 'width': camera.width, 'height': camera.height},
+        ];
+      }
       if (call.method == 'alive') return [for (final handle in (call.arguments as Map)['handles'] as List) if (!gone.contains(handle)) handle];
       return null;
     });
@@ -34,21 +41,24 @@ class _Harness {
       sendVideo: (deviceKey, streamId, fragments) => video.add((deviceKey, streamId, fragments)),
       sendAudio: (deviceKey, streamId, timestamp, frame) => audio.add((deviceKey, streamId, timestamp, frame)),
       feedsChanged: () => feedChanges++,
+      watchChanged: (deviceKey, feed, watching) => watchEvents.add((deviceKey, feed, watching)),
       saved: saved,
       saveShares: saves.add,
-    );
+    )..offerCameras = true;
   }
 
   late final Sharing sharing;
   final List<MethodCall> calls = [];
   final List<(String, int, List<Uint8List>)> video = [];
   final List<(String, int, int, Uint8List)> audio = [];
+  final List<(String, String, bool)> watchEvents = [];
   int feedChanges = 0;
   bool failStart = false;
 
   final Set<int> gone = {};
   final List<ShareableWindow> open = [];
   final List<ShareableWindow> screens = [];
+  final List<ShareableWindow> webcams = [];
   final List<String> saves = [];
 
   List<String> get methods => calls.map((call) => call.method).toList();
@@ -78,8 +88,19 @@ ShareableWindow _display(int handle, String deviceName, {bool primary = false}) 
       windowClass: '',
       width: 2560,
       height: 1440,
-      display: true,
+      kind: ShareKind.display,
       primary: primary,
+    );
+
+ShareableWindow _camera(int handle, String name, {String device = r'\\?\usb#cam-1'}) => ShareableWindow(
+      handle: handle,
+      title: name,
+      process: '',
+      windowClass: '',
+      width: 1280,
+      height: 720,
+      kind: ShareKind.camera,
+      device: device,
     );
 
 String _saved(List<Map<String, Object?>> entries) => jsonEncode(entries);
@@ -592,6 +613,305 @@ void main() {
       harness.close();
       harness = _Harness(saved: _saved([_entry('Display 2', title: second, process: '', windowClass: '', display: true)]));
       harness.open.add(_window(9, second, process: '', windowClass: ''));
+
+      await harness.sharing.tick(0);
+
+      expect(harness.sharing.shared.single.present, isFalse);
+    });
+  });
+
+  group('who is watching', () {
+    test('a device is reported when it starts and when its last stream ends, not for every stream', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+
+      await sharing.subscribe('phone', _request('Notes', 1));
+      await sharing.subscribe('phone', _request('Notes', 2));
+      expect(harness.watchEvents, [('phone', 'Notes', true)]);
+
+      sharing.unsubscribe('phone', 1);
+      expect(harness.watchEvents, hasLength(1), reason: 'one stream is still open');
+      sharing.unsubscribe('phone', 2);
+
+      expect(harness.watchEvents, [('phone', 'Notes', true), ('phone', 'Notes', false)]);
+    });
+
+    test('stopping everything, or a device going away, reports each device that was watching', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+      sharing.share(_window(2, 'Paint'), audio: false);
+      await sharing.subscribe('phone', _request('Notes', 1));
+      await sharing.subscribe('tablet', _request('Paint', 1));
+      harness.watchEvents.clear();
+
+      sharing.dropDevice('phone');
+      expect(harness.watchEvents, [('phone', 'Notes', false)]);
+      harness.watchEvents.clear();
+
+      sharing.paused = true;
+      expect(harness.watchEvents, [('tablet', 'Paint', false)]);
+    });
+
+    test('unsharing a feed that is being watched reports it under the name it had', () async {
+      final sharing = harness.sharing;
+      final window = sharing.share(_window(1, 'Notes'), audio: false);
+      await sharing.subscribe('phone', _request('Notes', 1));
+      harness.watchEvents.clear();
+
+      sharing.unshare(window);
+
+      expect(harness.watchEvents, [('phone', 'Notes', false)]);
+    });
+  });
+
+  group('stopping everything', () {
+    const device = Device(publicKey: 'phone', name: 'phone', send: true, sendCamera: true);
+
+    test('pausing ends every stream and capture at once, offers nothing and refuses new watchers, and resuming offers it all again', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+      sharing.share(_camera(1 << 61 | 3, 'Webcam'), audio: false);
+      await sharing.subscribe('phone', _request('Notes', 1));
+      await sharing.subscribe('phone', _request('Webcam', 2));
+      final changes = harness.feedChanges;
+
+      sharing.paused = true;
+
+      expect(sharing.shared.expand((window) => window.watchers), isEmpty);
+      expect(harness.methods.where((method) => method == 'stop'), hasLength(2));
+      expect(sharing.feedsFor(device), isEmpty);
+      expect(sharing.permits(device, 'Notes'), isFalse);
+      expect(await sharing.subscribe('tablet', _request('Notes', 1)), Refusal.notFound);
+      expect(harness.feedChanges, changes + 1, reason: 'devices are told the feeds are gone');
+
+      sharing.paused = false;
+
+      expect(sharing.feedsFor(device).map((feed) => feed.name), ['Notes', 'Webcam']);
+      expect(await sharing.subscribe('tablet', _request('Notes', 1)), isNull);
+    });
+
+    test('pausing twice, or with nothing shared, changes nothing', () {
+      harness.sharing.paused = true;
+      harness.sharing.paused = true;
+
+      expect(harness.feedChanges, 1);
+      expect(harness.calls, isEmpty);
+    });
+  });
+
+  group('pointer', () {
+    test('the pointer is part of the picture unless the share says otherwise, and the runner is told only then', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+      sharing.share(_window(2, 'Paint'), audio: false, showCursor: false);
+
+      await sharing.subscribe('phone', _request('Notes', 1));
+      await sharing.subscribe('phone', _request('Paint', 2));
+
+      expect((harness.calls.first.arguments as Map).containsKey('cursor'), isFalse);
+      expect((harness.calls.last.arguments as Map)['cursor'], false);
+    });
+
+    test('a share without the pointer is saved and comes back without it', () {
+      harness.sharing.share(_window(1, 'Paint'), audio: false, showCursor: false);
+      harness.sharing.share(_window(2, 'Notes'), audio: false);
+      final saved = harness.saves.last;
+      harness.close();
+      harness = _Harness(saved: saved);
+
+      expect(harness.sharing.shared.map((window) => window.showCursor), [false, true]);
+    });
+  });
+
+  group('sound only', () {
+    test('a window shared for its sound alone is named for it, announced without a size, and always has sound', () {
+      final window = harness.sharing.share(_window(1, 'Spotify'), audio: false, soundOnly: true);
+
+      expect(window.feedName, 'Spotify (sound)');
+      expect(window.withAudio, isTrue);
+      expect(harness.sharing.feeds, [const FeedInfo('Spotify (sound)', 0, 0, 0, true, soundOnly: true)]);
+      expect(harness.sharing.feeds.single.soundOnly, isTrue);
+    });
+
+    test('a display shared for its sound alone is named for the computer', () {
+      final first = harness.sharing.share(_display(1 << 62 | 5, r'\\.\DISPLAY2'), audio: true, soundOnly: true);
+
+      expect(first.feedName, 'PC sound');
+      expect(harness.sharing.share(_display(1 << 62 | 6, r'\\.\DISPLAY1'), audio: true, soundOnly: true).feedName, 'PC sound (2)');
+    });
+
+    test('a long title still leaves room for the suffix', () {
+      final window = harness.sharing.share(_window(1, 'x' * 200), audio: true, soundOnly: true);
+
+      expect(window.feedName.length, lessThanOrEqualTo(maxNameLength));
+      expect(window.feedName, endsWith(' (sound)'));
+    });
+
+    test('the capture is started without a picture, and the runner is not asked for one otherwise', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Spotify'), audio: true, soundOnly: true);
+      sharing.share(_window(2, 'Notes'), audio: true);
+
+      await sharing.subscribe('phone', _request('Spotify (sound)', 1, audio: true));
+      await sharing.subscribe('phone', _request('Notes', 2, audio: true));
+
+      expect((harness.calls.first.arguments as Map)['picture'], false);
+      expect((harness.calls.last.arguments as Map).containsKey('picture'), isFalse);
+    });
+
+    test('a camera cannot be shared without a picture', () {
+      final window = harness.sharing.share(_camera(1 << 61 | 7, 'Webcam'), audio: true, soundOnly: true);
+
+      expect(window.soundOnly, isFalse);
+      expect(window.feedName, 'Webcam');
+    });
+
+    test('a sound-only share is saved and comes back as one', () async {
+      harness.sharing.share(_window(1, 'Spotify'), audio: false, soundOnly: true);
+      final saved = harness.saves.last;
+      harness.close();
+      harness = _Harness(saved: saved);
+
+      final restored = harness.sharing.shared.single;
+      expect(restored.soundOnly, isTrue);
+      expect(restored.withAudio, isTrue);
+      expect(restored.feedName, 'Spotify (sound)');
+    });
+  });
+
+  group('cameras', () {
+    const handle = 1 << 61 | 77;
+
+    test('a camera is named after itself, saved with its device, and never shared with sound', () {
+      final window = harness.sharing.share(_camera(handle, 'Logitech C920'), audio: true);
+
+      expect(window.feedName, 'Logitech C920');
+      expect(window.withAudio, isFalse);
+      expect(harness.sharing.feeds, [const FeedInfo('Logitech C920', 1280, 720, 30, false)]);
+      final saved = jsonDecode(harness.saves.last) as List;
+      expect(saved.single, {..._entry('Logitech C920', title: 'Logitech C920', process: '', windowClass: ''), 'camera': true, 'device': r'\\?\usb#cam-1'});
+    });
+
+    test('the capture of a camera starts with the device the runner gave', () async {
+      harness.sharing.share(_camera(handle, 'Logitech C920'), audio: false);
+
+      await harness.sharing.subscribe('phone', _request('Logitech C920', 1));
+
+      expect(harness.calls.single.arguments, {'handle': handle, 'width': 1280, 'height': 720, 'bitrateKbps': 3000, 'audio': false, 'device': r'\\?\usb#cam-1'});
+    });
+
+    test('a camera that cannot be opened is dropped and the owner is told why', () async {
+      harness.failStart = true;
+      final window = harness.sharing.share(_camera(handle, 'Logitech C920'), audio: false);
+
+      expect(await harness.sharing.subscribe('phone', _request('Logitech C920', 1)), Refusal.failed);
+
+      expect(window.watchers, isEmpty);
+      expect(harness.sharing.problem, contains('Another app may be using it'));
+    });
+
+    test('a camera that is unplugged waits and is found again by its device, even with a new handle', () async {
+      final window = harness.sharing.share(_camera(handle, 'Logitech C920'), audio: false);
+      harness.webcams.add(_camera(handle, 'Logitech C920'));
+
+      await harness.sharing.tick(10000);
+      expect(window.present, isTrue);
+      expect(harness.methods, ['cameras']);
+
+      harness.webcams.clear();
+      await harness.sharing.tick(20000);
+      expect(window.present, isFalse);
+      expect(harness.sharing.feeds, isEmpty);
+
+      harness.webcams.add(_camera(1 << 61 | 99, 'Logitech C920'));
+      await harness.sharing.tick(30000);
+      expect(window.handle, 1 << 61 | 99);
+    });
+
+    test('after a restart a saved camera is found again by its name when it moved to another port', () async {
+      harness.close();
+      harness = _Harness(saved: _saved([{..._entry('Webcam', title: 'Webcam', process: '', windowClass: ''), 'camera': true, 'device': 'old-port'}]));
+      harness.webcams
+        ..add(_camera(1 << 61 | 1, 'Other camera', device: 'other'))
+        ..add(_camera(1 << 61 | 2, 'Webcam', device: 'new-port'));
+
+      await harness.sharing.tick(0);
+
+      expect(harness.sharing.shared.single.handle, 1 << 61 | 2);
+      expect(harness.sharing.shared.single.device, 'new-port');
+    });
+
+    test('windows and cameras are allowed separately, and a feed that does not exist is judged as a window', () {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+      sharing.share(_camera(handle, 'Webcam'), audio: false);
+      const windowsOnly = Device(publicKey: 'a', name: 'tablet', send: true);
+      const cameraOnly = Device(publicKey: 'b', name: 'phone', sendCamera: true);
+      const nothing = Device(publicKey: 'c', name: 'laptop');
+
+      expect(sharing.feedsFor(windowsOnly).map((feed) => feed.name), ['Notes']);
+      expect(sharing.feedsFor(cameraOnly).map((feed) => feed.name), ['Webcam']);
+      expect(sharing.feedsFor(nothing), isEmpty);
+      expect(sharing.permits(windowsOnly, 'Notes'), isTrue);
+      expect(sharing.permits(windowsOnly, 'Webcam'), isFalse);
+      expect(sharing.permits(cameraOnly, 'Webcam'), isTrue);
+      expect(sharing.permits(cameraOnly, 'Notes'), isFalse);
+      expect(sharing.permits(windowsOnly, 'Missing'), isTrue);
+      expect(sharing.permits(cameraOnly, 'Missing'), isFalse);
+    });
+
+    test('a new Sharing offers no cameras until told to', () async {
+      harness.webcams.add(_camera(handle, 'Webcam'));
+      final fresh = Sharing(sendVideo: (device, stream, fragments) {}, sendAudio: (device, stream, timestamp, frame) {}, feedsChanged: () {});
+
+      expect(fresh.offerCameras, isFalse);
+      expect(await fresh.cameras(), isEmpty);
+      fresh.dispose();
+    });
+
+    test('with cameras switched off none is offered, a shared one is withdrawn, and it comes back when switched on', () async {
+      final sharing = harness.sharing;
+      final window = sharing.share(_camera(handle, 'Webcam'), audio: false);
+      await sharing.subscribe('phone', _request('Webcam', 1));
+      harness.webcams.add(_camera(handle, 'Webcam'));
+
+      sharing.offerCameras = false;
+
+      expect(window.present, isFalse);
+      expect(window.watchers, isEmpty);
+      expect(harness.methods.last, 'stop');
+      expect(sharing.feeds, isEmpty);
+      harness.calls.clear();
+      expect(await sharing.cameras(), isEmpty);
+      await sharing.tick(10000);
+      expect(window.present, isFalse);
+      expect(harness.methods, isNot(contains('cameras')), reason: 'the runner is not asked about cameras at all');
+
+      sharing.offerCameras = true;
+      await sharing.tick(20000);
+      expect(window.present, isTrue);
+    });
+
+    test('taking away the camera ends its streams and leaves the window streams alone', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+      final webcam = sharing.share(_camera(handle, 'Webcam'), audio: false);
+      await sharing.subscribe('phone', _request('Notes', 1));
+      await sharing.subscribe('phone', _request('Webcam', 2));
+
+      sharing.enforce(const Device(publicKey: 'phone', name: 'phone', send: true));
+
+      expect(webcam.watchers, isEmpty);
+      expect(webcam.capturing, isFalse);
+      expect(sharing.shared.first.watchers, hasLength(1));
+      expect(harness.methods.last, 'stop');
+    });
+
+    test('a window or a display is never taken for a camera of the same name', () async {
+      harness.close();
+      harness = _Harness(saved: _saved([{..._entry('Webcam', title: 'Webcam', process: '', windowClass: ''), 'camera': true}]));
+      harness.open.add(_window(9, 'Webcam', process: '', windowClass: ''));
+      harness.screens.add(_display(1 << 62 | 4, 'Webcam'));
 
       await harness.sharing.tick(0);
 

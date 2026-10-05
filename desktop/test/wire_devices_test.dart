@@ -76,6 +76,18 @@ void main() {
       expect(device.send, isFalse);
     });
 
+    test('the camera permission is saved, and a book from before it existed reads as camera off', () {
+      final saved = <String>[];
+      final book = DeviceBook(null, saved.add)..put(Device(publicKey: keyHex, name: 'Beta', send: true));
+      book.update(keyHex, (device) => device.copyWith(sendCamera: true));
+
+      expect(DeviceBook(saved.last, (_) {}).findKey(key)!.sendCamera, isTrue);
+
+      final old = DeviceBook('$keyHex\tBeta\t\ttrue\ttrue', (_) {}).findKey(key)!;
+      expect(old.send, isTrue);
+      expect(old.sendCamera, isFalse);
+    });
+
     test('removing forgets the device', () {
       final saved = <String>[];
       final book = DeviceBook(null, saved.add)..put(Device(publicKey: keyHex, name: 'Beta'));

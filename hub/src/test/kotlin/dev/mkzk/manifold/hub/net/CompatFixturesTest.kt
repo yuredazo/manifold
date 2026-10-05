@@ -30,6 +30,7 @@ class CompatFixturesTest {
             "control_feedlist",
             ControlCodec.encode(4, Control.FeedList(listOf(FeedInfo("alpha", 720, 1080, 30, false), FeedInfo("camera", 1280, 720, 30, true)))),
         )
+        check("control_feedlist_sound", ControlCodec.encode(5, Control.FeedList(listOf(FeedInfo("PC sound", 0, 0, 0, true, soundOnly = true)))))
         check("control_keyframe", ControlCodec.encode(5, Control.KeyframeRequest(9)))
         check("control_refused", ControlCodec.encode(7, Control.SubscribeRefused(9, Control.Refusal.NOT_SHARED)))
         check("control_ack", ControlCodec.encodeAck(77))

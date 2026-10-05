@@ -1,10 +1,10 @@
 # Manifold
 
-Manifold lets one Android app send live video, and optionally audio, to another app on the same phone. There is no screen capture and no encoding step: the receiving app hands over a `Surface` and the sending app draws straight into it.
+Manifold lets one Android app send live video, and optionally audio, to another app on the same phone. Between the two apps there is no capture and no encoding step: the receiving app hands over a `Surface` and the sending app draws straight into it.
 
 A small hub app introduces the two sides, and the person who owns the phone decides which apps may receive. The hub never sees a frame. If the hub is killed or updated, the feeds keep running and the SDK reconnects on its own. Hubs on different devices (phones, and a Windows PC) can also pair and share feeds over the network.
 
-Status: SDK 1.0.0, hub 1.0.2, protocol version 1, minimum Android SDK 24. Tested on two Android 14 phones and Windows 11.
+Status: SDK 1.1.0, hub 1.1.0, protocol version 1, minimum Android SDK 24. Tested on two Android 14 phones and Windows 11.
 
 ## How it works
 
@@ -20,7 +20,7 @@ A subscription can be made before the sender exists. It waits, and is delivered 
 | Module | What it is |
 | --- | --- |
 | `sdk` | The library apps depend on: `ManifoldSender`, `ManifoldReceiver` and the AIDL protocol. |
-| `hub` | The Android hub app (`dev.mkzk.manifold`). Its screens show what is live, which apps may receive, and the paired devices. |
+| `hub` | The Android hub app (`dev.mkzk.manifold`). Its screens show what is live, which apps may receive, and the paired devices. It can also share the phone's whole screen as a feed. |
 | `probe` | A test app that exercises the SDK across processes. |
 | `desktop` | The Windows hub, a Flutter app that pairs with the Android hub over the network. |
 
@@ -32,7 +32,7 @@ There is no public Maven artifact yet. To use the SDK today, publish it to a loc
 ./gradlew :sdk:publishReleasePublicationToLocalRepository
 ```
 
-That writes `dev.mkzk.manifold:manifold-sdk:1.0.0` to `sdk/build/repo`. Add that folder as a Maven repository in the app that depends on it, or include the `sdk` module as a Gradle project.
+That writes `dev.mkzk.manifold:manifold-sdk:1.1.0` to `sdk/build/repo`. Add that folder as a Maven repository in the app that depends on it, or include the `sdk` module as a Gradle project.
 
 ### Sending
 
@@ -58,6 +58,8 @@ sender.stop()
 ```
 
 If `Config.hasAudio` is set, `Subscription.audioSink` is a pipe to write 48 kHz, stereo, signed 16-bit little-endian PCM into. It is null when the receiver does not want audio.
+
+A feed that is only sound sets `Config(name, hasAudio = true, soundOnly = true)`. Its subscribers still pass a surface, which is never drawn into, and receivers that understand the flag play only the sound. `soundOnly` needs `hasAudio`, and has been in the SDK since 1.1.0.
 
 Run the sender inside a foreground service. On a TECNO CK7n, Android restarted a killed background service only after about 20 seconds, which is a long gap in a live feed.
 

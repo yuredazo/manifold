@@ -61,6 +61,17 @@
     <string name="common_ok">OK</string>
     <string name="common_cancel">Cancel</string>
 
+    <string name="channel_screen">Screen sharing</string>
+    <string name="screen_notice_title">Sharing this screen</string>
+    <string name="screen_notice_text">Devices you allowed can watch what you chose to share.</string>
+    <string name="screen_share">Share screen</string>
+    <string name="screen_menu_title">Share your screen</string>
+    <string name="screen_menu_note">Where Android allows it, you can pick a single app next.</string>
+    <string name="screen_with_sound">With sound</string>
+    <string name="screen_without_sound">Without sound</string>
+    <string name="screen_stop">Stop sharing</string>
+    <string name="screen_failed">The screen could not be shared.</string>
+
     <string name="live_waiting_header">Waiting for you</string>
     <string name="live_feeds_header">Feeds</string>
     <string name="live_empty_title">Nothing connected yet</string>
@@ -75,6 +86,7 @@
     <string name="action_block">Block</string>
 
     <string name="feed_audio">audio</string>
+    <string name="feed_sound_only">sound only</string>
     <string name="feed_not_announced">Not announced yet</string>
     <string name="feed_no_watchers">Nobody watching</string>
     <string name="feed_tap_preview">Tap to preview</string>

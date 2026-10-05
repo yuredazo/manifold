@@ -13,6 +13,8 @@ add_executable(${BINARY_NAME} WIN32
   "window_host.cpp"
   "capture_host.cpp"
   "window_capturer.cpp"
+  "camera_capturer.cpp"
+  "frame_pump.cpp"
   "app_audio_capturer.cpp"
   "h264_encoder.cpp"
   "aac_encoder.cpp"
@@ -44,7 +46,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "_SILENCE_EXPERIMENTAL_COROUTI
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
-target_link_libraries(${BINARY_NAME} PRIVATE d3d11 dxgi mfplat mf mfuuid strmiids wmcodecdspuuid mmdevapi windowsapp)
+target_link_libraries(${BINARY_NAME} PRIVATE d3d11 dxgi mfplat mf mfreadwrite mfuuid strmiids wmcodecdspuuid mmdevapi windowsapp)
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

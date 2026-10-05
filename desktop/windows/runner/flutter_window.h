@@ -17,6 +17,9 @@ class FlutterWindow : public Win32Window {
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
 
+  // The window is not shown when the first frame is drawn, for a hub that starts in the tray.
+  void StartHidden() { start_hidden_ = true; }
+
  protected:
   // Win32Window:
   bool OnCreate() override;
@@ -32,6 +35,7 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
   std::unique_ptr<WindowHost> window_host_;
   std::unique_ptr<CaptureHost> capture_host_;
+  bool start_hidden_ = false;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

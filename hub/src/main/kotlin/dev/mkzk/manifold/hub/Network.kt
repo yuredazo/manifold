@@ -344,7 +344,7 @@ internal class Network(val identity: Identity, private val book: DeviceBook) {
         val feeds = if (current.send) {
             Registry.instance.state.value.senders
                 .filter { !it.packageName.startsWith(REMOTE_PREFIX) }
-                .map { FeedInfo(it.name, it.width, it.height, it.fps, it.hasAudio) }
+                .map { FeedInfo(it.name, it.width, it.height, it.fps, it.hasAudio, it.soundOnly) }
         } else {
             emptyList()
         }

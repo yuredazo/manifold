@@ -15,11 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstring>
-#include <mutex>
-#include <thread>
 
 using Microsoft::WRL::ComPtr;
 namespace capture = winrt::Windows::Graphics::Capture;
@@ -28,31 +24,19 @@ using winrt::Windows::Graphics::SizeInt32;
 
 namespace {
 
-constexpr int kFrameRate = 30;
-constexpr int kKeyframeEvery = 2 * kFrameRate;
-constexpr auto kFrameInterval = std::chrono::milliseconds(1000 / kFrameRate);
-constexpr auto kRepeatAfter = std::chrono::milliseconds(250);
-constexpr int64_t kFrameDuration100ns = 10'000'000 / kFrameRate;
+constexpr int kFrameRate = FramePump::kFrameRate;
 
 int Even(int value) { return std::max(16, value & ~1); }
 
 }  // namespace
 
-int64_t NowIn100ns() {
-  LARGE_INTEGER frequency, counter;
-  QueryPerformanceFrequency(&frequency);
-  QueryPerformanceCounter(&counter);
-  return counter.QuadPart / frequency.QuadPart * 10'000'000 + counter.QuadPart % frequency.QuadPart * 10'000'000 / frequency.QuadPart;
-}
-
 struct WindowCapturer::Impl {
-  Sink sink;
   std::function<void()> closed;
   int64_t epoch = 0;
   int out_width = 0;
   int out_height = 0;
 
-  H264Encoder encoder;
+  FramePump pump;
 
   ComPtr<ID3D11Device> device;
   ComPtr<ID3D11DeviceContext> context;
@@ -72,14 +56,8 @@ struct WindowCapturer::Impl {
   SizeInt32 pool_size{};
   SizeInt32 processor_input{};
 
-  std::mutex lock;
-  std::condition_variable wake;
-  std::vector<uint8_t> latest;
   std::vector<uint8_t> packed;
-  int64_t latest_time = 0;
-  bool fresh = false;
   std::atomic<bool> running{false};
-  std::thread encoder_thread;
   bool media_started = false;
 
   bool CreateDevice() {
@@ -165,7 +143,7 @@ struct WindowCapturer::Impl {
     auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
     ComPtr<ID3D11Texture2D> texture;
     if (FAILED(access->GetInterface(IID_PPV_ARGS(&texture)))) return;
-    if (ConvertToNv12(texture.Get(), content)) Publish(frame.SystemRelativeTime().count() - epoch);
+    if (ConvertToNv12(texture.Get(), content)) pump.Submit(packed, frame.SystemRelativeTime().count() - epoch);
   }
 
   bool ConvertToNv12(ID3D11Texture2D* texture, const SizeInt32& content) {
@@ -211,41 +189,6 @@ struct WindowCapturer::Impl {
     return true;
   }
 
-  void Publish(int64_t time) {
-    {
-      std::lock_guard<std::mutex> guard(lock);
-      latest.swap(packed);
-      latest_time = time;
-      fresh = true;
-    }
-    wake.notify_one();
-  }
-
-  void EncodeLoop() {
-    auto last = std::chrono::steady_clock::now() - kFrameInterval;
-    std::vector<uint8_t> picture;
-    while (true) {
-      std::unique_lock<std::mutex> guard(lock);
-      wake.wait_for(guard, kFrameInterval, [this] { return !running || fresh; });
-      if (!running) return;
-      if (latest.empty()) continue;
-      const auto now = std::chrono::steady_clock::now();
-      if (!fresh && now - last < kRepeatAfter) continue;
-      if (fresh && now - last < kFrameInterval) {
-        guard.unlock();
-        std::this_thread::sleep_for(kFrameInterval - (now - last));
-        continue;
-      }
-      const int64_t time = fresh ? latest_time : NowIn100ns() - epoch;
-      picture = latest;
-      fresh = false;
-      guard.unlock();
-      last = now;
-      encoder.Encode(picture, time, kFrameDuration100ns, [this](EncodedVideo frame) {
-        if (running && sink) sink(std::move(frame));
-      });
-    }
-  }
 };
 
 WindowCapturer::WindowCapturer() : impl_(std::make_unique<Impl>()) {}
@@ -253,12 +196,11 @@ WindowCapturer::WindowCapturer() : impl_(std::make_unique<Impl>()) {}
 WindowCapturer::~WindowCapturer() { Stop(); }
 
 bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height, int bitrate_kbps, int64_t epoch_100ns,
-                           Sink sink, std::function<void()> closed) {
+                           bool cursor, Sink sink, std::function<void()> closed) {
   Impl& state = *impl_;
   if (state.running || !capture::GraphicsCaptureSession::IsSupported()) return false;
   if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) return false;
   state.media_started = true;
-  state.sink = std::move(sink);
   state.closed = std::move(closed);
   state.epoch = epoch_100ns;
 
@@ -273,9 +215,7 @@ bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height,
     state.out_width = Even(std::clamp(width, 16, 4096));
     state.out_height = Even(std::clamp(height, 16, 4096));
     if (!state.CreateOutputTextures()) return false;
-    if (!state.encoder.Open(state.out_width, state.out_height, std::clamp(bitrate_kbps, 200, 20000), kFrameRate, kKeyframeEvery)) {
-      return false;
-    }
+    if (!state.pump.Start(state.out_width, state.out_height, bitrate_kbps, epoch_100ns, std::move(sink))) return false;
 
     state.pool_size = size;
     state.pool = capture::Direct3D11CaptureFramePool::CreateFreeThreaded(
@@ -288,8 +228,12 @@ bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height,
       if (state.running && state.closed) state.closed();
     });
     state.session = state.pool.CreateCaptureSession(state.item);
+    try {
+      state.session.IsCursorCaptureEnabled(cursor);
+    } catch (const winrt::hresult_error&) {
+      // Windows before 10 version 2004 cannot leave the cursor out, so it stays in the picture.
+    }
     state.running = true;
-    state.encoder_thread = std::thread([&state] { state.EncodeLoop(); });
     state.session.StartCapture();
     return true;
   } catch (const winrt::hresult_error&) {
@@ -301,7 +245,6 @@ bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height,
 void WindowCapturer::Stop() {
   Impl& state = *impl_;
   state.running = false;
-  state.wake.notify_all();
   try {
     if (state.pool) state.pool.FrameArrived(state.frame_token);
     if (state.item) state.item.Closed(state.closed_token);
@@ -310,11 +253,10 @@ void WindowCapturer::Stop() {
   } catch (const winrt::hresult_error&) {
     // The window may already be gone, which closes the session by itself.
   }
-  if (state.encoder_thread.joinable()) state.encoder_thread.join();
+  state.pump.Stop();
   state.session = nullptr;
   state.pool = nullptr;
   state.item = nullptr;
-  state.encoder.Close();
   state.processor.Reset();
   state.enumerator.Reset();
   state.output_view.Reset();
@@ -331,9 +273,9 @@ void WindowCapturer::Stop() {
   }
 }
 
-void WindowCapturer::RequestKeyframe() { impl_->encoder.RequestKeyframe(); }
+void WindowCapturer::RequestKeyframe() { impl_->pump.RequestKeyframe(); }
 
-void WindowCapturer::SetBitrate(int bitrate_kbps) { impl_->encoder.SetBitrate(std::clamp(bitrate_kbps, 200, 20000)); }
+void WindowCapturer::SetBitrate(int bitrate_kbps) { impl_->pump.SetBitrate(bitrate_kbps); }
 
 int WindowCapturer::width() const { return impl_->out_width; }
 

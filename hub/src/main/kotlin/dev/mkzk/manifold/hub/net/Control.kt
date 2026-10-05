@@ -4,7 +4,15 @@ import dev.mkzk.manifold.Manifold
 import java.nio.BufferUnderflowException
 import java.nio.ByteBuffer
 
-internal data class FeedInfo(val name: String, val width: Int, val height: Int, val fps: Int, val hasAudio: Boolean)
+/** [soundOnly] has no picture, and its size is 0. It travels in bit 1 of the audio byte, so an older hub still reads "has audio". */
+internal data class FeedInfo(
+    val name: String,
+    val width: Int,
+    val height: Int,
+    val fps: Int,
+    val hasAudio: Boolean,
+    val soundOnly: Boolean = false,
+)
 
 internal sealed interface Control {
     data object Ping : Control
@@ -106,6 +114,8 @@ internal object ControlCodec {
     private const val NACK = 12
     private const val STREAM_REPORT = 13
     private const val SUBSCRIBE_REFUSED = 14
+    private const val AUDIO_BIT = 1
+    private const val SOUND_ONLY_BIT = 2
     const val MAX_NACK_INDEXES = 200
 
     /** Pings and measurements are never acknowledged or resent: a late measurement is worth nothing. */
@@ -212,7 +222,7 @@ internal object ControlCodec {
             val entry = ByteBuffer.allocate(1 + name.size + 6)
                 .put(name.size.toByte()).put(name)
                 .putShort(feed.width.toShort()).putShort(feed.height.toShort())
-                .put(feed.fps.toByte()).put(if (feed.hasAudio) 1 else 0)
+                .put(feed.fps.toByte()).put(((if (feed.hasAudio) AUDIO_BIT else 0) or (if (feed.soundOnly) SOUND_ONLY_BIT else 0)).toByte())
                 .array()
             if (used + entry.size > Session.MAX_PAYLOAD - 5) break
             encoded += entry
@@ -274,9 +284,9 @@ internal object ControlCodec {
             val width = reader.getShort().toInt() and 0xFFFF
             val height = reader.getShort().toInt() and 0xFFFF
             val fps = reader.get().toInt() and 0xFF
-            val audio = reader.get().toInt() != 0
+            val flags = reader.get().toInt() and 0xFF
             if (Manifold.isValidName(name) && width <= Manifold.MAX_DIMENSION && height <= Manifold.MAX_DIMENSION) {
-                feeds += FeedInfo(name.trim(), width, height, fps, audio)
+                feeds += FeedInfo(name.trim(), width, height, fps, flags != 0, soundOnly = flags and SOUND_ONLY_BIT != 0)
             }
         }
         return feeds

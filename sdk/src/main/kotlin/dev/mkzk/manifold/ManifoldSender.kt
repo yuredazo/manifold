@@ -20,13 +20,17 @@ public class ManifoldSender @JvmOverloads constructor(
     private val listener: Listener,
     private val callbackExecutor: Executor = MainThreadExecutor,
 ) {
-    /** What the feed announces about itself. A [width] or [height] of 0 means "no preference". */
+    /**
+     * What the feed announces about itself. A [width] or [height] of 0 means "no preference". A [soundOnly] feed has no
+     * picture: it needs [hasAudio], its subscribers' surfaces stay empty, and receivers that understand it play only the sound.
+     */
     public class Config @JvmOverloads constructor(
         public val name: String,
         public val width: Int = 0,
         public val height: Int = 0,
         public val fps: Int = 0,
         public val hasAudio: Boolean = false,
+        public val soundOnly: Boolean = false,
     ) {
         init {
             require(Manifold.isValidName(name)) {
@@ -36,6 +40,7 @@ public class ManifoldSender @JvmOverloads constructor(
                 "width and height must be between 0 and ${Manifold.MAX_DIMENSION}"
             }
             require(fps in 0..Manifold.MAX_FPS) { "fps must be between 0 and ${Manifold.MAX_FPS}" }
+            require(!soundOnly || hasAudio) { "a sound-only feed needs hasAudio" }
         }
 
         @JvmOverloads
@@ -45,11 +50,12 @@ public class ManifoldSender @JvmOverloads constructor(
             height: Int = this.height,
             fps: Int = this.fps,
             hasAudio: Boolean = this.hasAudio,
-        ): Config = Config(name, width, height, fps, hasAudio)
+            soundOnly: Boolean = this.soundOnly,
+        ): Config = Config(name, width, height, fps, hasAudio, soundOnly)
 
         override fun equals(other: Any?): Boolean =
             other is Config && name == other.name && width == other.width && height == other.height &&
-                fps == other.fps && hasAudio == other.hasAudio
+                fps == other.fps && hasAudio == other.hasAudio && soundOnly == other.soundOnly
 
         override fun hashCode(): Int {
             var hash = name.hashCode()
@@ -57,10 +63,12 @@ public class ManifoldSender @JvmOverloads constructor(
             hash = 31 * hash + height
             hash = 31 * hash + fps
             hash = 31 * hash + hasAudio.hashCode()
+            hash = 31 * hash + soundOnly.hashCode()
             return hash
         }
 
-        override fun toString(): String = "Config(name=$name, width=$width, height=$height, fps=$fps, hasAudio=$hasAudio)"
+        override fun toString(): String =
+            "Config(name=$name, width=$width, height=$height, fps=$fps, hasAudio=$hasAudio, soundOnly=$soundOnly)"
     }
 
     public class Subscription internal constructor(
@@ -206,5 +214,6 @@ public class ManifoldSender @JvmOverloads constructor(
         it.height = c.height
         it.fps = c.fps
         it.hasAudio = c.hasAudio
+        it.soundOnly = c.soundOnly
     }
 }

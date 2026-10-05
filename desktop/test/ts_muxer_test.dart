@@ -123,6 +123,27 @@ void main() {
     expect(_pts(pes), 5);
   });
 
+  test('a stream without video names only the audio, which carries the clock', () {
+    final parsed = _Parsed(TsMuxer().tables(withAudio: true, withVideo: false));
+    final map = parsed.packets[1].payload;
+
+    expect(TsMuxer.crc32(map.sublist(1, 1 + 3 + (((map[2] & 0x0F) << 8) | map[3]))), 0);
+    expect(map.contains(0x1B), isFalse, reason: 'no H.264 entry');
+    expect(map.contains(0x0F), isTrue);
+    // The clock reference PID is the first thing after the program header and version bytes.
+    expect(((map[9] & 0x1F) << 8) | map[10], TsMuxer.audioPid);
+  });
+
+  test('audio given the clock carries it in its first packet and still comes back unchanged', () {
+    final adts = Uint8List.fromList([0xFF, 0xF1, 0x4C, 0x80, 0x01, 0x3F, 0xFC, ...List.generate(300, (i) => i & 0xFF)]);
+    final parsed = _Parsed(TsMuxer().audioFrame(adts, 90000, withClock: true));
+    final first = parsed.packets.first.packet;
+
+    expect(first[3] & 0x20, isNot(0), reason: 'has an adaptation field');
+    expect(first[5] & 0x10, isNot(0), reason: 'carries the clock');
+    expect(parsed.payloadOf(TsMuxer.audioPid).sublist(14), adts);
+  });
+
   test('a keyframe carries the clock and a random access flag', () {
     final first = _Parsed(TsMuxer().videoFrame(Uint8List(500), 90000, keyframe: true)).packets.first.packet;
 

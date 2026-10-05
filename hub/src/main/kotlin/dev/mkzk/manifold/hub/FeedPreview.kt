@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -215,29 +216,34 @@ internal fun FeedPreview(feed: SenderRow, live: Boolean, onClose: () -> Unit) {
             } else {
                 screen.screenWidthDp.toFloat() / screen.screenHeightDp
             }
-            AndroidView(
-                modifier = Modifier.aspectRatio(ratio),
-                factory = { viewContext ->
-                    SurfaceView(viewContext).apply {
-                        holder.addCallback(object : SurfaceHolder.Callback {
-                            private var started = false
+            if (feed.soundOnly) {
+                LaunchedEffect(session) { refused = !session.start(null, 1, 1) }
+                Icon(Icons.AutoMirrored.Outlined.VolumeUp, contentDescription = null, modifier = Modifier.size(72.dp), tint = Color.White.copy(alpha = 0.6f))
+            } else {
+                AndroidView(
+                    modifier = Modifier.aspectRatio(ratio),
+                    factory = { viewContext ->
+                        SurfaceView(viewContext).apply {
+                            holder.addCallback(object : SurfaceHolder.Callback {
+                                private var started = false
 
-                            override fun surfaceCreated(holder: SurfaceHolder) {}
+                                override fun surfaceCreated(holder: SurfaceHolder) {}
 
-                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                                if (started) return
-                                started = true
-                                refused = !session.start(holder.surface, width, height)
-                            }
+                                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                                    if (started) return
+                                    started = true
+                                    refused = !session.start(holder.surface, width, height)
+                                }
 
-                            override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                started = false
-                                session.stop()
-                            }
-                        })
-                    }
-                },
-            )
+                                override fun surfaceDestroyed(holder: SurfaceHolder) {
+                                    started = false
+                                    session.stop()
+                                }
+                            })
+                        }
+                    },
+                )
+            }
             if (refused || !live) {
                 Text(
                     stringResource(if (refused) R.string.preview_refused else R.string.preview_waiting),

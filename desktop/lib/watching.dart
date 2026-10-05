@@ -51,6 +51,7 @@ final class Watching extends ChangeNotifier {
       width: width,
       height: height,
       withAudio: feed.hasAudio,
+      soundOnly: feed.soundOnly,
       onClosed: () => unawaited(stop(session)),
       subscribe: (streamId) => subscribe(device.publicKey, Subscribe(streamId, feed.name, width, height, kbps, audio: feed.hasAudio, fps: fps)),
       unsubscribe: (streamId) => unsubscribe(device.publicKey, streamId),

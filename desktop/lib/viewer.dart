@@ -22,6 +22,9 @@ const _unknownRttMs = 20.0;
 const _holdLimitNs = 300000000;
 const _minNackIntervalNs = 10000000;
 
+/// An AAC frame is 1024 samples, about 21 ms, so this is roughly a second.
+const _soundTablesEvery = 47;
+
 const _windowMaxWidth = 960;
 const _windowMaxHeight = 720;
 
@@ -47,6 +50,7 @@ final class ViewerSession {
     required this.width,
     required this.height,
     required this.withAudio,
+    this.soundOnly = false,
     required this.onClosed,
     required this._subscribe,
     required this._unsubscribe,
@@ -63,6 +67,9 @@ final class ViewerSession {
   final int width;
   final int height;
   final bool withAudio;
+
+  /// There is no picture, so no window and no keyframes, and the audio carries the clock.
+  final bool soundOnly;
 
   final void Function() onClosed;
   final int streamId;
@@ -89,6 +96,7 @@ final class ViewerSession {
   int _audioStart = _startTimestamp;
   int _lastAudioPts = _startTimestamp;
   int _frames = 0;
+  int _audioFramesSinceTables = 0;
   int _bytes = 0;
   int _reportStart = monotonicNs();
   int _reportFragments = 0;
@@ -102,13 +110,17 @@ final class ViewerSession {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     _server = server;
     server.listen(_accept);
-    final fit = min(1.0, min(_windowMaxWidth / width, _windowMaxHeight / height));
-    final window = await NativeWindows.instance.open('$feedName · $deviceName', (width * fit).round(), (height * fit).round());
-    _window = window;
-    _windowClosed = NativeWindows.instance.closed.where((handle) => handle == window).listen((_) {
-      _window = null;
-      onClosed();
-    });
+    int? window;
+    if (!soundOnly) {
+      final fit = min(1.0, min(_windowMaxWidth / width, _windowMaxHeight / height));
+      final opened = await NativeWindows.instance.open('$feedName · $deviceName', (width * fit).round(), (height * fit).round());
+      window = opened;
+      _window = opened;
+      _windowClosed = NativeWindows.instance.closed.where((handle) => handle == opened).listen((_) {
+        _window = null;
+        onClosed();
+      });
+    }
     await _configurePlayer(window);
     _subscribe(streamId);
     await player.open(Media('tcp://127.0.0.1:${server.port}'));
@@ -186,12 +198,24 @@ final class ViewerSession {
     if (first == timestamp) _audioStart = _lastPts;
     final pts = max(_lastAudioPts, _audioStart + (timestamp - first).toSigned(32));
     _lastAudioPts = pts;
-    _write(_muxer.audioFrame(Adts.wrap(frame), pts), keyframe: false);
+    if (!soundOnly) {
+      _write(_muxer.audioFrame(Adts.wrap(frame), pts), keyframe: false);
+      return;
+    }
+    // Keyframes carry the tables when there is a picture. Here they are repeated by count, about once a second.
+    final out = BytesBuilder(copy: false);
+    if (_audioFramesSinceTables++ % _soundTablesEvery == 0) out.add(_muxer.tables(withAudio: true, withVideo: false));
+    out.add(_muxer.audioFrame(Adts.wrap(frame), pts, withClock: true));
+    _write(out.toBytes(), keyframe: false);
+    if (_frames == 0) {
+      _frames = 1;
+      stats.value = ViewerStats(frames: _frames, bytes: _bytes);
+    }
   }
 
   /// The first request may be lost, so it is repeated while the picture waits.
   void tick(int nowMs) {
-    if (_stopped || !_buffer.needsKeyframe || nowMs - _lastKeyframeRequest < _keyframeRequestEveryMs) return;
+    if (_stopped || soundOnly || !_buffer.needsKeyframe || nowMs - _lastKeyframeRequest < _keyframeRequestEveryMs) return;
     _lastKeyframeRequest = nowMs;
     _requestKeyframe(streamId);
   }
@@ -200,7 +224,7 @@ final class ViewerSession {
   void _accept(Socket socket) {
     _client?.destroy();
     _client = socket;
-    _clientNeedsKeyframe = true;
+    _clientNeedsKeyframe = !soundOnly;
     socket.setOption(SocketOption.tcpNoDelay, true);
     socket.listen(
       (_) {},
@@ -212,8 +236,8 @@ final class ViewerSession {
       },
       cancelOnError: true,
     );
-    socket.add(_muxer.tables(withAudio: withAudio));
-    _requestKeyframe(streamId);
+    socket.add(_muxer.tables(withAudio: withAudio, withVideo: !soundOnly));
+    if (!soundOnly) _requestKeyframe(streamId);
   }
 
   void _write(Uint8List bytes, {required bool keyframe}) {
@@ -226,12 +250,12 @@ final class ViewerSession {
     client.add(bytes);
   }
 
-  Future<void> _configurePlayer(int window) async {
+  Future<void> _configurePlayer(int? window) async {
     final native = player.platform as dynamic;
     for (final (name, value) in [
-      ('wid', '$window'),
+      if (window != null) ('wid', '$window'),
       // media_kit keeps video off until a texture controller attaches, and this window has none.
-      ('vid', 'auto'),
+      ('vid', soundOnly ? 'no' : 'auto'),
       // A window that only shows the picture has no use for the player's own key and mouse bindings, and
       // one of them quits.
       ('input-default-bindings', 'no'),

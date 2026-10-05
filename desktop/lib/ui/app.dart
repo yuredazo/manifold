@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../autostart.dart';
 import '../network.dart';
 import '../settings.dart';
 import '../updates.dart';
@@ -11,11 +12,12 @@ import 'share_page.dart';
 import 'watch_page.dart';
 
 class HubApp extends StatelessWidget {
-  const HubApp(this.network, this.settings, this.updater, {super.key});
+  const HubApp(this.network, this.settings, this.updater, this.autostart, {super.key});
 
   final Network network;
   final Settings settings;
   final Updater updater;
+  final Autostart autostart;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +28,7 @@ class HubApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFE8847C), brightness: Brightness.dark),
       ),
-      home: _Shell(network, settings, updater),
+      home: _Shell(network, settings, updater, autostart),
     );
   }
 }
@@ -45,11 +47,12 @@ enum _Page {
 }
 
 class _Shell extends StatefulWidget {
-  const _Shell(this.network, this.settings, this.updater);
+  const _Shell(this.network, this.settings, this.updater, this.autostart);
 
   final Network network;
   final Settings settings;
   final Updater updater;
+  final Autostart autostart;
 
   @override
   State<_Shell> createState() => _ShellState();
@@ -121,7 +124,7 @@ class _ShellState extends State<_Shell> {
                   _Page.watch => WatchPage(network, openDevices: _openDevices),
                   _Page.share => SharePage(network, openDevices: _openDevices),
                   _Page.devices => DevicesPage(network),
-                  _Page.about => AboutPage(settings: widget.settings, updater: widget.updater),
+                  _Page.about => AboutPage(settings: widget.settings, updater: widget.updater, autostart: widget.autostart),
                 },
               ),
             ],
