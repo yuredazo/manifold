@@ -5,13 +5,10 @@ import android.os.RemoteException
 import android.view.Surface
 import dev.mkzk.manifold.IManifoldReceiver
 import dev.mkzk.manifold.IManifoldSender
+import dev.mkzk.manifold.Manifold
 import dev.mkzk.manifold.SenderInfo
 
-/**
- * Callbacks to other apps are one-way and may find the other side already
- * gone. That is not an error here: the death recipient set up in
- * [HubService] removes the entry a moment later.
- */
+/** A callback may find the other side already gone. That is no error: the death recipient in [HubService] removes the entry. */
 internal class BinderSender(private val callback: IManifoldSender) : SenderLink {
     override val key: Any = callback.asBinder()
 
@@ -36,6 +33,18 @@ internal class BinderReceiver(private val callback: IManifoldReceiver) : Receive
     override fun sendersChanged(senders: List<SenderInfo>) {
         try {
             callback.onSenders(senders)
+        } catch (_: RemoteException) {
+        }
+    }
+
+    override fun accessChanged(subscriptionId: String, access: Access) {
+        val wire = when (access) {
+            Access.ASK -> Manifold.ACCESS_PENDING
+            Access.ALLOWED -> Manifold.ACCESS_ALLOWED
+            Access.BLOCKED -> Manifold.ACCESS_BLOCKED
+        }
+        try {
+            callback.onAccess(subscriptionId, wire)
         } catch (_: RemoteException) {
         }
     }
