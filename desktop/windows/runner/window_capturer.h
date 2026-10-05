@@ -20,8 +20,8 @@ class WindowCapturer {
   WindowCapturer(const WindowCapturer&) = delete;
   WindowCapturer& operator=(const WindowCapturer&) = delete;
 
-// `closed` is called from another thread when the window goes away.
-  bool Start(HWND window, int width, int height, int bitrate_kbps, int64_t epoch_100ns, Sink sink,
+  // `closed` is called from another thread when the window goes away.
+  bool Start(HWND window, HMONITOR monitor, int width, int height, int bitrate_kbps, int64_t epoch_100ns, Sink sink,
              std::function<void()> closed);
   void Stop();
   void RequestKeyframe();

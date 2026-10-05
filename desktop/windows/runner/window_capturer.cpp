@@ -252,8 +252,8 @@ WindowCapturer::WindowCapturer() : impl_(std::make_unique<Impl>()) {}
 
 WindowCapturer::~WindowCapturer() { Stop(); }
 
-bool WindowCapturer::Start(HWND window, int width, int height, int bitrate_kbps, int64_t epoch_100ns, Sink sink,
-                           std::function<void()> closed) {
+bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height, int bitrate_kbps, int64_t epoch_100ns,
+                           Sink sink, std::function<void()> closed) {
   Impl& state = *impl_;
   if (state.running || !capture::GraphicsCaptureSession::IsSupported()) return false;
   if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) return false;
@@ -265,9 +265,9 @@ bool WindowCapturer::Start(HWND window, int width, int height, int bitrate_kbps,
   try {
     if (!state.CreateDevice()) return false;
     auto interop = winrt::get_activation_factory<capture::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
-    if (FAILED(interop->CreateForWindow(window, winrt::guid_of<capture::GraphicsCaptureItem>(), winrt::put_abi(state.item)))) {
-      return false;
-    }
+    const HRESULT created = window ? interop->CreateForWindow(window, winrt::guid_of<capture::GraphicsCaptureItem>(), winrt::put_abi(state.item))
+                                    : interop->CreateForMonitor(monitor, winrt::guid_of<capture::GraphicsCaptureItem>(), winrt::put_abi(state.item));
+    if (FAILED(created)) return false;
     const auto size = state.item.Size();
     if (size.Width <= 0 || size.Height <= 0) return false;
     state.out_width = Even(std::clamp(width, 16, 4096));

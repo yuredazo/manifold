@@ -56,11 +56,12 @@ struct AppAudioCapturer::Impl {
 
   int64_t NextFrameTime() const { return segment_start + segment_frames * aac::kFrameDuration100ns; }
 
-  bool Activate(DWORD process_id) {
+  bool Activate(DWORD process_id, bool all_but_process) {
     AUDIOCLIENT_ACTIVATION_PARAMS parameters{};
     parameters.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
     parameters.ProcessLoopbackParams.TargetProcessId = process_id;
-    parameters.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
+    parameters.ProcessLoopbackParams.ProcessLoopbackMode =
+        all_but_process ? PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE : PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
     PROPVARIANT activation{};
     activation.vt = VT_BLOB;
     activation.blob.cbSize = sizeof(parameters);
@@ -94,9 +95,9 @@ struct AppAudioCapturer::Impl {
     return SUCCEEDED(client->GetService(IID_PPV_ARGS(&capture)));
   }
 
-  void Run(std::promise<bool>& started, DWORD process_id) {
+  void Run(std::promise<bool>& started, DWORD process_id, bool all_but_process) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    const bool ready = Activate(process_id) && encoder.Open() && SUCCEEDED(client->Start());
+    const bool ready = Activate(process_id, all_but_process) && encoder.Open() && SUCCEEDED(client->Start());
     started.set_value(ready);
     if (ready) {
       while (running) {
@@ -159,7 +160,7 @@ AppAudioCapturer::AppAudioCapturer() : impl_(std::make_unique<Impl>()) {}
 
 AppAudioCapturer::~AppAudioCapturer() { Stop(); }
 
-bool AppAudioCapturer::Start(DWORD process_id, int64_t epoch_100ns, Sink sink) {
+bool AppAudioCapturer::Start(DWORD process_id, bool all_but_process, int64_t epoch_100ns, Sink sink) {
   Impl& state = *impl_;
   if (state.running) return false;
   if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) return false;
@@ -169,7 +170,7 @@ bool AppAudioCapturer::Start(DWORD process_id, int64_t epoch_100ns, Sink sink) {
   state.running = true;
   auto started = std::make_shared<std::promise<bool>>();
   auto outcome = started->get_future();
-  state.worker = std::thread([&state, started, process_id] { state.Run(*started, process_id); });
+  state.worker = std::thread([&state, started, process_id, all_but_process] { state.Run(*started, process_id, all_but_process); });
   if (outcome.get()) return true;
   Stop();
   return false;

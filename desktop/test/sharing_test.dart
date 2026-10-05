@@ -21,6 +21,12 @@ class _Harness {
             {'handle': window.handle, 'title': window.title, 'process': window.process, 'class': window.windowClass, 'width': window.width, 'height': window.height},
         ];
       }
+      if (call.method == 'displays') {
+        return [
+          for (final display in screens)
+            {'handle': display.handle, 'title': display.title, 'width': display.width, 'height': display.height, 'primary': display.primary},
+        ];
+      }
       if (call.method == 'alive') return [for (final handle in (call.arguments as Map)['handles'] as List) if (!gone.contains(handle)) handle];
       return null;
     });
@@ -42,6 +48,7 @@ class _Harness {
 
   final Set<int> gone = {};
   final List<ShareableWindow> open = [];
+  final List<ShareableWindow> screens = [];
   final List<String> saves = [];
 
   List<String> get methods => calls.map((call) => call.method).toList();
@@ -64,10 +71,28 @@ class _Harness {
 ShareableWindow _window(int handle, String title, {String process = 'app.exe', String windowClass = 'AppWindow'}) =>
     ShareableWindow(handle: handle, title: title, process: process, windowClass: windowClass, width: 1280, height: 720);
 
+ShareableWindow _display(int handle, String deviceName, {bool primary = false}) => ShareableWindow(
+      handle: handle,
+      title: deviceName,
+      process: '',
+      windowClass: '',
+      width: 2560,
+      height: 1440,
+      display: true,
+      primary: primary,
+    );
+
 String _saved(List<Map<String, Object?>> entries) => jsonEncode(entries);
 
-Map<String, Object?> _entry(String name, {String title = 'Notes', String process = 'app.exe', String windowClass = 'AppWindow', bool audio = false}) =>
-    {'name': name, 'title': title, 'process': process, 'class': windowClass, 'audio': audio};
+Map<String, Object?> _entry(
+  String name, {
+  String title = 'Notes',
+  String process = 'app.exe',
+  String windowClass = 'AppWindow',
+  bool audio = false,
+  bool display = false,
+}) =>
+    {'name': name, 'title': title, 'process': process, 'class': windowClass, 'audio': audio, 'display': display};
 
 Subscribe _request(String feed, int streamId, {bool audio = false, int width = 1280, int height = 720, int kbps = 3000}) =>
     Subscribe(streamId, feed, width, height, kbps, audio: audio);
@@ -507,6 +532,70 @@ void main() {
       final long = _Harness(saved: _saved([_entry('Long', title: 'x' * 5000)]));
       expect(long.sharing.shared, isEmpty);
       long.close();
+    });
+  });
+
+  group('displays', () {
+    const second = r'\\.\DISPLAY2';
+
+    test('a display is named after its number and saved as a display', () {
+      final window = harness.sharing.share(_display(1 << 62 | 5, second), audio: true);
+
+      expect(window.feedName, 'Display 2');
+      expect(jsonDecode(harness.saves.last), [_entry('Display 2', title: second, process: '', windowClass: '', audio: true, display: true)]);
+    });
+
+    test('the capture of a display starts with the handle the runner gave', () async {
+      final handle = 1 << 62 | 5;
+      harness.sharing.share(_display(handle, second), audio: true);
+
+      await harness.sharing.subscribe('phone', _request('Display 2', 1));
+
+      expect((harness.calls.single.arguments as Map)['handle'], handle);
+      expect((harness.calls.single.arguments as Map)['audio'], true);
+    });
+
+    test('after a restart a saved display is found again by its device name', () async {
+      harness.close();
+      harness = _Harness(saved: _saved([_entry('Display 2', title: second, process: '', windowClass: '', display: true)]));
+      harness.screens
+        ..add(_display(1 << 62 | 4, r'\\.\DISPLAY1', primary: true))
+        ..add(_display(1 << 62 | 5, second));
+      harness.open.add(_window(9, second));
+
+      await harness.sharing.tick(0);
+
+      expect(harness.sharing.shared.single.handle, 1 << 62 | 5);
+      expect(harness.sharing.feeds.map((feed) => feed.name), ['Display 2']);
+    });
+
+    test('a display that is unplugged waits and is found again when it comes back', () async {
+      final handle = 1 << 62 | 5;
+      final window = harness.sharing.share(_display(handle, second), audio: false);
+      harness.screens.add(_display(handle, second));
+
+      await harness.sharing.tick(10000);
+      expect(window.present, isTrue);
+      expect(harness.methods, ['displays']);
+
+      harness.screens.clear();
+      await harness.sharing.tick(20000);
+      expect(window.present, isFalse);
+      expect(harness.sharing.feeds, isEmpty);
+
+      harness.screens.add(_display(1 << 62 | 8, second));
+      await harness.sharing.tick(30000);
+      expect(window.handle, 1 << 62 | 8);
+    });
+
+    test('a window is never taken for a display of the same name', () async {
+      harness.close();
+      harness = _Harness(saved: _saved([_entry('Display 2', title: second, process: '', windowClass: '', display: true)]));
+      harness.open.add(_window(9, second, process: '', windowClass: ''));
+
+      await harness.sharing.tick(0);
+
+      expect(harness.sharing.shared.single.present, isFalse);
     });
   });
 }

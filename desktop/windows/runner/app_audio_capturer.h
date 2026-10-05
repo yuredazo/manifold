@@ -23,8 +23,8 @@ class AppAudioCapturer {
   AppAudioCapturer(const AppAudioCapturer&) = delete;
   AppAudioCapturer& operator=(const AppAudioCapturer&) = delete;
 
-  // Returns false if Windows cannot capture that process, for instance before Windows 10 build 20348.
-  bool Start(DWORD process_id, int64_t epoch_100ns, Sink sink);
+  // Returns false if Windows cannot capture that, for instance before Windows 10 build 20348.
+  bool Start(DWORD process_id, bool all_but_process, int64_t epoch_100ns, Sink sink);
   void Stop();
 
  private:

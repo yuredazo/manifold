@@ -39,6 +39,15 @@ inline int64_t FromWindow(HWND window) { return static_cast<int64_t>(reinterpret
 
 inline HWND ToWindow(int64_t handle) { return reinterpret_cast<HWND>(static_cast<intptr_t>(handle)); }
 
+// A bit no handle uses, so a window and a monitor never share a session key.
+constexpr int64_t kMonitorTag = int64_t{1} << 62;
+
+inline bool IsMonitor(int64_t handle) { return (handle & kMonitorTag) != 0; }
+
+inline int64_t FromMonitor(HMONITOR monitor) { return static_cast<int64_t>(reinterpret_cast<intptr_t>(monitor)) | kMonitorTag; }
+
+inline HMONITOR ToMonitor(int64_t handle) { return reinterpret_cast<HMONITOR>(static_cast<intptr_t>(handle & ~kMonitorTag)); }
+
 }  // namespace channel
 
 #endif  // RUNNER_CHANNEL_ARGS_H_

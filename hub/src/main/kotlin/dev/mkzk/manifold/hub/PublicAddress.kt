@@ -9,7 +9,7 @@ private const val TIMEOUT_MS = 6_000
 private const val MAX_BYTES = 64
 private val NUMERIC_ADDRESS = Regex("""[0-9]{1,3}(\.[0-9]{1,3}){3}|[0-9a-fA-F:]{2,45}""")
 
-/** Asks an outside service which address this phone's traffic comes from. Blocks, so not for the main thread. Null when it cannot say. */
+/** Blocks, so not for the main thread. */
 internal fun fetchPublicAddress(service: String = SERVICE): String? = try {
     val connection = (URL(service).openConnection() as HttpURLConnection).apply {
         connectTimeout = TIMEOUT_MS

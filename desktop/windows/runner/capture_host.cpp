@@ -61,6 +61,21 @@ BOOL CALLBACK CollectWindow(HWND window, LPARAM parameter) {
   return TRUE;
 }
 
+BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM parameter) {
+  MONITORINFOEXW info{};
+  info.cbSize = sizeof(info);
+  if (!GetMonitorInfoW(monitor, &info)) return TRUE;
+  auto* list = reinterpret_cast<EncodableList*>(parameter);
+  list->push_back(EncodableValue(EncodableMap{
+      {EncodableValue("handle"), EncodableValue(channel::FromMonitor(monitor))},
+      {EncodableValue("title"), EncodableValue(Utf8FromUtf16(info.szDevice))},
+      {EncodableValue("width"), EncodableValue(static_cast<int>(info.rcMonitor.right - info.rcMonitor.left))},
+      {EncodableValue("height"), EncodableValue(static_cast<int>(info.rcMonitor.bottom - info.rcMonitor.top))},
+      {EncodableValue("primary"), EncodableValue((info.dwFlags & MONITORINFOF_PRIMARY) != 0)},
+  }));
+  return TRUE;
+}
+
 // Which of the windows Dart asks about still exist, since a window that nobody is capturing cannot say it
 // closed.
 EncodableList StillOpen(const EncodableMap& arguments) {
@@ -90,6 +105,12 @@ CaptureHost::CaptureHost(flutter::BinaryMessenger* messenger, HWND message_windo
     if (call.method_name() == "windows") {
       EncodableList list;
       EnumWindows(CollectWindow, reinterpret_cast<LPARAM>(&list));
+      result->Success(EncodableValue(list));
+      return;
+    }
+    if (call.method_name() == "displays") {
+      EncodableList list;
+      EnumDisplayMonitors(nullptr, nullptr, CollectMonitor, reinterpret_cast<LPARAM>(&list));
       result->Success(EncodableValue(list));
       return;
     }
@@ -150,23 +171,35 @@ void CaptureHost::Send(const char* method, int64_t handle, EncodableMap fields) 
 
 void CaptureHost::Start(const EncodableMap& arguments, std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
   const int64_t handle = channel::Int(arguments, "handle");
-  HWND window = channel::ToWindow(handle);
+  const bool display = channel::IsMonitor(handle);
+  HWND window = display ? nullptr : channel::ToWindow(handle);
+  HMONITOR monitor = display ? channel::ToMonitor(handle) : nullptr;
   DWORD process_id = 0;
-  if (!IsWindow(window)) {
-    result->Error("no-window", "the window is gone");
-    return;
-  }
-  GetWindowThreadProcessId(window, &process_id);
-  if (process_id == GetCurrentProcessId()) {
-    result->Error("own-window", "this app's own windows cannot be shared");
-    return;
+  if (display) {
+    MONITORINFO info{sizeof(info)};
+    if (!GetMonitorInfoW(monitor, &info)) {
+      result->Error("no-display", "the display is gone");
+      return;
+    }
+    // Everything this computer plays except this app, whose own player windows would feed the sound back.
+    process_id = GetCurrentProcessId();
+  } else {
+    if (!IsWindow(window)) {
+      result->Error("no-window", "the window is gone");
+      return;
+    }
+    GetWindowThreadProcessId(window, &process_id);
+    if (process_id == GetCurrentProcessId()) {
+      result->Error("own-window", "this app's own windows cannot be shared");
+      return;
+    }
   }
   Stop(handle);
 
   auto session = std::make_unique<Session>();
   const int64_t epoch = NowIn100ns();
   const bool started = session->video.Start(
-      window, static_cast<int>(channel::Int(arguments, "width")), static_cast<int>(channel::Int(arguments, "height")),
+      window, monitor, static_cast<int>(channel::Int(arguments, "width")), static_cast<int>(channel::Int(arguments, "height")),
       static_cast<int>(channel::Int(arguments, "bitrateKbps")), epoch,
       [this, handle](EncodedVideo frame) {
         Post([this, handle, frame = std::move(frame)]() mutable {
@@ -184,7 +217,7 @@ void CaptureHost::Start(const EncodableMap& arguments, std::unique_ptr<flutter::
         });
       });
   if (!started) {
-    result->Error("capture-failed", "Windows could not capture that window");
+    result->Error("capture-failed", display ? "Windows could not capture that display" : "Windows could not capture that window");
     return;
   }
   if (channel::Bool(arguments, "audio")) {
@@ -192,8 +225,8 @@ void CaptureHost::Start(const EncodableMap& arguments, std::unique_ptr<flutter::
     // Windows takes a second or two to hand out the sound of an application, and this thread is the
     // one that sends the picture on, so the picture must not wait for it.
     Session* owner = session.get();
-    session->audio_start = std::async(std::launch::async, [this, handle, process_id, epoch, owner] {
-      return owner->audio.Start(process_id, epoch, [this, handle](EncodedAudio frame) {
+    session->audio_start = std::async(std::launch::async, [this, handle, process_id, display, epoch, owner] {
+      return owner->audio.Start(process_id, display, epoch, [this, handle](EncodedAudio frame) {
         Post([this, handle, frame = std::move(frame)]() mutable {
           Send("audio", handle,
                EncodableMap{{EncodableValue("timestamp"), EncodableValue(frame.timestamp)},

@@ -20,11 +20,11 @@ class SharePage extends StatelessWidget {
         final allowed = network.book.devices.value.where((device) => device.send).length;
         return PageFrame(
           title: 'Share',
-          subtitle: 'Offer any window to your devices, with the sound of its application.',
+          subtitle: 'Offer a window or a whole display to your devices, with sound.',
           action: FilledButton.icon(
             onPressed: () => showDialog<void>(context: context, builder: (_) => _PickWindow(sharing)),
             icon: const Icon(Icons.add),
-            label: const Text('Share a window'),
+            label: const Text('Share'),
           ),
           children: [
             if (sharing.problem != null) ...[_Problem(sharing), const SizedBox(height: 12)],
@@ -43,7 +43,7 @@ class SharePage extends StatelessWidget {
               const EmptyState(
                 icon: Icons.present_to_all_outlined,
                 title: 'Nothing is shared',
-                message: 'A window is only captured while a device is watching it.',
+                message: 'It is only captured while a device is watching it.',
               )
             else ...[
               const SizedBox(height: 20),
@@ -101,9 +101,14 @@ class _SharedRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   [
-                    window.process,
+                    window.display ? 'display' : window.process,
                     if (window.withAudio) 'with sound',
-                    if (!window.present) 'waiting for the window' else if (watching == 0) 'nobody watching' else '$watching watching',
+                    if (!window.present)
+                      window.display ? 'waiting for the display' : 'waiting for the window'
+                    else if (watching == 0)
+                      'nobody watching'
+                    else
+                      '$watching watching',
                   ].join(' · '),
                   style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                 ),
@@ -127,8 +132,10 @@ class _PickWindow extends StatefulWidget {
 }
 
 class _PickWindowState extends State<_PickWindow> {
-  late Future<List<ShareableWindow>> _windows = widget.sharing.windows();
+  late Future<List<ShareableWindow>> _choices = _find();
   bool _withAudio = true;
+
+  Future<List<ShareableWindow>> _find() async => [...await widget.sharing.displays(), ...await widget.sharing.windows()];
 
   @override
   Widget build(BuildContext context) {
@@ -136,11 +143,11 @@ class _PickWindowState extends State<_PickWindow> {
     return AlertDialog(
       title: Row(
         children: [
-          const Expanded(child: Text('Pick a window')),
+          const Expanded(child: Text('Pick what to share')),
           IconButton(
             tooltip: 'Look again',
             onPressed: () => setState(() {
-              _windows = widget.sharing.windows();
+              _choices = _find();
             }),
             icon: const Icon(Icons.refresh),
           ),
@@ -153,21 +160,22 @@ class _PickWindowState extends State<_PickWindow> {
           children: [
             Expanded(
               child: FutureBuilder(
-                future: _windows,
+                future: _choices,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
                   final shared = widget.sharing.shared.map((window) => window.handle).toSet();
-                  final windows = (snapshot.data ?? const <ShareableWindow>[]).where((window) => !shared.contains(window.handle)).toList();
-                  if (windows.isEmpty) return const Center(child: Text('There is no other window to share.'));
+                  final choices = (snapshot.data ?? const <ShareableWindow>[]).where((choice) => !shared.contains(choice.handle)).toList();
+                  if (choices.isEmpty) return const Center(child: Text('There is nothing else to share.'));
                   return ListView(
                     children: [
-                      for (final window in windows)
+                      for (final choice in choices)
                         ListTile(
                           dense: true,
-                          title: Text(window.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(window.process),
+                          leading: Icon(choice.display ? Icons.desktop_windows_outlined : Icons.web_asset_outlined, size: 20),
+                          title: Text(choice.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(choice.display ? '${choice.width}x${choice.height}${choice.primary ? ' · main display' : ''}' : choice.process),
                           onTap: () {
-                            widget.sharing.share(window, audio: _withAudio);
+                            widget.sharing.share(choice, audio: _withAudio);
                             Navigator.of(context).pop();
                           },
                         ),
@@ -181,8 +189,11 @@ class _PickWindowState extends State<_PickWindow> {
               contentPadding: EdgeInsets.zero,
               dense: true,
               controlAffinity: ListTileControlAffinity.leading,
-              title: const Text('Include the sound of that application'),
-              subtitle: Text('Sound from other applications stays out.', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+              title: const Text('Include sound'),
+              subtitle: Text(
+                'A window brings the sound of its application only. A display brings everything this computer plays except Manifold.',
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              ),
               value: _withAudio,
               onChanged: (on) => setState(() => _withAudio = on ?? true),
             ),

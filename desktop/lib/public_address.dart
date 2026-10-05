@@ -3,7 +3,6 @@ import 'dart:io';
 
 final _service = Uri.parse('https://api.ipify.org');
 
-/// Asks an outside service which address this computer's traffic comes from. Null when it cannot say.
 Future<String?> findPublicAddress({Uri? service, Duration timeout = const Duration(seconds: 6)}) async {
   final client = HttpClient()..connectionTimeout = timeout;
   try {

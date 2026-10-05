@@ -19,7 +19,6 @@ private const val SEALED_PREFIX = "sealed:"
 private const val IV_BYTES = 12
 private const val TAG_BITS = 128
 
-/** Encrypts the identity key with a key that never leaves the hardware or the system's key store. */
 internal interface Sealer {
     fun seal(plain: ByteArray): ByteArray
 
@@ -57,11 +56,7 @@ internal class KeystoreSealer(private val alias: String = "manifold-identity") :
     }
 }
 
-/**
- * The identity key is stored sealed. A key written unsealed by an earlier version is sealed on first read.
- * If this device cannot seal at all, the key is kept as before, since a hub that forgets its identity on every
- * start could never stay paired.
- */
+// A device that cannot seal keeps the key unsealed: a hub that forgets its identity on every start could never stay paired.
 internal fun loadIdentityKeys(read: () -> String?, write: (String) -> Unit, sealer: Sealer): KeyPair {
     val stored = read()
     val legacy = stored?.takeIf { !it.startsWith(SEALED_PREFIX) }?.fromHex()?.takeIf { it.size == Crypto.KEY_LENGTH }

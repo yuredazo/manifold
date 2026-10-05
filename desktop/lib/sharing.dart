@@ -32,15 +32,28 @@ final class ShareableWindow {
     required this.windowClass,
     required this.width,
     required this.height,
+    this.display = false,
+    this.primary = false,
   });
 
   final int handle;
+
+  /// The device name, such as `\\.\DISPLAY1`, for a display.
   final String title;
   final String process;
   final String windowClass;
 
   final int width;
   final int height;
+  final bool display;
+  final bool primary;
+
+  String get label => display ? displayLabel(title) : title;
+}
+
+String displayLabel(String deviceName) {
+  final number = RegExp(r'(\d+)$').firstMatch(deviceName)?.group(1);
+  return number == null ? 'Display' : 'Display $number';
 }
 
 final class Watcher {
@@ -62,6 +75,7 @@ final class SharedWindow {
     required this.process,
     required this.windowClass,
     required this.withAudio,
+    this.display = false,
     this.handle = 0,
     this.width = 1280,
     this.height = 720,
@@ -74,6 +88,7 @@ final class SharedWindow {
   final String process;
   final String windowClass;
   final bool withAudio;
+  final bool display;
 
   /// Zero while the window is not open. The share stays saved and is not offered until a matching window shows up.
   int handle;
@@ -130,31 +145,57 @@ final class Sharing extends ChangeNotifier {
     ];
   }
 
+  Future<List<ShareableWindow>> displays() async {
+    final found = await _channel.invokeListMethod<Map>('displays') ?? const [];
+    return [
+      for (final entry in found)
+        ShareableWindow(
+          handle: entry['handle'] as int,
+          title: entry['title'] as String,
+          process: '',
+          windowClass: '',
+          width: entry['width'] as int,
+          height: entry['height'] as int,
+          display: true,
+          primary: entry['primary'] as bool,
+        ),
+    ];
+  }
+
   /// A window that is being watched says so itself, but one that nobody watches is only noticed by asking.
   Future<void> tick(int nowMs) async {
     if (shared.isEmpty || nowMs - _lastCheck < _checkEveryMs) return;
     _lastCheck = nowMs;
     final present = shared.where((window) => window.present).toList();
-    if (present.isNotEmpty) {
-      final open = await _channel.invokeListMethod<int>('alive', {'handles': [for (final window in present) window.handle]}) ?? const [];
-      for (final window in present) {
+    final windowsOpen = present.where((window) => !window.display).toList();
+    if (windowsOpen.isNotEmpty) {
+      final open = await _channel.invokeListMethod<int>('alive', {'handles': [for (final window in windowsOpen) window.handle]}) ?? const [];
+      for (final window in windowsOpen) {
         if (!open.contains(window.handle)) _lose(window);
+      }
+    }
+    if (present.any((window) => window.display)) {
+      final connected = {for (final display in await displays()) display.handle};
+      for (final window in present.where((window) => window.display)) {
+        if (!connected.contains(window.handle)) _lose(window);
       }
     }
     if (shared.any((window) => !window.present)) await _findAbsent();
   }
 
   Future<void> _findAbsent() async {
-    final open = await windows();
+    final absent = shared.where((window) => !window.present).toList();
+    final open = [
+      if (absent.any((window) => !window.display)) ...await windows(),
+      if (absent.any((window) => window.display)) ...await displays(),
+    ];
     final taken = {for (final window in shared) if (window.present) window.handle};
     var found = false;
-    for (final window in shared.where((window) => !window.present)) {
-      final match = findWindow(
-        title: window.title,
-        windowClass: window.windowClass,
-        process: window.process,
-        candidates: open.where((entry) => !taken.contains(entry.handle)),
-      );
+    for (final window in absent) {
+      final candidates = open.where((entry) => entry.display == window.display && !taken.contains(entry.handle));
+      final match = window.display
+          ? candidates.where((entry) => entry.title == window.title).firstOrNull
+          : findWindow(title: window.title, windowClass: window.windowClass, process: window.process, candidates: candidates);
       if (match == null) continue;
       window
         ..handle = match.handle
@@ -194,6 +235,7 @@ final class Sharing extends ChangeNotifier {
       width: window.width,
       height: window.height,
       withAudio: audio,
+      display: window.display,
     );
     shared.add(entry);
     _saveAll();
@@ -211,7 +253,6 @@ final class Sharing extends ChangeNotifier {
     feedsChanged();
   }
 
-  /// Null when the stream is being served, otherwise why it is not.
   Future<Refusal?> subscribe(String deviceKey, Subscribe request) async {
     final window = _named(request.feed);
     if (window == null || !window.present) return Refusal.notFound;
@@ -328,7 +369,14 @@ final class Sharing extends ChangeNotifier {
   void _saveAll() {
     saveShares?.call(jsonEncode([
       for (final window in shared)
-        {'name': window.feedName, 'title': window.title, 'process': window.process, 'class': window.windowClass, 'audio': window.withAudio},
+        {
+          'name': window.feedName,
+          'title': window.title,
+          'process': window.process,
+          'class': window.windowClass,
+          'audio': window.withAudio,
+          'display': window.display,
+        },
     ]));
   }
 
@@ -348,12 +396,19 @@ final class Sharing extends ChangeNotifier {
       final windowClass = entry['class'];
       if (name is! String || title is! String || process is! String || windowClass is! String) continue;
       if ([name, title, process, windowClass].any((value) => value.length > _maxSavedText) || name.isEmpty || _named(name) != null) continue;
-      shared.add(SharedWindow(feedName: name, title: title, process: process, windowClass: windowClass, withAudio: entry['audio'] == true));
+      shared.add(SharedWindow(
+        feedName: name,
+        title: title,
+        process: process,
+        windowClass: windowClass,
+        withAudio: entry['audio'] == true,
+        display: entry['display'] == true,
+      ));
     }
   }
 
   String _feedNameFor(ShareableWindow window) {
-    var base = window.title.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), ' ').trim();
+    var base = window.label.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), ' ').trim();
     if (base.isEmpty) base = window.process;
     if (base.length > maxNameLength - 4) base = base.substring(0, maxNameLength - 4).trimRight();
     var name = base;

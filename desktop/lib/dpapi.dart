@@ -6,10 +6,8 @@ import 'package:win32/win32.dart';
 
 const _noPrompt = 0x1;
 
-/// Encrypts with a key held by Windows for the signed-in user, so the bytes are useless on another account or another computer.
 Uint8List protect(Uint8List plain) => _run(plain, (input, output) => CryptProtectData(input, null, null, null, _noPrompt, output).value);
 
-/// Null when the bytes were not protected for this user.
 Uint8List? unprotect(Uint8List sealed) {
   try {
     return _run(sealed, (input, output) => CryptUnprotectData(input, null, null, null, _noPrompt, output).value);

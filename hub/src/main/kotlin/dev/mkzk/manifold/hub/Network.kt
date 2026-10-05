@@ -60,7 +60,6 @@ internal data class NetworkState(
     val online: Set<String> = emptySet(),
     val remoteFeeds: Map<String, List<FeedInfo>> = emptyMap(),
     val streams: List<StreamSnapshot> = emptyList(),
-    /** Feeds another device would not send, by device key and then feed name, until its feed list changes. */
     val refused: Map<String, Map<String, Control.Refusal>> = emptyMap(),
 )
 

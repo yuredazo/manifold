@@ -9,7 +9,7 @@ import 'net/devices.dart';
 const _identityFile = 'identity.key';
 const _sealedPrefix = 'dpapi:';
 
-/// Files are readable by programs running as the same user. The identity key is protected by Windows for that user.
+/// Files are readable by programs running as the same user. Only the identity key is protected.
 final class Storage {
   Storage._(this._directory);
 
@@ -38,7 +38,7 @@ final class Storage {
   /// The name is the computer's name, which is what the phone shows when it asks to pair.
   Identity loadIdentity() => Identity(_loadKeys(), Platform.localHostname);
 
-  /// A key an earlier version wrote as plain hex is protected on first read.
+  // 1.0.0 wrote the key as plain hex.
   KeyPair _loadKeys() {
     final stored = read(_identityFile)?.trim();
     Uint8List? private;

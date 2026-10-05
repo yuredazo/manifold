@@ -90,7 +90,6 @@ final class Network extends ChangeNotifier {
   final Set<String> online = {};
   final Map<String, List<FeedInfo>> remoteFeeds = {};
 
-  /// Feeds another device would not send, by device key and feed name, until its feed list changes.
   final Map<String, Map<String, Refusal>> refused = {};
 
   late final Watching watching;

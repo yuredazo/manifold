@@ -91,7 +91,7 @@ final class Subscribe extends Control {
   int get hashCode => Object.hash(streamId, feed, width, height, bitrateKbps, audio, fps);
 }
 
-/// Why a [Subscribe] got no stream. A reason this version does not know reads as [failed].
+/// A reason this version does not know reads as [failed].
 enum Refusal {
   notShared(1),
   notFound(2),

@@ -33,7 +33,7 @@ internal sealed interface Control {
         }
     }
 
-    /** Why a [Subscribe] got no stream. A reason this version does not know reads as [FAILED]. */
+    /** A reason this version does not know reads as [FAILED]. */
     enum class Refusal(val code: Int) {
         NOT_SHARED(1),
         NOT_FOUND(2),
