@@ -4,7 +4,7 @@ Manifold lets one Android app send live video, and optionally audio, to another 
 
 A small hub app introduces the two sides, and the person who owns the phone decides which apps may receive. The hub never sees a frame. If the hub is killed or updated, the feeds keep running and the SDK reconnects on its own. Hubs on different devices (phones, and a Windows PC) can also pair and share feeds over the network.
 
-Status: SDK 1.0.0, hub 1.0.1, protocol version 1, minimum Android SDK 24. Tested on two Android 14 phones and Windows 11.
+Status: SDK 1.0.0, hub 1.0.2, protocol version 1, minimum Android SDK 24. Tested on two Android 14 phones and Windows 11.
 
 ## How it works
 
