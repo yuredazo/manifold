@@ -10,38 +10,46 @@ import java.util.concurrent.atomic.AtomicReference
 
 private const val TAG = "Manifold"
 
+/** Unknown values count as pending, so a newer hub cannot open a door by accident. */
+internal fun accessOf(wire: Int): ManifoldReceiver.Access = when (wire) {
+    Manifold.ACCESS_ALLOWED -> ManifoldReceiver.Access.ALLOWED
+    Manifold.ACCESS_BLOCKED -> ManifoldReceiver.Access.BLOCKED
+    else -> ManifoldReceiver.Access.PENDING
+}
+
 /**
- * Watches Manifold senders: delivers the live list of them and subscribes to
- * their video, and optionally audio.
- *
- * A subscription survives hub restarts and a sender that is not running yet:
- * it is re-issued when the hub is back and delivered when the sender appears.
- * The receiver keeps ownership of the surface and audio pipe it passes in and
- * releases them after [unsubscribe]. Methods can be called from any thread.
- * Listener methods run on [callbackExecutor], which is the main thread by
- * default. Start it once and always stop it.
+ * Lists announced senders and subscribes to their video, and optionally audio, surviving hub restarts. Callbacks run on
+ * [callbackExecutor]. You keep the surface and audio pipe you pass in and release them after [unsubscribe].
  */
 public class ManifoldReceiver @JvmOverloads constructor(
     context: Context,
     private val listener: Listener,
     private val callbackExecutor: Executor = MainThreadExecutor,
 ) {
+    public enum class Access {
+        /** Nobody has decided yet; nothing is delivered. */
+        PENDING,
+
+        ALLOWED,
+
+        /** Nothing is delivered and the sender list is empty. */
+        BLOCKED,
+    }
+
     public interface Listener {
-        /**
-         * Every sender that is announced right now, sent on each change. Each
-         * [SenderInfo.name] is unique; [SenderInfo.label] and
-         * [SenderInfo.packageName] come from the system, not from the sender.
-         * The list is empty while the hub is unreachable.
-         */
+        /** Every announced sender, on each change. Empty while the hub is unreachable. */
         public fun onSenders(senders: List<SenderInfo>)
 
         public fun onConnectionChanged(connected: Boolean) {}
 
-        /** The hub turned this receiver down, for example because it already has too many. */
+        /** The hub refused this receiver, for example because it has too many. */
         public fun onRegistrationRefused() {}
 
-        /** The hub turned a subscription down, for example because this app already has too many. */
+        /** The hub refused a subscription, for example because this app has too many. */
         public fun onSubscriptionRefused(subscription: Subscription) {}
+
+        /** Where the owner stands on this app. Use it to tell the user to approve the app in Manifold. */
+        public fun onAccessChanged(subscription: Subscription, access: Access) {}
     }
 
     /** One watched sender. Stays valid across hub restarts until [unsubscribe]. */
@@ -66,6 +74,14 @@ public class ManifoldReceiver @JvmOverloads constructor(
     private val callback = object : IManifoldReceiver.Stub() {
         override fun onSenders(senders: List<SenderInfo>) {
             callbackExecutor.execute { listener.onSenders(senders) }
+        }
+
+        override fun onAccess(subscriptionId: String, access: Int) {
+            // Posting to the worker means hubId is set by the time this runs.
+            connection.worker.post {
+                val subscription = wanted.firstOrNull { it.hubId == subscriptionId } ?: return@post
+                callbackExecutor.execute { listener.onAccessChanged(subscription, accessOf(access)) }
+            }
         }
     }
 
@@ -103,9 +119,8 @@ public class ManifoldReceiver @JvmOverloads constructor(
     }
 
     /**
-     * Watches [senderName], which may not be running yet. The sender renders
-     * into [surface] at [width] x [height] and, if [audioSink] is given, writes
-     * [Manifold.AUDIO_SAMPLE_RATE] Hz stereo 16-bit PCM into it.
+     * Watches [senderName], which may not be running yet. The sender draws into [surface]; with an
+     * [audioSink] it also writes [Manifold.AUDIO_SAMPLE_RATE] Hz stereo 16-bit PCM.
      */
     @JvmOverloads
     public fun subscribe(
@@ -155,8 +170,10 @@ public class ManifoldReceiver @JvmOverloads constructor(
         connection.close()
     }
 
+    override fun toString(): String = "ManifoldReceiver(state=${state.get()})"
+
     private fun issue(hub: IManifoldHub, subscription: Subscription) {
-        subscription.hubId = try {
+        val id = try {
             hub.subscribe(
                 callback,
                 subscription.senderName,
@@ -166,13 +183,16 @@ public class ManifoldReceiver @JvmOverloads constructor(
                 subscription.audioSink,
             )
         } catch (e: RemoteException) {
+            // The hub died mid-call. It is not a refusal: the subscription is issued again when the hub is
+            // back.
             Log.w(TAG, "subscribe failed", e)
-            null
+            return
         } catch (e: RuntimeException) {
             Log.e(TAG, "hub refused the subscription to '${subscription.senderName}'", e)
             null
         }
-        if (subscription.hubId == null) {
+        subscription.hubId = id
+        if (id == null) {
             callbackExecutor.execute { listener.onSubscriptionRefused(subscription) }
         }
     }

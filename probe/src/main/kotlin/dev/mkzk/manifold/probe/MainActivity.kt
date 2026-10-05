@@ -20,11 +20,6 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * Receiver side of the probe and the test driver. Run a scenario with
- * `adb shell am start -n dev.mkzk.manifold.probe/.MainActivity --es phase <name>`
- * and read the lines tagged PROBE from logcat.
- */
 class MainActivity : Activity() {
 
     private val imageThread = HandlerThread("probe-images").apply { start() }
@@ -33,7 +28,6 @@ class MainActivity : Activity() {
     @Volatile private var senders: List<String> = emptyList()
     @Volatile private var connected = false
 
-    /** One watched surface: counts frames, which colours arrived, and audio bytes. */
     private inner class Watch(withAudio: Boolean) {
         val frames = AtomicInteger()
         val audioBytes = AtomicLong()

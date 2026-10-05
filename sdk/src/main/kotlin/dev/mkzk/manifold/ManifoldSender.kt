@@ -11,17 +11,8 @@ import java.util.concurrent.atomic.AtomicReference
 private const val TAG = "Manifold"
 
 /**
- * Publishes a video feed, and optionally audio, through the Manifold hub.
- *
- * Call [start] once to announce the feed, then wait. Nothing needs to be drawn
- * until [Listener.onSubscribe], and drawing must stop when
- * [Listener.onUnsubscribe] fires. If the hub restarts, every subscription ends
- * and is delivered again once it is back. [stop] ends them too.
- *
- * The sender owns the surface and audio pipe of each [Subscription] and has to
- * release them when it ends. Methods can be called from any thread. Listener
- * methods run on [callbackExecutor], which is the main thread by default.
- * Use one instance per feed, start it once, and always stop it.
+ * Publishes a video feed, and optionally audio. Draw only between [Listener.onSubscribe] and [Listener.onUnsubscribe], and
+ * release each subscription's surface and audio pipe when it ends. Callbacks run on [callbackExecutor].
  */
 public class ManifoldSender @JvmOverloads constructor(
     context: Context,
@@ -61,34 +52,38 @@ public class ManifoldSender @JvmOverloads constructor(
                 fps == other.fps && hasAudio == other.hasAudio
 
         override fun hashCode(): Int {
-            var result = name.hashCode()
-            result = 31 * result + width
-            result = 31 * result + height
-            result = 31 * result + fps
-            result = 31 * result + hasAudio.hashCode()
-            return result
+            var hash = name.hashCode()
+            hash = 31 * hash + width
+            hash = 31 * hash + height
+            hash = 31 * hash + fps
+            hash = 31 * hash + hasAudio.hashCode()
+            return hash
         }
 
         override fun toString(): String = "Config(name=$name, width=$width, height=$height, fps=$fps, hasAudio=$hasAudio)"
     }
 
-    /** One receiver watching this feed. Render into [surface] at [width] x [height]. */
     public class Subscription internal constructor(
         public val id: String,
         public val surface: Surface,
         public val width: Int,
         public val height: Int,
-        /** Write [Manifold.AUDIO_SAMPLE_RATE] Hz stereo 16-bit PCM here, or null if the receiver wants no audio. */
+        /**
+         * Write [Manifold.AUDIO_SAMPLE_RATE] Hz stereo 16-bit PCM here, or null if the receiver wants no
+         * audio.
+         */
         public val audioSink: ParcelFileDescriptor?,
     ) {
         override fun toString(): String = "Subscription(id=$id, ${width}x$height, audio=${audioSink != null})"
     }
 
     public interface Listener {
-        /** The hub accepted the feed under [registeredName], which has a suffix if another app already holds the name. */
+        /**
+         * The hub accepted the feed as [registeredName], which has a suffix if another app holds the name.
+         */
         public fun onRegistered(registeredName: String) {}
 
-        /** The hub turned the feed down, for example because it already has too many senders. */
+        /** The hub refused the feed, for example because it has too many senders. */
         public fun onRegistrationRefused() {}
 
         /** The hub is unreachable. Existing subscriptions have ended; the sender reconnects by itself. */
@@ -168,7 +163,7 @@ public class ManifoldSender @JvmOverloads constructor(
         connection.open()
     }
 
-    /** Changes the announced size, frame rate or audio flag. The name stays as it was. */
+    /** Changes the announced size, frame rate or audio flag; the name cannot change. */
     public fun update(config: Config) {
         check(state.get() == State.STARTED) { "the sender is not running" }
         require(config.name == this.config.name) { "the name of a running sender cannot change" }
@@ -183,7 +178,10 @@ public class ManifoldSender @JvmOverloads constructor(
         }
     }
 
-    /** Unannounces the feed. Subscriptions still running end with [Listener.onUnsubscribe]. Safe to call more than once. */
+    /**
+     * Unannounces the feed. Subscriptions still running end with [Listener.onUnsubscribe]. Safe to call
+     * more than once.
+     */
     public fun stop() {
         if (state.getAndSet(State.STOPPED) == State.STOPPED) return
         connection.worker.post {
@@ -198,6 +196,8 @@ public class ManifoldSender @JvmOverloads constructor(
         }
         connection.close()
     }
+
+    override fun toString(): String = "ManifoldSender(name=${config.name}, state=${state.get()})"
 
     private fun info() = SenderInfo().also {
         val c = config

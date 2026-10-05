@@ -1,10 +1,6 @@
 package dev.mkzk.manifold;
 
-/**
- * What a sender announces about itself. The hub overwrites [label] and
- * [packageName] with the caller's real identity, so receivers can trust them.
- * New fields go at the end: older readers skip what they do not know.
- */
+/** The hub overwrites [label] and [packageName] with the caller's real identity. New fields go at the end. */
 parcelable SenderInfo {
     String name;
     String label;

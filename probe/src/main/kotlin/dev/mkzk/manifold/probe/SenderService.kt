@@ -14,10 +14,6 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.PI
 import kotlin.math.sin
 
-/**
- * Sender side of the probe, in its own process. Draws cycling red, green and
- * blue frames and a 440 Hz tone into whatever it is subscribed to.
- */
 class SenderService : Service() {
 
     private val senders = HashMap<String, ManifoldSender>()

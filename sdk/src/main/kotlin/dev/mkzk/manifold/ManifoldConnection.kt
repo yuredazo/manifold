@@ -16,18 +16,15 @@ import android.util.Log
 
 private const val TAG = "Manifold"
 
+private const val RETRY_MIN_MS = 1_000L
+private const val RETRY_MAX_MS = 30_000L
+
+/** With no hub installed there is nothing to find by polling; the install broadcast does the work. */
+private const val RETRY_MAX_NOT_INSTALLED_MS = 300_000L
+
 /**
- * One binding to the hub that heals itself: if the hub is missing, updated,
- * force-stopped or killed, it keeps trying until the hub is back. The system
- * restarts a killed service by itself, but a force-stopped one is silently
- * dropped from every binding, so waiting for the system is not enough. While
- * the hub is not installed at all it polls rarely and instead listens for the
- * install, so a hub installed from inside the app is picked up at once.
- *
- * Everything, including the listener callbacks, runs on [worker], so callers
- * can use [IManifoldHub] without worrying about the main thread.
- *
- * One-shot: build it, [open] it, [close] it, and make a new one to start over.
+ * One binding to the hub that rebinds when it is missing, updated, force-stopped or killed. Polls rarely while the hub is
+ * not installed and listens for the install. Runs on [worker]. One-shot: [open], [close], then make a new one.
  */
 internal class ManifoldConnection(context: Context, private val listener: Listener) {
 
@@ -157,7 +154,6 @@ internal class ManifoldConnection(context: Context, private val listener: Listen
         retryDelayMs = (retryDelayMs * 2).coerceAtMost(cap)
     }
 
-    /** Wakes the retry the moment the hub package is installed or updated. */
     private fun watchForInstalls() {
         if (watchingInstalls) return
         val filter = IntentFilter().apply {
@@ -190,13 +186,5 @@ internal class ManifoldConnection(context: Context, private val listener: Listen
         } catch (_: IllegalArgumentException) {
             // Was not bound.
         }
-    }
-
-    private companion object {
-        const val RETRY_MIN_MS = 1_000L
-        const val RETRY_MAX_MS = 30_000L
-
-        /** With no hub installed there is nothing to find by polling; the install broadcast does the work. */
-        const val RETRY_MAX_NOT_INSTALLED_MS = 300_000L
     }
 }

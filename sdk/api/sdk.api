@@ -36,12 +36,14 @@ public class dev/mkzk/manifold/IManifoldHub$_Parcel {
 
 public abstract interface class dev/mkzk/manifold/IManifoldReceiver : android/os/IInterface {
 	public static final field DESCRIPTOR Ljava/lang/String;
+	public abstract fun onAccess (Ljava/lang/String;I)V
 	public abstract fun onSenders (Ljava/util/List;)V
 }
 
 public class dev/mkzk/manifold/IManifoldReceiver$Default : dev/mkzk/manifold/IManifoldReceiver {
 	public fun <init> ()V
 	public fun asBinder ()Landroid/os/IBinder;
+	public fun onAccess (Ljava/lang/String;I)V
 	public fun onSenders (Ljava/util/List;)V
 }
 
@@ -81,6 +83,9 @@ public class dev/mkzk/manifold/IManifoldSender$_Parcel {
 }
 
 public final class dev/mkzk/manifold/Manifold {
+	public static final field ACCESS_ALLOWED I
+	public static final field ACCESS_BLOCKED I
+	public static final field ACCESS_PENDING I
 	public static final field ACTION_BIND Ljava/lang/String;
 	public static final field AUDIO_CHANNELS I
 	public static final field AUDIO_SAMPLE_RATE I
@@ -102,10 +107,21 @@ public final class dev/mkzk/manifold/ManifoldReceiver {
 	public final fun subscribe (Ljava/lang/String;Landroid/view/Surface;II)Ldev/mkzk/manifold/ManifoldReceiver$Subscription;
 	public final fun subscribe (Ljava/lang/String;Landroid/view/Surface;IILandroid/os/ParcelFileDescriptor;)Ldev/mkzk/manifold/ManifoldReceiver$Subscription;
 	public static synthetic fun subscribe$default (Ldev/mkzk/manifold/ManifoldReceiver;Ljava/lang/String;Landroid/view/Surface;IILandroid/os/ParcelFileDescriptor;ILjava/lang/Object;)Ldev/mkzk/manifold/ManifoldReceiver$Subscription;
+	public fun toString ()Ljava/lang/String;
 	public final fun unsubscribe (Ldev/mkzk/manifold/ManifoldReceiver$Subscription;)V
 }
 
+public final class dev/mkzk/manifold/ManifoldReceiver$Access : java/lang/Enum {
+	public static final field ALLOWED Ldev/mkzk/manifold/ManifoldReceiver$Access;
+	public static final field BLOCKED Ldev/mkzk/manifold/ManifoldReceiver$Access;
+	public static final field PENDING Ldev/mkzk/manifold/ManifoldReceiver$Access;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/mkzk/manifold/ManifoldReceiver$Access;
+	public static fun values ()[Ldev/mkzk/manifold/ManifoldReceiver$Access;
+}
+
 public abstract interface class dev/mkzk/manifold/ManifoldReceiver$Listener {
+	public fun onAccessChanged (Ldev/mkzk/manifold/ManifoldReceiver$Subscription;Ldev/mkzk/manifold/ManifoldReceiver$Access;)V
 	public fun onConnectionChanged (Z)V
 	public fun onRegistrationRefused ()V
 	public abstract fun onSenders (Ljava/util/List;)V
@@ -123,6 +139,7 @@ public final class dev/mkzk/manifold/ManifoldSender {
 	public synthetic fun <init> (Landroid/content/Context;Ldev/mkzk/manifold/ManifoldSender$Config;Ldev/mkzk/manifold/ManifoldSender$Listener;Ljava/util/concurrent/Executor;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun start ()V
 	public final fun stop ()V
+	public fun toString ()Ljava/lang/String;
 	public final fun update (Ldev/mkzk/manifold/ManifoldSender$Config;)V
 }
 

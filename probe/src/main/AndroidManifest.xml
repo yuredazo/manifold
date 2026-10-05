@@ -13,6 +13,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".WatchActivity"
+            android:exported="true" />
+
         <service
             android:name=".SenderService"
             android:exported="false"
