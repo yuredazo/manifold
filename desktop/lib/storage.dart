@@ -1,9 +1,15 @@
 import 'dart:io';
 
+import 'dart:typed_data';
+
+import 'dpapi.dart';
 import 'net/crypto.dart';
 import 'net/devices.dart';
 
-/// Another program running as the same user could read it, as with the phone's private storage.
+const _identityFile = 'identity.key';
+const _sealedPrefix = 'dpapi:';
+
+/// Files are readable by programs running as the same user. The identity key is protected by Windows for that user.
 final class Storage {
   Storage._(this._directory);
 
@@ -30,18 +36,29 @@ final class Storage {
   }
 
   /// The name is the computer's name, which is what the phone shows when it asks to pair.
-  Identity loadIdentity() {
-    final stored = read('identity.key')?.trim();
-    final private = stored == null ? null : fromHex(stored);
-    final keys = private != null && private.length == Crypto.keyLength ? Crypto.keyPairFrom(private) : _create();
-    return Identity(keys, Platform.localHostname);
+  Identity loadIdentity() => Identity(_loadKeys(), Platform.localHostname);
+
+  /// A key an earlier version wrote as plain hex is protected on first read.
+  KeyPair _loadKeys() {
+    final stored = read(_identityFile)?.trim();
+    Uint8List? private;
+    if (stored != null && stored.startsWith(_sealedPrefix)) {
+      final sealed = fromHex(stored.substring(_sealedPrefix.length));
+      private = sealed == null ? null : unprotect(sealed);
+    } else if (stored != null) {
+      private = fromHex(stored);
+      if (private != null && private.length == Crypto.keyLength) _keep(private);
+    }
+    return private != null && private.length == Crypto.keyLength ? Crypto.keyPairFrom(private) : _create();
   }
+
+  void _keep(Uint8List private) => write(_identityFile, '$_sealedPrefix${toHex(protect(private))}');
 
   DeviceBook loadDevices() => DeviceBook(read('devices.txt'), (text) => write('devices.txt', text));
 
   KeyPair _create() {
     final keys = Crypto.generateKeyPair();
-    write('identity.key', toHex(keys.private));
+    _keep(keys.private);
     return keys;
   }
 }

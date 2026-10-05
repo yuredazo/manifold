@@ -4,12 +4,9 @@ import android.app.Application
 import android.content.SharedPreferences
 import android.os.Build
 import android.provider.Settings
-import dev.mkzk.manifold.hub.net.Crypto
 import dev.mkzk.manifold.hub.net.DeviceBook
 import dev.mkzk.manifold.hub.net.Identity
 import dev.mkzk.manifold.hub.net.KeyPair
-import dev.mkzk.manifold.hub.net.fromHex
-import dev.mkzk.manifold.hub.net.toHex
 
 private const val BOOK_KEY = "book"
 private const val PRIVATE_KEY = "private"
@@ -41,9 +38,7 @@ class HubApp : Application() {
         )
     }
 
-    /** Made once and kept in private storage, which backups skip. The Keystore cannot hold X25519 keys before Android 13. */
-    private fun identityKeys(prefs: SharedPreferences): KeyPair {
-        prefs.getString(PRIVATE_KEY, null)?.fromHex()?.takeIf { it.size == Crypto.KEY_LENGTH }?.let { return Crypto.keyPairFrom(it) }
-        return Crypto.generateKeyPair().also { prefs.edit().putString(PRIVATE_KEY, it.private.toHex()).apply() }
-    }
+    /** The Keystore cannot hold X25519 keys before Android 13, so it seals the key instead of generating it. */
+    private fun identityKeys(prefs: SharedPreferences): KeyPair =
+        loadIdentityKeys({ prefs.getString(PRIVATE_KEY, null) }, { prefs.edit().putString(PRIVATE_KEY, it).apply() }, KeystoreSealer())
 }

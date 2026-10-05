@@ -10,6 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   cryptography: ^2.9.0
+  ffi: ^2.1.4
+  win32: ^6.4.0
   media_kit: ^1.2.6
   media_kit_libs_windows_video: ^1.0.11
   flutter_svg: ^2.3.0
