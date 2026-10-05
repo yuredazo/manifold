@@ -90,6 +90,9 @@ final class Network extends ChangeNotifier {
   final Set<String> online = {};
   final Map<String, List<FeedInfo>> remoteFeeds = {};
 
+  /// Feeds another device would not send, by device key and feed name, until its feed list changes.
+  final Map<String, Map<String, Refusal>> refused = {};
+
   late final Watching watching;
 
   int get nowMs => _clock.elapsedMilliseconds;
@@ -307,6 +310,7 @@ final class Network extends ChangeNotifier {
   void _linkDown(Device device) {
     online.remove(device.publicKey);
     remoteFeeds.remove(device.publicKey);
+    refused.remove(device.publicKey);
     watching.stopWhere((session) => session.deviceKey == device.publicKey);
     sharing.dropDevice(device.publicKey);
     notifyListeners();
@@ -314,6 +318,7 @@ final class Network extends ChangeNotifier {
 
   void _feeds(Device device, List<FeedInfo> feeds) {
     remoteFeeds[device.publicKey] = feeds;
+    refused.remove(device.publicKey);
     watching.stopWhere((session) => session.deviceKey == device.publicKey && !feeds.any((feed) => feed.name == session.feedName));
     notifyListeners();
   }
@@ -330,9 +335,19 @@ final class Network extends ChangeNotifier {
     }
   }
 
-  void _subscribed(Device device, Subscribe request) {
-    if (book.find(device.publicKey)?.send != true) return;
-    unawaited(sharing.subscribe(device.publicKey, request));
+  Future<void> _subscribed(Device device, Subscribe request) async {
+    void refuse(Refusal reason) => _endpoint.refuseSubscribe(device.publicKey, request.streamId, reason);
+    if (book.find(device.publicKey)?.send != true) return refuse(Refusal.notShared);
+    final reason = await sharing.subscribe(device.publicKey, request);
+    if (reason != null) refuse(reason);
+  }
+
+  void _refused(Device device, SubscribeRefused refusal) {
+    final session = watching.sessionOf(device, refusal.streamId);
+    if (session == null) return;
+    refused.putIfAbsent(device.publicKey, () => {})[session.feedName] = refusal.reason;
+    watching.stopWhere((other) => identical(other, session));
+    notifyListeners();
   }
 
   void _video(Device device, int streamId, Uint8List fragment) {
@@ -369,6 +384,9 @@ final class _Reports extends EndpointListener {
 
   @override
   void onSubscribe(Device device, Subscribe request) => _network._subscribed(device, request);
+
+  @override
+  void onSubscribeRefused(Device device, SubscribeRefused refusal) => _network._refused(device, refusal);
 
   @override
   void onUnsubscribe(Device device, int streamId) => _network.sharing.unsubscribe(device.publicKey, streamId);

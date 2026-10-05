@@ -32,6 +32,10 @@
     <string name="device_offers">Offers %1$s</string>
     <string name="device_offers_nothing">Offers no feeds right now</string>
     <string name="device_unpair">Unpair</string>
+    <string name="device_refused_not_shared">%1$s: that device has not allowed this one to watch. Switch on Share my feeds there.</string>
+    <string name="device_refused_not_found">%1$s: that device no longer has this feed.</string>
+    <string name="device_refused_busy">%1$s: that device is already sending as many streams as it allows.</string>
+    <string name="device_refused_failed">%1$s: that device could not start sending it.</string>
     <string name="device_unpair_title">Unpair %1$s?</string>
     <string name="device_unpair_body">It has to be paired again before it can connect.</string>
 

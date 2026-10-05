@@ -48,6 +48,7 @@ internal class RemoteFeeds(
     private val endpoint: Endpoint,
     private val post: (() -> Unit) -> Unit,
     private val onStats: (List<StreamSnapshot>) -> Unit = {},
+    private val onRefused: (deviceKey: String, feed: String, reason: Control.Refusal) -> Unit = { _, _, _ -> },
 ) {
     private class Received(
         val deviceKey: String,
@@ -114,6 +115,13 @@ internal class RemoteFeeds(
     fun clear(deviceKey: String) {
         senders[deviceKey]?.keys?.toList()?.forEach { removeSender(deviceKey, it) }
         senders.remove(deviceKey)
+    }
+
+    /** The other device will not send this stream, so waiting for its picture would never end. */
+    fun onRefused(device: Device, refusal: Control.SubscribeRefused) {
+        val stream = streams[device.publicKey to refusal.streamId] ?: return
+        stopStream(stream.subscriptionId)
+        onRefused(device.publicKey, stream.feed, refusal.reason)
     }
 
     fun onVideo(device: Device, streamId: Int, fragment: ByteArray) {

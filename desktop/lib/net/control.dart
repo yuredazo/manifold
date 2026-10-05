@@ -60,7 +60,6 @@ final class FeedList extends Control {
   final List<FeedInfo> feeds;
 }
 
-/// The sender may refuse by never sending.
 final class Subscribe extends Control {
   const Subscribe(this.streamId, this.feed, this.width, this.height, this.bitrateKbps, {this.audio = false, this.fps = defaultFps});
 
@@ -90,6 +89,33 @@ final class Subscribe extends Control {
 
   @override
   int get hashCode => Object.hash(streamId, feed, width, height, bitrateKbps, audio, fps);
+}
+
+/// Why a [Subscribe] got no stream. A reason this version does not know reads as [failed].
+enum Refusal {
+  notShared(1),
+  notFound(2),
+  busy(3),
+  failed(4);
+
+  const Refusal(this.code);
+
+  final int code;
+
+  static Refusal of(int code) => values.firstWhere((reason) => reason.code == code, orElse: () => failed);
+}
+
+final class SubscribeRefused extends Control {
+  const SubscribeRefused(this.streamId, this.reason);
+
+  final int streamId;
+  final Refusal reason;
+
+  @override
+  bool operator ==(Object other) => other is SubscribeRefused && other.streamId == streamId && other.reason == reason;
+
+  @override
+  int get hashCode => Object.hash(streamId, reason);
 }
 
 final class Unsubscribe extends Control {
@@ -239,6 +265,7 @@ abstract final class ControlCodec {
   static const _senderStats = 11;
   static const _nack = 12;
   static const _streamReport = 13;
+  static const _subscribeRefused = 14;
 
   /// Pings and measurements are never acknowledged or resent: a late measurement is worth nothing.
   static bool needsAck(Control control) =>
@@ -258,6 +285,7 @@ abstract final class ControlCodec {
       Bye() => (_bye, Uint8List(0)),
       FeedList() => (_feedList, _encodeFeeds(control.feeds)),
       Subscribe() => (_subscribe, _encodeSubscribe(control)),
+      SubscribeRefused() => (_subscribeRefused, Uint8List.fromList([...(_short(control.streamId)), control.reason.code])),
       Unsubscribe() => (_unsubscribe, _short(control.streamId)),
       KeyframeRequest() => (_keyframeRequest, _short(control.streamId)),
       TimeRequest() => (_timeRequest, _long(control.sentAt)),
@@ -288,6 +316,7 @@ abstract final class ControlCodec {
         _bye => DecodedMessage(id, const Bye()),
         _feedList => DecodedMessage(id, FeedList(_readFeeds(reader))),
         _subscribe => _readSubscribe(reader)?.let((request) => DecodedMessage(id, request)),
+        _subscribeRefused => DecodedMessage(id, SubscribeRefused(reader.u16(), Refusal.of(reader.u8()))),
         _unsubscribe => DecodedMessage(id, Unsubscribe(reader.u16())),
         _keyframeRequest => DecodedMessage(id, KeyframeRequest(reader.u16())),
         _timeRequest => DecodedMessage(id, TimeRequest(reader.i64())),

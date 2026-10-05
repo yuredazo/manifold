@@ -68,6 +68,7 @@ class _Node extends EndpointListener {
   final feeds = <List<FeedInfo>>[];
   final subscribes = <Subscribe>[];
   final unsubscribes = <int>[];
+  final refusals = <SubscribeRefused>[];
   final keyframeRequests = <int>[];
   final senderStats = <SenderStats>[];
   final nacks = <Nack>[];
@@ -111,6 +112,9 @@ class _Node extends EndpointListener {
 
   @override
   void onSubscribe(Device device, Subscribe request) => subscribes.add(request);
+
+  @override
+  void onSubscribeRefused(Device device, SubscribeRefused refusal) => refusals.add(refusal);
 
   @override
   void onUnsubscribe(Device device, int streamId) => unsubscribes.add(streamId);
@@ -483,6 +487,15 @@ void main() {
     expect(beta.subscribes, [request]);
     expect(beta.keyframeRequests, [7]);
     expect(beta.unsubscribes, [7]);
+  });
+
+  test('a refused subscription is answered with its reason', () {
+    final (:world, :alpha, :beta) = _pairedWorld();
+
+    beta.endpoint.refuseSubscribe(alpha.publicKey, 7, Refusal.notShared);
+    world.pump();
+
+    expect(alpha.refusals, [const SubscribeRefused(7, Refusal.notShared)]);
   });
 
   test('video crosses the link and is rebuilt into the same frame', () {

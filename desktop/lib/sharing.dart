@@ -211,13 +211,14 @@ final class Sharing extends ChangeNotifier {
     feedsChanged();
   }
 
-  Future<void> subscribe(String deviceKey, Subscribe request) async {
+  /// Null when the stream is being served, otherwise why it is not.
+  Future<Refusal?> subscribe(String deviceKey, Subscribe request) async {
     final window = _named(request.feed);
-    if (window == null || !window.present) return;
+    if (window == null || !window.present) return Refusal.notFound;
     final replacing = window.isWatchedBy(deviceKey, request.streamId);
     final all = [for (final entry in shared) ...entry.watchers];
     if (!replacing && (all.length >= _maxStreams || all.where((watcher) => watcher.deviceKey == deviceKey).length >= _maxStreamsPerDevice)) {
-      return;
+      return Refusal.busy;
     }
     window.watchers
       ..removeWhere((watcher) => watcher.isStream(deviceKey, request.streamId))
@@ -230,7 +231,7 @@ final class Sharing extends ChangeNotifier {
     notifyListeners();
     if (window.capturing) {
       unawaited(_channel.invokeMethod('keyframe', {'handle': window.handle}));
-      return;
+      return null;
     }
     window.capturing = true;
     try {
@@ -246,7 +247,9 @@ final class Sharing extends ChangeNotifier {
       window.watchers.clear();
       problem = 'Windows would not let "${window.feedName}" be captured. It may be protected, or minimized to nothing.';
       notifyListeners();
+      return Refusal.failed;
     }
+    return null;
   }
 
   void unsubscribe(String deviceKey, int streamId) {

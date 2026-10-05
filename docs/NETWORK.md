@@ -6,7 +6,7 @@ There is no relay, no NAT traversal and no automatic discovery on the internet. 
 
 ## Pairing and identity
 
-Every hub has a long-term X25519 key pair, created on first run. A device is identified by the SHA-256 of its public key, never by its address or name.
+Every hub has a long-term X25519 key pair, created on first run. A device is identified by the SHA-256 of its public key, never by its address or name. The private key is stored encrypted: on Android with an AES key held by the Android Keystore, on Windows with DPAPI for the signed-in user. A key stored in plain by an earlier version is encrypted the first time it is read. Another program running as the same user can still ask the system to decrypt it, and a phone whose Keystore cannot be used keeps the key as before. If the stored key cannot be decrypted, for instance after the app's data was copied to another device, the hub makes a new identity and has to be paired again.
 
 Pairing runs the Noise XX handshake. Both sides learn the other's public key and derive the same six digit code from the handshake. The owners compare the code on both screens and confirm, which defeats a device in the middle. Nothing is stored until both have confirmed, and the window that lets another device start a pairing closes as soon as one pairing succeeds.
 
@@ -33,7 +33,7 @@ The receiver keeps a sliding window of recent counters and drops repeats and any
 
 Each message is `kind(1) | id(4) | body`, big-endian. Feed list, subscribe, unsubscribe, keyframe request, and the pairing confirmations are acknowledged and resent until they are acknowledged. A message whose kind or body the receiver does not understand is acknowledged and ignored, so a newer device cannot make an older one drop the link.
 
-A feed list holds the feeds the other device may see, and is sent again on every change. A subscribe names a feed and the size, bitrate and frame rate wanted, and whether the sound is wanted too; the publishing hub encodes only while someone is subscribed. A subscribe that stops after the name means no sound, and one without the frame rate byte means 30.
+A feed list holds the feeds the other device may see, and is sent again on every change. A subscribe names a feed and the size, bitrate and frame rate wanted, and whether the sound is wanted too; the publishing hub encodes only while someone is subscribed. A subscribe that stops after the name means no sound, and one without the frame rate byte means 30. A publisher that will not send a stream answers with a refusal naming the stream and a reason: the receiving device has not been allowed to watch, the feed is gone, the publisher is already serving as many streams as it allows (4 per device, 8 in all), or the stream could not be started. The receiver stops waiting and shows the reason on the device's row until that device's feed list changes. A publisher from before refusals existed stays silent, and an older receiver ignores the message.
 
 These are sent once and never acknowledged, because they are worth nothing when late: ping, the time request and reply (a round trip measurement every second), the publisher's numbers for a stream (once a second), the receiver's report on a stream (twice a second), and the request to send fragments again.
 
@@ -123,10 +123,9 @@ A switch turns incoming connections on or off. On Windows and on Android the cho
 
 ## Known gaps
 
-- A refused subscription gets no answer, so the asking side stays without a picture.
 - Every local app watching a remote feed gets its own stream, so two watchers cost twice the bandwidth.
 - Sharing is per device, not per feed.
-- Anything that floods the port is not rate limited, the identity key sits unencrypted in the app's private storage, and the port cannot be changed.
+- Anything that floods the port is not rate limited, and the port cannot be changed.
 - The mouse cursor is part of the captured picture.
 - The hardware codec code and the native Windows capture and audio code are tested by running them, not in unit tests.
 

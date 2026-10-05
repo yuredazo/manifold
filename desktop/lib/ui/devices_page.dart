@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../net/devices.dart';
+import '../net/control.dart';
 import '../network.dart';
 import 'page_frame.dart';
 
@@ -193,6 +194,7 @@ class _DeviceCard extends StatelessWidget {
     final muted = theme.colorScheme.onSurfaceVariant;
     final online = network.online.contains(device.publicKey);
     final offered = network.remoteFeeds[device.publicKey]?.map((feed) => feed.name).toList() ?? const <String>[];
+    final refused = network.refused[device.publicKey] ?? const <String, Refusal>{};
     return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -237,11 +239,23 @@ class _DeviceCard extends StatelessWidget {
             value: device.send,
             onChanged: (on) => network.setSend(device.publicKey, on),
           ),
+          for (final entry in refused.entries)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(_refusalText(entry.key, entry.value), style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
+            ),
         ],
       ),
     );
   }
 }
+
+String _refusalText(String feed, Refusal reason) => switch (reason) {
+      Refusal.notShared => '$feed: that device has not allowed this one to watch. Switch on Share my feeds there.',
+      Refusal.notFound => '$feed: that device no longer has this feed.',
+      Refusal.busy => '$feed: that device is already sending as many streams as it allows.',
+      Refusal.failed => '$feed: that device could not start sending it.',
+    };
 
 class _AddressDialog extends StatefulWidget {
   const _AddressDialog();

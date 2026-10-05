@@ -17,7 +17,6 @@ internal sealed interface Control {
 
     data class FeedList(val feeds: List<FeedInfo>) : Control
 
-    /** The sender may refuse by never sending. */
     data class Subscribe(
         val streamId: Int,
         val feed: String,
@@ -33,6 +32,21 @@ internal sealed interface Control {
             const val MAX_FPS = 60
         }
     }
+
+    /** Why a [Subscribe] got no stream. A reason this version does not know reads as [FAILED]. */
+    enum class Refusal(val code: Int) {
+        NOT_SHARED(1),
+        NOT_FOUND(2),
+        BUSY(3),
+        FAILED(4),
+        ;
+
+        companion object {
+            fun of(code: Int) = entries.firstOrNull { it.code == code } ?: FAILED
+        }
+    }
+
+    data class SubscribeRefused(val streamId: Int, val reason: Refusal) : Control
 
     data class Unsubscribe(val streamId: Int) : Control
 
@@ -91,6 +105,7 @@ internal object ControlCodec {
     private const val SENDER_STATS = 11
     private const val NACK = 12
     private const val STREAM_REPORT = 13
+    private const val SUBSCRIBE_REFUSED = 14
     const val MAX_NACK_INDEXES = 200
 
     /** Pings and measurements are never acknowledged or resent: a late measurement is worth nothing. */
@@ -109,6 +124,10 @@ internal object ControlCodec {
             Control.Bye -> BYE to ByteArray(0)
             is Control.FeedList -> FEED_LIST to encodeFeeds(control.feeds)
             is Control.Subscribe -> SUBSCRIBE to encodeSubscribe(control)
+            is Control.SubscribeRefused -> SUBSCRIBE_REFUSED to ByteBuffer.allocate(3)
+                .putShort(control.streamId.toShort())
+                .put(control.reason.code.toByte())
+                .array()
             is Control.Unsubscribe -> UNSUBSCRIBE to ByteBuffer.allocate(2).putShort(control.streamId.toShort()).array()
             is Control.KeyframeRequest -> KEYFRAME_REQUEST to ByteBuffer.allocate(2).putShort(control.streamId.toShort()).array()
             is Control.TimeRequest -> TIME_REQUEST to ByteBuffer.allocate(8).putLong(control.sentAt).array()
@@ -216,6 +235,10 @@ internal object ControlCodec {
                 BYE -> Decoded.Message(id, Control.Bye)
                 FEED_LIST -> Decoded.Message(id, Control.FeedList(readFeeds(reader)))
                 SUBSCRIBE -> readSubscribe(reader)?.let { Decoded.Message(id, it) }
+                SUBSCRIBE_REFUSED -> Decoded.Message(id, Control.SubscribeRefused(
+                    streamId = reader.getShort().toInt() and 0xFFFF,
+                    reason = Control.Refusal.of(reader.get().toInt() and 0xFF),
+                ))
                 UNSUBSCRIBE -> Decoded.Message(id, Control.Unsubscribe(reader.getShort().toInt() and 0xFFFF))
                 KEYFRAME_REQUEST -> Decoded.Message(id, Control.KeyframeRequest(reader.getShort().toInt() and 0xFFFF))
                 TIME_REQUEST -> Decoded.Message(id, Control.TimeRequest(reader.getLong()))

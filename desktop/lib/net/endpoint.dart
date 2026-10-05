@@ -29,6 +29,8 @@ abstract class EndpointListener {
 
   void onSubscribe(Device device, Subscribe request) {}
 
+  void onSubscribeRefused(Device device, SubscribeRefused refusal) {}
+
   void onUnsubscribe(Device device, int streamId) {}
 
   void onKeyframeRequest(Device device, int streamId) {}
@@ -195,6 +197,9 @@ final class Endpoint {
   void sendFeeds(String publicKey, List<FeedInfo> feeds) => _links[publicKey]?.control.send(FeedList(feeds), clock());
 
   void subscribe(String publicKey, Subscribe request) => _links[publicKey]?.control.send(request, clock());
+
+  void refuseSubscribe(String publicKey, int streamId, Refusal reason) =>
+      _links[publicKey]?.control.send(SubscribeRefused(streamId, reason), clock());
 
   void unsubscribe(String publicKey, int streamId) => _links[publicKey]?.control.send(Unsubscribe(streamId), clock());
 
@@ -453,6 +458,8 @@ final class Endpoint {
         listener.onFeeds(device, control.feeds);
       case Subscribe():
         listener.onSubscribe(device, control);
+      case SubscribeRefused():
+        listener.onSubscribeRefused(device, control);
       case Unsubscribe():
         listener.onUnsubscribe(device, control.streamId);
       case KeyframeRequest():

@@ -57,6 +57,7 @@ class EndpointTest {
         val feeds = ArrayList<List<FeedInfo>>()
         val subscribes = ArrayList<Control.Subscribe>()
         val unsubscribes = ArrayList<Int>()
+        val refusals = ArrayList<Control.SubscribeRefused>()
         val keyframeRequests = ArrayList<Int>()
         val senderStats = ArrayList<Control.SenderStats>()
         val nacks = ArrayList<Control.Nack>()
@@ -102,6 +103,10 @@ class EndpointTest {
 
                 override fun onSubscribe(device: Device, request: Control.Subscribe) {
                     subscribes += request
+                }
+
+                override fun onSubscribeRefused(device: Device, refusal: Control.SubscribeRefused) {
+                    refusals += refusal
                 }
 
                 override fun onUnsubscribe(device: Device, streamId: Int) {
@@ -521,6 +526,16 @@ class EndpointTest {
         assertEquals(listOf(request), beta.subscribes)
         assertEquals(listOf(7), beta.keyframeRequests)
         assertEquals(listOf(7), beta.unsubscribes)
+    }
+
+    @Test
+    fun aRefusedSubscriptionIsAnsweredWithItsReason() {
+        val (world, alpha, beta) = pairedWorld()
+
+        beta.endpoint.refuseSubscribe(alpha.publicKey, 7, Control.Refusal.NOT_SHARED)
+        world.pump()
+
+        assertEquals(listOf(Control.SubscribeRefused(7, Control.Refusal.NOT_SHARED)), alpha.refusals)
     }
 
     @Test

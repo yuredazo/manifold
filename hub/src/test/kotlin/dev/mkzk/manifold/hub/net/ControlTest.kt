@@ -92,6 +92,18 @@ class ControlTest {
     }
 
     @Test
+    fun aRefusalCarriesItsReasonAndAnUnknownReasonReadsAsFailed() {
+        for (reason in Control.Refusal.entries) {
+            assertEquals(Control.SubscribeRefused(9, reason), roundTrip(Control.SubscribeRefused(9, reason)))
+        }
+        assertEquals(
+            Decoded.Message(5, Control.SubscribeRefused(9, Control.Refusal.FAILED)),
+            ControlCodec.decode(byteArrayOf(14, 0, 0, 0, 5, 0, 9, 99)),
+        )
+        assertTrue(ControlCodec.needsAck(Control.SubscribeRefused(9, Control.Refusal.NOT_FOUND)))
+    }
+
+    @Test
     fun measurementMessagesSurviveEncodingAndAreNeverResent() {
         val request = Control.TimeRequest(1_234_567_890_123L)
         val reply = Control.TimeReply(Long.MAX_VALUE)

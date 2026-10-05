@@ -32,6 +32,11 @@ final class Watching extends ChangeNotifier {
     return null;
   }
 
+  ViewerSession? sessionOf(Device device, int streamId) {
+    final session = _sessions[streamId];
+    return session != null && session.deviceKey == device.publicKey ? session : null;
+  }
+
   Future<void> watch(Device device, FeedInfo feed) async {
     if (of(device, feed) != null) return;
     final width = feed.width > 0 ? feed.width : 1280;

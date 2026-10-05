@@ -60,6 +60,8 @@ internal data class NetworkState(
     val online: Set<String> = emptySet(),
     val remoteFeeds: Map<String, List<FeedInfo>> = emptyMap(),
     val streams: List<StreamSnapshot> = emptyList(),
+    /** Feeds another device would not send, by device key and then feed name, until its feed list changes. */
+    val refused: Map<String, Map<String, Control.Refusal>> = emptyMap(),
 )
 
 /** The network thread is the only one that touches the [DeviceBook] and the [Endpoint]. */
@@ -71,7 +73,14 @@ internal class Network(val identity: Identity, private val book: DeviceBook) {
     private val resolver = Executors.newSingleThreadExecutor()
     private val publisher: NetworkPublisher by lazy { NetworkPublisher(endpoint, book, ::onNetworkThread) }
     private val remote: RemoteFeeds by lazy {
-        RemoteFeeds(endpoint, ::onNetworkThread) { snapshots -> flow.update { it.copy(streams = snapshots) } }
+        RemoteFeeds(
+            endpoint,
+            ::onNetworkThread,
+            onStats = { snapshots -> flow.update { it.copy(streams = snapshots) } },
+            onRefused = { deviceKey, feed, reason ->
+                flow.update { it.copy(refused = it.refused + (deviceKey to (it.refused[deviceKey].orEmpty() + (feed to reason)))) }
+            },
+        )
     }
     private val resolved = ConcurrentHashMap<String, InetAddress>()
 
@@ -103,18 +112,24 @@ internal class Network(val identity: Identity, private val book: DeviceBook) {
         }
 
         override fun onLinkDown(device: Device) {
-            flow.update { it.copy(online = it.online - device.publicKey, remoteFeeds = it.remoteFeeds - device.publicKey) }
+            flow.update {
+                it.copy(online = it.online - device.publicKey, remoteFeeds = it.remoteFeeds - device.publicKey, refused = it.refused - device.publicKey)
+            }
             publisher.stopDevice(device.publicKey)
             remote.clear(device.publicKey)
         }
 
         override fun onFeeds(device: Device, feeds: List<FeedInfo>) {
-            flow.update { it.copy(remoteFeeds = it.remoteFeeds + (device.publicKey to feeds)) }
+            flow.update { it.copy(remoteFeeds = it.remoteFeeds + (device.publicKey to feeds), refused = it.refused - device.publicKey) }
             syncRemote(device.publicKey)
         }
 
         override fun onSubscribe(device: Device, request: Control.Subscribe) {
             publisher.onSubscribe(device, request)
+        }
+
+        override fun onSubscribeRefused(device: Device, refusal: Control.SubscribeRefused) {
+            remote.onRefused(device, refusal)
         }
 
         override fun onUnsubscribe(device: Device, streamId: Int) {

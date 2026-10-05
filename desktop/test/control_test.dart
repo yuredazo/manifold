@@ -107,6 +107,15 @@ void main() {
       expect((_roundTrip(const KeyframeRequest(65000)) as KeyframeRequest).streamId, 65000);
     });
 
+    test('a refusal carries its reason and an unknown reason reads as failed', () {
+      for (final reason in Refusal.values) {
+        expect(_roundTrip(SubscribeRefused(9, reason)), SubscribeRefused(9, reason));
+      }
+      final decoded = ControlCodec.decode(Uint8List.fromList([14, 0, 0, 0, 5, 0, 9, 99]));
+      expect((decoded as DecodedMessage).control, const SubscribeRefused(9, Refusal.failed));
+      expect(ControlCodec.needsAck(const SubscribeRefused(9, Refusal.notFound)), isTrue);
+    });
+
     test('measurement messages survive encoding and are never resent', () {
       const request = TimeRequest(1234567890123);
       const reply = TimeReply(0x7FFFFFFFFFFFFFFF);

@@ -147,9 +147,10 @@ void main() {
       expect(arguments['bitrateKbps'], 500);
     });
 
-    test('a request for a feed that is not offered is ignored', () async {
-      await harness.sharing.subscribe('phone', _request('Nothing', 1));
+    test('a request for a feed that is not offered is refused as not found', () async {
+      final refusal = await harness.sharing.subscribe('phone', _request('Nothing', 1));
 
+      expect(refusal, Refusal.notFound);
       expect(harness.calls, isEmpty);
     });
 
@@ -179,6 +180,17 @@ void main() {
 
       expect(sharing.shared.single.watchers.where((watcher) => watcher.deviceKey == 'phone'), hasLength(4));
       expect(sharing.shared.single.watchers, hasLength(8));
+    });
+
+    test('a stream over the limit is refused as busy, and one within it is not', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+
+      for (var id = 1; id <= 4; id++) {
+        expect(await sharing.subscribe('phone', _request('Notes', id)), isNull);
+      }
+
+      expect(await sharing.subscribe('phone', _request('Notes', 5)), Refusal.busy);
     });
 
     test('a device that goes away takes only its own streams with it', () async {

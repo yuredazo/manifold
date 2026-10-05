@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.mkzk.manifold.hub.net.Control
 import dev.mkzk.manifold.hub.net.Device
 import dev.mkzk.manifold.hub.net.StreamSnapshot
 import dev.mkzk.manifold.hub.net.details
@@ -93,6 +94,7 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
                 online = device.publicKey in state.online,
                 offered = state.remoteFeeds[device.publicKey].orEmpty().map { it.name },
                 streams = state.streams.filter { it.deviceKey == device.publicKey },
+                refused = state.refused[device.publicKey].orEmpty(),
             )
         }
     }
@@ -149,7 +151,14 @@ private fun Header(title: Int) {
 }
 
 @Composable
-private fun DeviceRow(network: Network, device: Device, online: Boolean, offered: List<String>, streams: List<StreamSnapshot>) {
+private fun DeviceRow(
+    network: Network,
+    device: Device,
+    online: Boolean,
+    offered: List<String>,
+    streams: List<StreamSnapshot>,
+    refused: Map<String, Control.Refusal>,
+) {
     var confirming by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -175,6 +184,14 @@ private fun DeviceRow(network: Network, device: Device, online: Boolean, offered
             )
         }
         streams.forEach { StreamReadout(it) }
+        refused.forEach { (feed, reason) ->
+            Text(
+                stringResource(refusalText(reason), feed),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
         SwitchRow(R.string.device_send, device.send) { network.setSend(device.publicKey, it) }
         TextButton(onClick = { confirming = true }) {
             Text(stringResource(R.string.device_unpair), color = MaterialTheme.colorScheme.error)
@@ -195,6 +212,13 @@ private fun DeviceRow(network: Network, device: Device, online: Boolean, offered
         )
     }
     HorizontalDivider()
+}
+
+private fun refusalText(reason: Control.Refusal) = when (reason) {
+    Control.Refusal.NOT_SHARED -> R.string.device_refused_not_shared
+    Control.Refusal.NOT_FOUND -> R.string.device_refused_not_found
+    Control.Refusal.BUSY -> R.string.device_refused_busy
+    Control.Refusal.FAILED -> R.string.device_refused_failed
 }
 
 @Composable

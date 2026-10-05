@@ -47,12 +47,15 @@ internal class NetworkPublisher(
 
     fun onSubscribe(device: Device, request: Control.Subscribe) {
         val current = book.find(device.publicKey) ?: return
-        if (!current.send) return
+        fun refuse(reason: Control.Refusal) = endpoint.refuseSubscribe(current.publicKey, request.streamId, reason)
+        if (!current.send) return refuse(Control.Refusal.NOT_SHARED)
         val feed = Registry.instance.state.value.senders
-            .firstOrNull { it.name == request.feed && !it.packageName.startsWith(REMOTE_PREFIX) } ?: return
+            .firstOrNull { it.name == request.feed && !it.packageName.startsWith(REMOTE_PREFIX) } ?: return refuse(Control.Refusal.NOT_FOUND)
         val key = current.publicKey to request.streamId
         stop(key)
-        if (streams.keys.count { it.first == current.publicKey } >= MAX_STREAMS_PER_DEVICE || streams.size >= MAX_STREAMS) return
+        if (streams.keys.count { it.first == current.publicKey } >= MAX_STREAMS_PER_DEVICE || streams.size >= MAX_STREAMS) {
+            return refuse(Control.Refusal.BUSY)
+        }
 
         val width = request.width.coerceIn(1, MAX_SIZE)
         val height = request.height.coerceIn(1, MAX_SIZE)
@@ -72,7 +75,7 @@ internal class NetworkPublisher(
             }
         } catch (e: RuntimeException) {
             Log.w(TAG, "cannot encode '${feed.name}' for ${current.name}", e)
-            return
+            return refuse(Control.Refusal.FAILED)
         }
 
         val pipe = if (request.audio && feed.hasAudio) ParcelFileDescriptor.createPipe() else null
@@ -94,7 +97,7 @@ internal class NetworkPublisher(
             encoder.stop()
             audio?.stop()
             audioSink?.close()
-            return
+            return refuse(Control.Refusal.FAILED)
         }
         streams[key] = Served(link, encoder, audio, stats, rate)
     }

@@ -33,6 +33,8 @@ internal class Endpoint(
 
         fun onSubscribe(device: Device, request: Control.Subscribe) {}
 
+        fun onSubscribeRefused(device: Device, refusal: Control.SubscribeRefused) {}
+
         fun onUnsubscribe(device: Device, streamId: Int) {}
 
         fun onKeyframeRequest(device: Device, streamId: Int) {}
@@ -143,6 +145,10 @@ internal class Endpoint(
 
     fun subscribe(publicKey: String, request: Control.Subscribe) {
         links[publicKey]?.control?.send(request, clock())
+    }
+
+    fun refuseSubscribe(publicKey: String, streamId: Int, reason: Control.Refusal) {
+        links[publicKey]?.control?.send(Control.SubscribeRefused(streamId, reason), clock())
     }
 
     fun unsubscribe(publicKey: String, streamId: Int) {
@@ -367,6 +373,7 @@ internal class Endpoint(
         when (control) {
             is Control.FeedList -> listener.onFeeds(device, control.feeds)
             is Control.Subscribe -> listener.onSubscribe(device, control)
+            is Control.SubscribeRefused -> listener.onSubscribeRefused(device, control)
             is Control.Unsubscribe -> listener.onUnsubscribe(device, control.streamId)
             is Control.KeyframeRequest -> listener.onKeyframeRequest(device, control.streamId)
             is Control.TimeRequest -> link.control.send(Control.TimeReply(control.sentAt), clock())
