@@ -17,6 +17,7 @@ const _tickEvery = Duration(milliseconds: 250);
 // A quarter second tick is too coarse to wait a couple of frames for a missing piece.
 const _pollEvery = Duration(milliseconds: 4);
 const _connectEveryTicks = 20;
+const _latencyEveryTicks = 4;
 const _announceEveryTicks = 4;
 
 sealed class PairingUi {
@@ -49,8 +50,8 @@ final class PairingFailed extends PairingUi {
 }
 
 final class Network extends ChangeNotifier {
-  Network(this.identity, this.book, {this.features = const []}) {
-    _endpoint = Endpoint(identity: identity, devices: book, clock: () => _clock.elapsedMilliseconds, transmit: _send, listener: _Reports(this));
+  Network(this.identity, this.book, {this.features = const [], void Function(String message)? log}) {
+    _endpoint = Endpoint(identity: identity, devices: book, clock: () => _clock.elapsedMilliseconds, transmit: _send, listener: _Reports(this), log: log);
     book.devices.addListener(_devicesChanged);
   }
 
@@ -68,6 +69,13 @@ final class Network extends ChangeNotifier {
   Timer? _timer;
   Timer? _pollTimer;
   int _ticks = 0;
+
+  // A dropped link usually comes back within a second.
+  bool _redialNow = false;
+
+  Map<String, int> _latency = const {};
+
+  int? latencyMs(String deviceKey) => _latency[deviceKey];
 
   bool listening = false;
   List<String> addresses = const [];
@@ -237,11 +245,26 @@ final class Network extends ChangeNotifier {
       });
     }
     if (pairingOpenUntil != 0 && nowMs <= pairingOpenUntil && _ticks % _announceEveryTicks == 0) unawaited(discovery.announce(listenPort));
-    if (_ticks++ % _connectEveryTicks == 0) _connectKnownDevices();
+    if (_redialNow || _ticks % _connectEveryTicks == 0) {
+      _redialNow = false;
+      _connectKnownDevices();
+    }
+    if (_ticks % _latencyEveryTicks == 0) _updateLatency();
+    _ticks++;
     if (pairingOpenUntil != 0 && nowMs > pairingOpenUntil) {
       pairingOpenUntil = 0;
       notifyListeners();
     }
+  }
+
+  void _updateLatency() {
+    final latency = {
+      for (final key in online)
+        if (rttMs(key) case final rtt?) key: rtt.round(),
+    };
+    if (mapEquals(latency, _latency)) return;
+    _latency = latency;
+    notifyListeners();
   }
 
   bool get _wantsFastPoll => features.any((feature) => feature.wantsFastPoll);
@@ -310,6 +333,7 @@ final class Network extends ChangeNotifier {
   }
 
   void _linkDown(Device device) {
+    _redialNow = true;
     online.remove(device.publicKey);
     remoteFeeds.remove(device.publicKey);
     refused.remove(device.publicKey);
@@ -385,6 +409,9 @@ final class _Reports extends EndpointListener {
 
   @override
   void onLinkDown(Device device) => _network._linkDown(device);
+
+  @override
+  void onLinkResumed(Device device) => _each((feature) => feature.onLinkResumed(device));
 
   @override
   void onFeeds(Device device, List<FeedInfo> feeds) => _network._feeds(device, feeds);

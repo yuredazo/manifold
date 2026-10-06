@@ -64,6 +64,8 @@ class _Node extends EndpointListener {
   final failures = <String>[];
   final linksUp = <Device>[];
   final linksDown = <Device>[];
+  final linksResumed = <Device>[];
+  final logs = <String>[];
   final connectFailed = <Device>[];
   final feeds = <List<FeedInfo>>[];
   final subscribes = <Subscribe>[];
@@ -84,6 +86,7 @@ class _Node extends EndpointListener {
       wallClock: () => world.now,
       transmit: (to, bytes) => world.enqueue(address, to, bytes),
       listener: this,
+      log: logs.add,
     );
   }
 
@@ -103,6 +106,9 @@ class _Node extends EndpointListener {
 
   @override
   void onLinkDown(Device device) => linksDown.add(device);
+
+  @override
+  void onLinkResumed(Device device) => linksResumed.add(device);
 
   @override
   void onConnectFailed(Device device) => connectFailed.add(device);
@@ -381,6 +387,36 @@ void main() {
     expect(beta.endpoint.isLinked(alpha.publicKey), isFalse);
     expect(alpha.linksDown.length, 1);
     expect(beta.linksDown.length, 1);
+    expect(alpha.logs.single, startsWith('link to Beta down: nothing heard for 15.'));
+  });
+
+  test('a few seconds without packets do not drop a link, even with a message still waiting for its answer', () {
+    final (:world, :alpha, :beta) = _pairedWorld();
+    alpha.endpoint.requestKeyframe(beta.publicKey, 1);
+
+    world.cut = true;
+    world.advance(8000);
+    world.cut = false;
+    world.advance(3000);
+
+    expect(alpha.endpoint.isLinked(beta.publicKey) && beta.endpoint.isLinked(alpha.publicKey), isTrue);
+    expect(alpha.linksDown, isEmpty);
+    expect(beta.linksDown, isEmpty);
+    expect(beta.keyframeRequests, [1]);
+  });
+
+  test('a link that is heard again after a few seconds says so once, and a quiet one does not', () {
+    final (:world, :alpha, :beta) = _pairedWorld();
+    world.advance(10000);
+    expect(alpha.linksResumed, isEmpty);
+
+    world.cut = true;
+    world.advance(5000);
+    world.cut = false;
+    world.advance(3000);
+
+    expect(alpha.linksResumed.length, 1);
+    expect(beta.linksResumed.length, 1);
   });
 
   test('an idle link stays up on pings', () {
@@ -412,6 +448,8 @@ void main() {
 
     expect(beta.endpoint.isLinked(alpha.publicKey), isFalse);
     expect(beta.linksDown.length, 1);
+    expect(beta.logs, ['link to Alpha down: the other device said goodbye']);
+    expect(alpha.logs, ['link to Beta down: closed from this device']);
   });
 
   test('unpairing forgets the device and it cannot reconnect', () {

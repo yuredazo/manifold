@@ -19,6 +19,8 @@ abstract mixin class NetworkFeature {
 
   void onLinkDown(Device device) {}
 
+  void onLinkResumed(Device device) {}
+
   void onUnpaired(String publicKey) {}
 
   void onFeeds(Device device, List<FeedInfo> feeds) {}
