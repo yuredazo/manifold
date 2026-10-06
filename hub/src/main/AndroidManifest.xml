@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Lets the pairing sheet receive the broadcasts of devices that are open for pairing. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
@@ -16,7 +18,7 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <application
-        android:name=".HubApp"
+        android:name=".app.HubApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="Manifold"
@@ -26,7 +28,7 @@
              after the app that defines it, so a sender or receiver installed before the hub
              could never bind. The hub works out who is calling and limits what they can do. -->
         <service
-            android:name=".HubService"
+            android:name=".broker.HubService"
             android:exported="true">
             <intent-filter>
                 <action android:name="dev.mkzk.manifold.BIND" />
@@ -34,19 +36,19 @@
         </service>
 
         <service
-            android:name=".NetworkService"
+            android:name=".network.NetworkService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
         <service
-            android:name=".ScreenShareService"
+            android:name=".screen.ScreenShareService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
         <!-- Sent by the system when an app is uninstalled. Its decision is dropped so a later
              install starts undecided instead of inheriting the old one. -->
         <receiver
-            android:name=".PackageRemovedReceiver"
+            android:name=".broker.PackageRemovedReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.PACKAGE_FULLY_REMOVED" />
@@ -55,11 +57,11 @@
         </receiver>
 
         <receiver
-            android:name=".InstallResultReceiver"
+            android:name=".update.InstallResultReceiver"
             android:exported="false" />
 
         <activity
-            android:name=".HubActivity"
+            android:name=".app.HubActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
