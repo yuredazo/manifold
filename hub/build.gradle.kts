@@ -17,8 +17,8 @@ android {
         applicationId = "dev.mkzk.manifold"
         minSdk = 24
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.2.0"
+        versionCode = 6
+        versionName = "1.2.1"
     }
 
     signingConfigs {
