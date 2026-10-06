@@ -59,11 +59,21 @@ constexpr int64_t kCameraTag = int64_t{1} << 61;
 
 inline bool IsCamera(int64_t handle) { return (handle & kCameraTag) != 0 && !IsMonitor(handle); }
 
-inline int64_t FromCamera(const std::wstring& id) {
+template <typename Unit>
+uint32_t Hash(const std::basic_string<Unit>& text) {
   uint32_t hash = 2166136261u;  // FNV-1a
-  for (wchar_t unit : id) hash = (hash ^ static_cast<uint32_t>(unit)) * 16777619u;
-  return kCameraTag | hash;
+  for (Unit unit : text) hash = (hash ^ static_cast<uint32_t>(unit)) * 16777619u;
+  return hash;
 }
+
+inline int64_t FromCamera(const std::wstring& id) { return kCameraTag | Hash(id); }
+
+// Spout senders are named, not numbered, so the handle comes from the name like a camera's does from its id.
+constexpr int64_t kSpoutTag = int64_t{1} << 60;
+
+inline bool IsSpout(int64_t handle) { return (handle & kSpoutTag) != 0 && !IsMonitor(handle) && !IsCamera(handle); }
+
+inline int64_t FromSpout(const std::string& name) { return kSpoutTag | Hash(name); }
 
 }  // namespace channel
 

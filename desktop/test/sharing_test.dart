@@ -34,6 +34,11 @@ class _Harness {
             {'handle': camera.handle, 'title': camera.title, 'device': camera.device, 'width': camera.width, 'height': camera.height},
         ];
       }
+      if (call.method == 'spouts') {
+        return [
+          for (final sender in senders) {'handle': sender.handle, 'title': sender.title, 'width': sender.width, 'height': sender.height},
+        ];
+      }
       if (call.method == 'alive') return [for (final handle in (call.arguments as Map)['handles'] as List) if (!gone.contains(handle)) handle];
       return null;
     });
@@ -59,6 +64,7 @@ class _Harness {
   final List<ShareableWindow> open = [];
   final List<ShareableWindow> screens = [];
   final List<ShareableWindow> webcams = [];
+  final List<ShareableWindow> senders = [];
   final List<String> saves = [];
 
   List<String> get methods => calls.map((call) => call.method).toList();
@@ -101,6 +107,16 @@ ShareableWindow _camera(int handle, String name, {String device = r'\\?\usb#cam-
       height: 720,
       kind: ShareKind.camera,
       device: device,
+    );
+
+ShareableWindow _spout(int handle, String name) => ShareableWindow(
+      handle: handle,
+      title: name,
+      process: '',
+      windowClass: '',
+      width: 1920,
+      height: 1080,
+      kind: ShareKind.spout,
     );
 
 String _saved(List<Map<String, Object?>> entries) => jsonEncode(entries);
@@ -916,6 +932,114 @@ void main() {
       await harness.sharing.tick(0);
 
       expect(harness.sharing.shared.single.present, isFalse);
+    });
+  });
+
+  group('Spout senders', () {
+    const handle = 1 << 60 | 5;
+
+    test('a sender is named after itself, saved as Spout, and never shared with sound or without a picture', () {
+      final window = harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: true, soundOnly: true);
+
+      expect(window.feedName, 'TouchDesigner');
+      expect(window.withAudio, isFalse);
+      expect(window.soundOnly, isFalse);
+      expect(harness.sharing.feeds, [const FeedInfo('TouchDesigner', 1920, 1080, 30, false)]);
+      final saved = jsonDecode(harness.saves.last) as List;
+      expect(saved.single, {..._entry('TouchDesigner', title: 'TouchDesigner', process: '', windowClass: ''), 'spout': true});
+    });
+
+    test('the capture starts with the name the runner listed', () async {
+      harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+
+      await harness.sharing.subscribe('phone', _request('TouchDesigner', 1));
+
+      expect(harness.calls.single.arguments, {'handle': handle, 'width': 1280, 'height': 720, 'bitrateKbps': 3000, 'audio': false, 'device': 'TouchDesigner'});
+    });
+
+    test('a sender that cannot be opened is dropped and the owner is told why', () async {
+      harness.failStart = true;
+      final window = harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+
+      expect(await harness.sharing.subscribe('phone', _request('TouchDesigner', 1)), Refusal.failed);
+
+      expect(window.watchers, isEmpty);
+      expect(harness.sharing.problem, contains('Spout would not hand over'));
+    });
+
+    test('a sender that stops waits and is shared again when a sender of that name is back', () async {
+      final window = harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+      harness.senders.add(_spout(handle, 'TouchDesigner'));
+      await harness.sharing.tick(10000);
+      expect(window.present, isTrue);
+      expect(harness.methods, ['spouts']);
+
+      harness.senders.clear();
+      await harness.sharing.tick(20000);
+      expect(window.present, isFalse);
+      expect(harness.sharing.feeds, isEmpty);
+
+      harness.senders.add(_spout(handle, 'TouchDesigner'));
+      await harness.sharing.tick(30000);
+      expect(window.present, isTrue);
+    });
+
+    test('a sender that the runner reports closed is lost, and its watchers are dropped', () async {
+      final window = harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+      await harness.sharing.subscribe('phone', _request('TouchDesigner', 1));
+
+      await harness.fromRunner('closed', {'handle': handle});
+
+      expect(window.present, isFalse);
+      expect(window.watchers, isEmpty);
+      expect(harness.methods.last, 'stop');
+    });
+
+    test('after a restart a saved sender is found again by its name, and a window or camera of that name is not taken for it', () async {
+      harness.close();
+      harness = _Harness(saved: _saved([{..._entry('Resolume', title: 'Resolume', process: '', windowClass: ''), 'spout': true}]));
+      harness.open.add(_window(9, 'Resolume', process: '', windowClass: ''));
+      harness.webcams.add(_camera(1 << 61 | 3, 'Resolume'));
+      await harness.sharing.tick(0);
+      expect(harness.sharing.shared.single.present, isFalse);
+
+      harness.senders.add(_spout(1 << 60 | 8, 'Resolume'));
+      await harness.sharing.tick(10000);
+
+      expect(harness.sharing.shared.single.spout, isTrue);
+      expect(harness.sharing.shared.single.handle, 1 << 60 | 8);
+    });
+
+    test('Spout senders are allowed separately from windows and cameras', () {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+      sharing.share(_camera(1 << 61 | 77, 'Webcam'), audio: false);
+      sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+      const windowsOnly = Device(publicKey: 'a', name: 'tablet', send: true);
+      const cameraOnly = Device(publicKey: 'b', name: 'phone', sendCamera: true);
+      const spoutOnly = Device(publicKey: 'c', name: 'laptop', sendSpout: true);
+
+      expect(sharing.feedsFor(windowsOnly).map((feed) => feed.name), ['Notes']);
+      expect(sharing.feedsFor(cameraOnly).map((feed) => feed.name), ['Webcam']);
+      expect(sharing.feedsFor(spoutOnly).map((feed) => feed.name), ['TouchDesigner']);
+      expect(sharing.permits(windowsOnly, 'TouchDesigner'), isFalse);
+      expect(sharing.permits(cameraOnly, 'TouchDesigner'), isFalse);
+      expect(sharing.permits(spoutOnly, 'TouchDesigner'), isTrue);
+      expect(sharing.permits(spoutOnly, 'Notes'), isFalse);
+    });
+
+    test('taking away the Spout switch ends its streams and leaves the others alone', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+      final sender = sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+      await sharing.subscribe('phone', _request('Notes', 1));
+      await sharing.subscribe('phone', _request('TouchDesigner', 2));
+
+      sharing.enforce(const Device(publicKey: 'phone', name: 'phone', send: true));
+
+      expect(sender.watchers, isEmpty);
+      expect(sender.capturing, isFalse);
+      expect(sharing.shared.first.watchers, hasLength(1));
     });
   });
 }

@@ -20,10 +20,10 @@ class SharePage extends StatelessWidget {
     return ListenableBuilder(
       listenable: Listenable.merge([sharing, network, network.activity]),
       builder: (context, _) {
-        final allowed = network.book.devices.value.where((device) => device.send || device.sendCamera).length;
+        final allowed = network.book.devices.value.where((device) => device.send || device.sendCamera || device.sendSpout).length;
         return PageFrame(
           title: 'Share',
-          subtitle: 'Offer a window, a whole display or a camera to your devices.',
+          subtitle: 'Offer a window, a whole display, a camera or a Spout sender to your devices.',
           action: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -51,7 +51,7 @@ class SharePage extends StatelessWidget {
                   children: [
                     Icon(Icons.info_outline, size: 20, color: theme.colorScheme.onSurfaceVariant),
                     const SizedBox(width: 12),
-                    const Expanded(child: Text('None of your devices may watch yet. Switch on "Let it watch my windows" or "Let it watch my camera" for one.')),
+                    const Expanded(child: Text('None of your devices may watch yet. Switch on one of the "Let it watch my ..." options for a device.')),
                     TextButton(onPressed: openDevices, child: const Text('Open Devices')),
                   ],
                 ),
@@ -176,10 +176,11 @@ class _SharedRow extends StatelessWidget {
                     switch (window.kind) {
                       ShareKind.display => 'display',
                       ShareKind.camera => 'camera',
+                      ShareKind.spout => 'Spout',
                       ShareKind.window => window.process,
                     },
                     if (window.soundOnly) 'sound only' else if (window.withAudio) 'with sound',
-                    if (!window.showCursor && !window.soundOnly && !window.camera) 'no pointer',
+                    if (!window.showCursor && !window.soundOnly && !window.pictureOnly) 'no pointer',
                     if (!window.present)
                       'waiting for the ${window.kind.name}'
                     else if (watching == 0)
@@ -215,7 +216,7 @@ class _PickWindowState extends State<_PickWindow> {
   bool _withCursor = true;
 
   Future<List<ShareableWindow>> _find() async {
-    final found = await Future.wait([widget.sharing.displays(), widget.sharing.cameras(), widget.sharing.windows()]);
+    final found = await Future.wait([widget.sharing.displays(), widget.sharing.spouts(), widget.sharing.cameras(), widget.sharing.windows()]);
     return [for (final kind in found) ...kind];
   }
 
@@ -257,6 +258,7 @@ class _PickWindowState extends State<_PickWindow> {
                             switch (choice.kind) {
                               ShareKind.display => Icons.desktop_windows_outlined,
                               ShareKind.camera => Icons.videocam_outlined,
+                              ShareKind.spout => Icons.layers_outlined,
                               ShareKind.window => Icons.web_asset_outlined,
                             },
                             size: 20,
@@ -265,6 +267,7 @@ class _PickWindowState extends State<_PickWindow> {
                           subtitle: Text(switch (choice.kind) {
                             ShareKind.display => '${choice.width}x${choice.height}${choice.primary ? ' · main display' : ''}',
                             ShareKind.camera => 'camera · ${choice.width}x${choice.height}',
+                            ShareKind.spout => 'Spout · ${choice.width}x${choice.height}',
                             ShareKind.window => choice.process,
                           }),
                           onTap: () {

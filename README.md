@@ -152,7 +152,7 @@ adb shell am start -n dev.mkzk.manifold.probe/.MainActivity --es phase basic
 adb logcat -s PROBE
 ```
 
-The phases are `basic`, `hubkill`, `senderkill`, `consumerlost` and `misuse`. Each result is logged as `RESULT PASS` or `RESULT FAIL`. `--es phase sender --es name probe-a` leaves a sender running so that you can watch it from another app.
+The phases are `basic`, `hubkill`, `senderkill`, `consumerlost`, `misuse` and `alpha` (transparency between two apps on the phone). Two more, `screensound` and `screensync`, need the hub's own screen share running with sound, and the probe allowed in the hub's Apps tab. Each result is logged as `RESULT PASS` or `RESULT FAIL`. `--es phase sender --es name probe-a` leaves a sender running so that you can watch it from another app.
 
 ## Between devices
 

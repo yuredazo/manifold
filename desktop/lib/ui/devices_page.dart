@@ -332,6 +332,14 @@ class _DeviceCard extends StatelessWidget {
             value: device.sendCamera,
             onChanged: (on) => network.setSendCamera(device.publicKey, on),
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Let it watch my Spout senders'),
+            subtitle: const Text('It sees the Spout senders you share on the Share page. Off by default, and separate from windows.'),
+            value: device.sendSpout,
+            onChanged: (on) => network.setSendSpout(device.publicKey, on),
+          ),
           for (final entry in refused.entries)
             Padding(
               padding: const EdgeInsets.only(top: 6),

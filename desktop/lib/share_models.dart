@@ -4,7 +4,7 @@ import 'net/control.dart';
 import 'net/rate_control.dart';
 import 'net/retransmit_store.dart';
 
-enum ShareKind { window, display, camera }
+enum ShareKind { window, display, camera, spout }
 
 @immutable
 final class ShareableWindow {
@@ -22,7 +22,7 @@ final class ShareableWindow {
 
   final int handle;
 
-  /// The device name, such as `\\.\DISPLAY1`, for a display, and the name of the camera for a camera.
+  /// The device name, such as `\\.\DISPLAY1`, for a display, the name of the camera for a camera, and the sender's name for Spout.
   final String title;
   final String process;
   final String windowClass;
@@ -35,6 +35,10 @@ final class ShareableWindow {
 
   bool get display => kind == ShareKind.display;
   bool get camera => kind == ShareKind.camera;
+  bool get spout => kind == ShareKind.spout;
+
+  /// Cameras and Spout senders have a picture and nothing to listen to.
+  bool get pictureOnly => camera || spout;
 
   String get label => display ? displayLabel(title) : title;
 }
@@ -98,6 +102,8 @@ final class SharedWindow {
 
   bool get display => kind == ShareKind.display;
   bool get camera => kind == ShareKind.camera;
+  bool get spout => kind == ShareKind.spout;
+  bool get pictureOnly => camera || spout;
 
   final List<Watcher> watchers = [];
   final RetransmitStore store = RetransmitStore();

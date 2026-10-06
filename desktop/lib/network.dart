@@ -209,6 +209,10 @@ final class Network extends ChangeNotifier {
     book.update(publicKey, (device) => device.copyWith(sendCamera: on));
   }
 
+  void setSendSpout(String publicKey, bool on) {
+    book.update(publicKey, (device) => device.copyWith(sendSpout: on));
+  }
+
   void unpair(String publicKey) {
     sharing.dropDevice(publicKey);
     _endpoint.unpair(publicKey);

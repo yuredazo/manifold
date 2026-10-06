@@ -13,14 +13,16 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Display
 import android.view.Surface
 import dev.mkzk.manifold.Manifold
 import dev.mkzk.manifold.SenderInfo
-import java.io.FileOutputStream
-import java.io.IOException
+import java.io.FileDescriptor
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 import kotlin.math.min
@@ -208,7 +210,7 @@ internal object ScreenShare {
 }
 
 private class SoundCapture(private val record: AudioRecord) {
-    private val sinks = ConcurrentHashMap<String, FileOutputStream>()
+    private val sinks = ConcurrentHashMap<String, FileDescriptor>()
     @Volatile private var running = true
     private val reader = Thread(::pump, "manifold-screen-sound")
 
@@ -218,8 +220,14 @@ private class SoundCapture(private val record: AudioRecord) {
     }
 
     fun add(id: String, sink: ParcelFileDescriptor) {
-        // Wraps the descriptor without owning it: the registry closes the pipe when the subscription ends.
-        sinks[id] = FileOutputStream(sink.fileDescriptor)
+        // Not owned: the registry closes the pipe when the subscription ends.
+        val descriptor = sink.fileDescriptor
+        try {
+            Os.fcntlInt(descriptor, OsConstants.F_SETFL, Os.fcntlInt(descriptor, OsConstants.F_GETFL, 0) or OsConstants.O_NONBLOCK)
+        } catch (e: ErrnoException) {
+            Log.w(TAG, "cannot make the sound pipe non-blocking: ${e.message}")
+        }
+        sinks[id] = descriptor
     }
 
     fun remove(id: String) {
@@ -238,11 +246,13 @@ private class SoundCapture(private val record: AudioRecord) {
         while (running) {
             val read = record.read(chunk, 0, chunk.size)
             if (read < 0) break
-            for ((id, out) in sinks) {
+            for ((id, descriptor) in sinks) {
                 try {
-                    out.write(chunk, 0, read)
-                } catch (_: IOException) {
-                    sinks.remove(id)
+                    // A chunk is no bigger than PIPE_BUF, so it goes in whole or not at all. A watcher that has stopped
+                    // reading loses that chunk and no one else waits for it.
+                    Os.write(descriptor, chunk, 0, read)
+                } catch (e: ErrnoException) {
+                    if (e.errno != OsConstants.EAGAIN) sinks.remove(id)
                 }
             }
         }

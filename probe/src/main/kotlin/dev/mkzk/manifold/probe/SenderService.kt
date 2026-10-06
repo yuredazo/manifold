@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.PorterDuff
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
@@ -41,6 +42,7 @@ class SenderService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val name = intent?.getStringExtra(EXTRA_NAME) ?: return START_NOT_STICKY
+        transparent = intent.getBooleanExtra(EXTRA_TRANSPARENT, false)
         if (intent.getBooleanExtra(EXTRA_STOP, false)) {
             senders.remove(name)?.stop()
             return START_NOT_STICKY
@@ -73,6 +75,7 @@ class SenderService : Service() {
         }
 
         private fun drawFrames() {
+            val transparent = SenderService.transparent
             val colors = intArrayOf(Color.RED, Color.GREEN, Color.BLUE)
             val surface = subscription.surface
             var frames = 0
@@ -80,7 +83,15 @@ class SenderService : Service() {
             try {
                 while (running) {
                     val canvas = surface.lockCanvas(null)
-                    canvas.drawColor(colors[frames % 3])
+                    if (transparent) {
+                        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.SRC)
+                        canvas.save()
+                        canvas.clipRect(canvas.width / 2, 0, canvas.width, canvas.height)
+                        canvas.drawColor(Color.argb(128, 255, 0, 0), PorterDuff.Mode.SRC)
+                        canvas.restore()
+                    } else {
+                        canvas.drawColor(colors[frames % 3])
+                    }
                     surface.unlockCanvasAndPost(canvas)
                     frames++
                     Thread.sleep(33)
@@ -127,12 +138,19 @@ class SenderService : Service() {
     }
 
     companion object {
+        /** The service runs in its own process, so the choice travels in the start intent. */
+        @Volatile private var transparent = false
+
+        private const val EXTRA_TRANSPARENT = "transparent"
         private const val TAG = "PROBE"
         private const val EXTRA_NAME = "name"
         private const val EXTRA_STOP = "stop"
 
-        fun start(context: Context, name: String) {
-            context.startService(Intent(context, SenderService::class.java).putExtra(EXTRA_NAME, name))
+        /** With [transparent] the feed draws a left half with no colour and a right half of half-transparent red. */
+        fun start(context: Context, name: String, transparent: Boolean = false) {
+            context.startService(
+                Intent(context, SenderService::class.java).putExtra(EXTRA_NAME, name).putExtra(EXTRA_TRANSPARENT, transparent),
+            )
         }
 
         fun stop(context: Context, name: String) {

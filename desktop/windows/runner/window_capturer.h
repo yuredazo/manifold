@@ -8,13 +8,14 @@
 #include <memory>
 
 #include "frame_pump.h"
+#include "frame_source.h"
 
-class WindowCapturer {
+class WindowCapturer : public FrameSource {
  public:
   using Sink = H264Encoder::Sink;
 
   WindowCapturer();
-  ~WindowCapturer();
+  ~WindowCapturer() override;
 
   WindowCapturer(const WindowCapturer&) = delete;
   WindowCapturer& operator=(const WindowCapturer&) = delete;
@@ -22,12 +23,12 @@ class WindowCapturer {
   // `closed` is called from another thread when the window goes away.
   bool Start(HWND window, HMONITOR monitor, int width, int height, int bitrate_kbps, int64_t epoch_100ns, bool cursor, Sink sink,
              std::function<void()> closed);
-  void Stop();
-  void RequestKeyframe();
-  void SetBitrate(int bitrate_kbps);
+  void Stop() override;
+  void RequestKeyframe() override;
+  void SetBitrate(int bitrate_kbps) override;
 
-  int width() const;
-  int height() const;
+  int width() const override;
+  int height() const override;
 
  private:
   struct Impl;

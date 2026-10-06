@@ -19,11 +19,11 @@ ShareableWindow? findWindow({
   return null;
 }
 
-/// Picks the open candidate a saved share belongs to. Displays match by device name, cameras by device id and then by name.
+/// Picks the open candidate a saved share belongs to. Displays and Spout senders match by name, cameras by device id and then by name.
 ShareableWindow? findShare(SharedWindow share, Iterable<ShareableWindow> open) {
   final candidates = open.where((entry) => entry.kind == share.kind);
   return switch (share.kind) {
-    ShareKind.display => candidates.where((entry) => entry.title == share.title).firstOrNull,
+    ShareKind.display || ShareKind.spout => candidates.where((entry) => entry.title == share.title).firstOrNull,
     ShareKind.camera =>
       candidates.where((entry) => entry.device == share.device).firstOrNull ?? candidates.where((entry) => entry.title == share.title).firstOrNull,
     ShareKind.window => findWindow(title: share.title, windowClass: share.windowClass, process: share.process, candidates: candidates),

@@ -17,6 +17,8 @@
 #include <atomic>
 #include <cstring>
 
+#include "nv12_converter.h"
+
 using Microsoft::WRL::ComPtr;
 namespace capture = winrt::Windows::Graphics::Capture;
 namespace directx = winrt::Windows::Graphics::DirectX;
@@ -25,8 +27,6 @@ using winrt::Windows::Graphics::SizeInt32;
 namespace {
 
 constexpr int kFrameRate = FramePump::kFrameRate;
-
-int Even(int value) { return std::max(16, value & ~1); }
 
 }  // namespace
 
@@ -40,13 +40,7 @@ struct WindowCapturer::Impl {
 
   ComPtr<ID3D11Device> device;
   ComPtr<ID3D11DeviceContext> context;
-  ComPtr<ID3D11VideoDevice> video_device;
-  ComPtr<ID3D11VideoContext> video_context;
-  ComPtr<ID3D11VideoProcessorEnumerator> enumerator;
-  ComPtr<ID3D11VideoProcessor> processor;
-  ComPtr<ID3D11Texture2D> nv12;
-  ComPtr<ID3D11VideoProcessorOutputView> output_view;
-  ComPtr<ID3D11Texture2D> staging;
+  Nv12Converter converter;
   directx::Direct3D11::IDirect3DDevice winrt_device{nullptr};
   capture::GraphicsCaptureItem item{nullptr};
   capture::Direct3D11CaptureFramePool pool{nullptr};
@@ -54,80 +48,18 @@ struct WindowCapturer::Impl {
   winrt::event_token frame_token;
   winrt::event_token closed_token;
   SizeInt32 pool_size{};
-  SizeInt32 processor_input{};
 
   std::vector<uint8_t> packed;
   std::atomic<bool> running{false};
   bool media_started = false;
 
   bool CreateDevice() {
-    const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
-    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-                                 D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT, levels,
-                                 ARRAYSIZE(levels), D3D11_SDK_VERSION, &device, nullptr, &context))) {
-      return false;
-    }
-    ComPtr<ID3D10Multithread> multithread;
-    if (SUCCEEDED(device.As(&multithread))) multithread->SetMultithreadProtected(TRUE);
-    if (FAILED(device.As(&video_device)) || FAILED(context.As(&video_context))) return false;
-
+    if (!CreateCaptureDevice(device, context)) return false;
     ComPtr<IDXGIDevice> dxgi;
     if (FAILED(device.As(&dxgi))) return false;
     winrt::com_ptr<::IInspectable> inspectable;
     if (FAILED(CreateDirect3D11DeviceFromDXGIDevice(dxgi.Get(), inspectable.put()))) return false;
     winrt_device = inspectable.as<directx::Direct3D11::IDirect3DDevice>();
-    return true;
-  }
-
-  bool CreateOutputTextures() {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = out_width;
-    description.Height = out_height;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_NV12;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_RENDER_TARGET;
-    if (FAILED(device->CreateTexture2D(&description, nullptr, &nv12))) return false;
-
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    return SUCCEEDED(device->CreateTexture2D(&description, nullptr, &staging));
-  }
-
-  // The processor is made for one input size, so a window that was resized needs a new one.
-  bool EnsureProcessor(const SizeInt32& input) {
-    if (processor && input.Width == processor_input.Width && input.Height == processor_input.Height) return true;
-    processor.Reset();
-    enumerator.Reset();
-    output_view.Reset();
-    D3D11_VIDEO_PROCESSOR_CONTENT_DESC content{};
-    content.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
-    content.InputFrameRate = {kFrameRate, 1};
-    content.InputWidth = input.Width;
-    content.InputHeight = input.Height;
-    content.OutputFrameRate = {kFrameRate, 1};
-    content.OutputWidth = out_width;
-    content.OutputHeight = out_height;
-    content.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
-    if (FAILED(video_device->CreateVideoProcessorEnumerator(&content, &enumerator))) return false;
-    if (FAILED(video_device->CreateVideoProcessor(enumerator.Get(), 0, &processor))) return false;
-    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC view{};
-    view.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
-    if (FAILED(video_device->CreateVideoProcessorOutputView(nv12.Get(), enumerator.Get(), &view, &output_view))) return false;
-
-    D3D11_VIDEO_PROCESSOR_COLOR_SPACE rgb{};
-    video_context->VideoProcessorSetStreamColorSpace(processor.Get(), 0, &rgb);
-    D3D11_VIDEO_PROCESSOR_COLOR_SPACE yuv{};
-    yuv.YCbCr_Matrix = 1;  // BT.709
-    yuv.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235;
-    video_context->VideoProcessorSetOutputColorSpace(processor.Get(), &yuv);
-    D3D11_VIDEO_COLOR black{};
-    black.YCbCr = {0.0625f, 0.5f, 0.5f, 1.0f};
-    video_context->VideoProcessorSetOutputBackgroundColor(processor.Get(), TRUE, &black);
-    processor_input = input;
     return true;
   }
 
@@ -143,52 +75,8 @@ struct WindowCapturer::Impl {
     auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
     ComPtr<ID3D11Texture2D> texture;
     if (FAILED(access->GetInterface(IID_PPV_ARGS(&texture)))) return;
-    if (ConvertToNv12(texture.Get(), content)) pump.Submit(packed, frame.SystemRelativeTime().count() - epoch);
+    if (converter.Convert(texture.Get(), content.Width, content.Height, packed)) pump.Submit(packed, frame.SystemRelativeTime().count() - epoch);
   }
-
-  bool ConvertToNv12(ID3D11Texture2D* texture, const SizeInt32& content) {
-    if (!EnsureProcessor(content)) return false;
-    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC description{};
-    description.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
-    ComPtr<ID3D11VideoProcessorInputView> input;
-    if (FAILED(video_device->CreateVideoProcessorInputView(texture, enumerator.Get(), &description, &input))) return false;
-
-    const double scale = std::min(static_cast<double>(out_width) / content.Width, static_cast<double>(out_height) / content.Height);
-    const int fitted_width = std::max(2, static_cast<int>(content.Width * scale) & ~1);
-    const int fitted_height = std::max(2, static_cast<int>(content.Height * scale) & ~1);
-    const int left = (out_width - fitted_width) / 2 & ~1;
-    const int top = (out_height - fitted_height) / 2 & ~1;
-    RECT source{0, 0, content.Width, content.Height};
-    RECT destination{left, top, left + fitted_width, top + fitted_height};
-    RECT whole{0, 0, out_width, out_height};
-    video_context->VideoProcessorSetStreamSourceRect(processor.Get(), 0, TRUE, &source);
-    video_context->VideoProcessorSetStreamDestRect(processor.Get(), 0, TRUE, &destination);
-    video_context->VideoProcessorSetOutputTargetRect(processor.Get(), TRUE, &whole);
-
-    D3D11_VIDEO_PROCESSOR_STREAM stream{};
-    stream.Enable = TRUE;
-    stream.pInputSurface = input.Get();
-    if (FAILED(video_context->VideoProcessorBlt(processor.Get(), output_view.Get(), 0, 1, &stream))) return false;
-
-    context->CopyResource(staging.Get(), nv12.Get());
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) return false;
-    packed.resize(static_cast<size_t>(out_width) * out_height * 3 / 2);
-    const auto* rows = static_cast<const uint8_t*>(mapped.pData);
-    // The chroma plane follows the luma plane at the row pitch of the staging texture.
-    const uint8_t* chroma_rows = rows + static_cast<size_t>(mapped.RowPitch) * out_height;
-    uint8_t* luma_out = packed.data();
-    uint8_t* chroma_out = luma_out + static_cast<size_t>(out_width) * out_height;
-    for (int row = 0; row < out_height; ++row) {
-      std::memcpy(luma_out + static_cast<size_t>(row) * out_width, rows + static_cast<size_t>(row) * mapped.RowPitch, out_width);
-    }
-    for (int row = 0; row < out_height / 2; ++row) {
-      std::memcpy(chroma_out + static_cast<size_t>(row) * out_width, chroma_rows + static_cast<size_t>(row) * mapped.RowPitch, out_width);
-    }
-    context->Unmap(staging.Get(), 0);
-    return true;
-  }
-
 };
 
 WindowCapturer::WindowCapturer() : impl_(std::make_unique<Impl>()) {}
@@ -212,9 +100,9 @@ bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height,
     if (FAILED(created)) return false;
     const auto size = state.item.Size();
     if (size.Width <= 0 || size.Height <= 0) return false;
-    state.out_width = Even(std::clamp(width, 16, 4096));
-    state.out_height = Even(std::clamp(height, 16, 4096));
-    if (!state.CreateOutputTextures()) return false;
+    state.out_width = StreamSide(width);
+    state.out_height = StreamSide(height);
+    if (!state.converter.Open(state.device.Get(), state.context.Get(), state.out_width, state.out_height, kFrameRate)) return false;
     if (!state.pump.Start(state.out_width, state.out_height, bitrate_kbps, epoch_100ns, std::move(sink))) return false;
 
     state.pool_size = size;
@@ -257,14 +145,8 @@ void WindowCapturer::Stop() {
   state.session = nullptr;
   state.pool = nullptr;
   state.item = nullptr;
-  state.processor.Reset();
-  state.enumerator.Reset();
-  state.output_view.Reset();
-  state.nv12.Reset();
-  state.staging.Reset();
+  state.converter.Close();
   state.winrt_device = nullptr;
-  state.video_context.Reset();
-  state.video_device.Reset();
   state.context.Reset();
   state.device.Reset();
   if (state.media_started) {

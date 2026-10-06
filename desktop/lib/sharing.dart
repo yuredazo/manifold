@@ -75,7 +75,7 @@ final class Sharing extends ChangeNotifier {
 
   List<FeedInfo> get feeds => _offered((window) => true);
 
-  /// What a device may see: windows and displays need `send`, cameras need `sendCamera`.
+  /// What a device may see: windows and displays need `send`, cameras `sendCamera` and Spout senders `sendSpout`.
   List<FeedInfo> feedsFor(Device device) => _offered((window) => _allowed(window, device));
 
   bool _paused = false;
@@ -125,39 +125,43 @@ final class Sharing extends ChangeNotifier {
     if (changed) notifyListeners();
   }
 
-  bool _allowed(SharedWindow window, Device device) => window.camera ? device.sendCamera : device.send;
+  bool _allowed(SharedWindow window, Device device) => switch (window.kind) {
+        ShareKind.camera => device.sendCamera,
+        ShareKind.spout => device.sendSpout,
+        ShareKind.window || ShareKind.display => device.send,
+      };
 
-  Future<List<ShareableWindow>> windows() async {
-    final found = await _channel.invokeListMethod<Map>('windows') ?? const [];
+  static const _listMethods = {
+    ShareKind.window: 'windows',
+    ShareKind.display: 'displays',
+    ShareKind.camera: 'cameras',
+    ShareKind.spout: 'spouts',
+  };
+
+  // The runner only sends the fields that mean something for the kind.
+  Future<List<ShareableWindow>> _query(ShareKind kind) async {
+    final found = await _channel.invokeListMethod<Map>(_listMethods[kind]!) ?? const [];
     return [
       for (final entry in found)
         ShareableWindow(
           handle: entry['handle'] as int,
           title: entry['title'] as String,
-          process: entry['process'] as String,
-          windowClass: entry['class'] as String,
+          process: entry['process'] as String? ?? '',
+          windowClass: entry['class'] as String? ?? '',
           width: entry['width'] as int,
           height: entry['height'] as int,
+          kind: kind,
+          primary: entry['primary'] as bool? ?? false,
+          device: entry['device'] as String? ?? '',
         ),
     ];
   }
 
-  Future<List<ShareableWindow>> displays() async {
-    final found = await _channel.invokeListMethod<Map>('displays') ?? const [];
-    return [
-      for (final entry in found)
-        ShareableWindow(
-          handle: entry['handle'] as int,
-          title: entry['title'] as String,
-          process: '',
-          windowClass: '',
-          width: entry['width'] as int,
-          height: entry['height'] as int,
-          kind: ShareKind.display,
-          primary: entry['primary'] as bool,
-        ),
-    ];
-  }
+  Future<List<ShareableWindow>> windows() => _query(ShareKind.window);
+
+  Future<List<ShareableWindow>> displays() => _query(ShareKind.display);
+
+  Future<List<ShareableWindow>> spouts() => _query(ShareKind.spout);
 
   bool _offerCameras = false;
 
@@ -175,23 +179,9 @@ final class Sharing extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<List<ShareableWindow>> cameras() async {
-    if (!_offerCameras) return const [];
-    final found = await _channel.invokeListMethod<Map>('cameras') ?? const [];
-    return [
-      for (final entry in found)
-        ShareableWindow(
-          handle: entry['handle'] as int,
-          title: entry['title'] as String,
-          process: '',
-          windowClass: '',
-          width: entry['width'] as int,
-          height: entry['height'] as int,
-          kind: ShareKind.camera,
-          device: entry['device'] as String,
-        ),
-    ];
-  }
+  Future<List<ShareableWindow>> cameras() async => _offerCameras ? _query(ShareKind.camera) : const [];
+
+  Future<List<ShareableWindow>> _list(ShareKind kind) => kind == ShareKind.camera ? cameras() : _query(kind);
 
   /// A window that is being watched says so itself, but one that nobody watches is only noticed by asking.
   Future<void> tick(int nowMs) async {
@@ -205,15 +195,11 @@ final class Sharing extends ChangeNotifier {
         if (!open.contains(window.handle)) _lose(window);
       }
     }
-    if (present.any((window) => window.display)) {
-      final connected = {for (final display in await displays()) display.handle};
-      for (final window in present.where((window) => window.display)) {
-        if (!connected.contains(window.handle)) _lose(window);
-      }
-    }
-    if (present.any((window) => window.camera)) {
-      final connected = {for (final camera in await cameras()) camera.handle};
-      for (final window in present.where((window) => window.camera)) {
+    for (final kind in [ShareKind.display, ShareKind.camera, ShareKind.spout]) {
+      final ofKind = present.where((window) => window.kind == kind).toList();
+      if (ofKind.isEmpty) continue;
+      final connected = {for (final entry in await _list(kind)) entry.handle};
+      for (final window in ofKind) {
         if (!connected.contains(window.handle)) _lose(window);
       }
     }
@@ -223,9 +209,8 @@ final class Sharing extends ChangeNotifier {
   Future<void> _findAbsent() async {
     final absent = shared.where((window) => !window.present).toList();
     final open = [
-      if (absent.any((window) => window.kind == ShareKind.window)) ...await windows(),
-      if (absent.any((window) => window.display)) ...await displays(),
-      if (absent.any((window) => window.camera)) ...await cameras(),
+      for (final kind in ShareKind.values)
+        if (absent.any((window) => window.kind == kind)) ...await _list(kind),
     ];
     final taken = {for (final window in shared) if (window.present) window.handle};
     var found = false;
@@ -259,11 +244,11 @@ final class Sharing extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// [soundOnly] shares no picture, so it needs sound and does not apply to a camera.
+  /// [soundOnly] shares no picture, so it needs sound and does not apply to a camera or a Spout sender.
   SharedWindow share(ShareableWindow window, {required bool audio, bool soundOnly = false, bool showCursor = true}) {
     final existing = _byHandle(window.handle);
     if (existing != null) return existing;
-    final soundAlone = soundOnly && !window.camera;
+    final soundAlone = soundOnly && !window.pictureOnly;
     final entry = SharedWindow(
       feedName: feedNameFor(window, soundOnly: soundAlone, taken: (name) => _named(name) != null),
       handle: window.handle,
@@ -272,7 +257,7 @@ final class Sharing extends ChangeNotifier {
       windowClass: window.windowClass,
       width: window.width,
       height: window.height,
-      withAudio: (audio || soundAlone) && !window.camera,
+      withAudio: (audio || soundAlone) && !window.pictureOnly,
       kind: window.kind,
       soundOnly: soundAlone,
       showCursor: showCursor,
@@ -326,13 +311,19 @@ final class Sharing extends ChangeNotifier {
         if (window.soundOnly) 'picture': false,
         if (!window.showCursor) 'cursor': false,
         if (window.camera) 'device': window.device,
+        if (window.spout) 'device': window.title,
       });
     } on PlatformException {
       window.capturing = false;
       window.watchers.clear();
-      problem = window.camera
-          ? 'Windows would not open "${window.feedName}". Another app may be using it, or camera access for desktop apps is off in Windows settings.'
-          : 'Windows would not let "${window.feedName}" be captured. It may be protected, or minimized to nothing.';
+      problem = switch (window.kind) {
+        ShareKind.camera =>
+          'Windows would not open "${window.feedName}". Another app may be using it, or camera access for desktop apps is off in Windows settings.',
+        ShareKind.spout =>
+          'Spout would not hand over "${window.feedName}". The program may have stopped sending, or it draws on another graphics card.',
+        ShareKind.window || ShareKind.display =>
+          'Windows would not let "${window.feedName}" be captured. It may be protected, or minimized to nothing.',
+      };
       notifyListeners();
       return Refusal.failed;
     }

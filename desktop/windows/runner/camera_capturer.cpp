@@ -137,8 +137,6 @@ ComPtr<IMFSourceReader> OpenReader(IMFMediaSource* source, IMFSourceReaderCallba
   return reader;
 }
 
-int Even(int value) { return std::max(16, value & ~1); }
-
 }  // namespace
 
 std::vector<CameraInfo> CameraCapturer::List() {
@@ -288,8 +286,8 @@ bool CameraCapturer::Start(const std::wstring& id, int width, int height, int bi
   state.media_started = true;
   state.closed = std::move(closed);
   state.epoch = epoch_100ns;
-  state.out_width = Even(std::clamp(width, 16, 4096));
-  state.out_height = Even(std::clamp(height, 16, 4096));
+  state.out_width = StreamSide(width);
+  state.out_height = StreamSide(height);
 
   state.source = OpenSource(id);
   if (!state.source) {

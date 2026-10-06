@@ -78,6 +78,10 @@ install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 
+# Spout's license asks for its notice to travel with binaries built from it.
+install(FILES "${SPOUT_LICENSE_FILE}" DESTINATION "${CMAKE_INSTALL_PREFIX}/licenses" RENAME "Spout2-LICENSE.txt"
+  COMPONENT Runtime)
+
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 

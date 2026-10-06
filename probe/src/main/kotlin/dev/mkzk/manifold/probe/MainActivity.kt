@@ -3,7 +3,11 @@ package dev.mkzk.manifold.probe
 import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
+import android.graphics.Color
 import android.graphics.PixelFormat
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.media.ImageReader
 import android.os.Bundle
 import android.os.Handler
@@ -11,6 +15,7 @@ import android.os.HandlerThread
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.util.Log
+import android.view.View
 import dev.mkzk.manifold.ManifoldReceiver
 import dev.mkzk.manifold.ManifoldSender
 import dev.mkzk.manifold.SenderInfo
@@ -19,6 +24,9 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.sin
 
 class MainActivity : Activity() {
 
@@ -28,7 +36,7 @@ class MainActivity : Activity() {
     @Volatile private var senders: List<String> = emptyList()
     @Volatile private var connected = false
 
-    private inner class Watch(withAudio: Boolean) {
+    private inner class Watch(withAudio: Boolean, readAudio: Boolean = true) {
         val frames = AtomicInteger()
         val audioBytes = AtomicLong()
         val seen = BooleanArray(3)
@@ -52,7 +60,7 @@ class MainActivity : Activity() {
                     frames.incrementAndGet()
                 }
             }, imageHandler)
-            pipe?.let { p ->
+            pipe?.takeIf { readAudio }?.let { p ->
                 Thread({
                     val buffer = ByteArray(4096)
                     try {
@@ -92,6 +100,9 @@ class MainActivity : Activity() {
                     "senderkill" -> senderKill()
                     "consumerlost" -> consumerLost()
                     "misuse" -> misuse()
+                    "screensound" -> screenSound()
+                    "screensync" -> screenSync()
+                    "alpha" -> alpha()
                     // Leaves a sender running for manual tests of other apps.
                     "sender" -> SenderService.start(this, intent.getStringExtra("name") ?: "probe-a")
                     else -> Log.i(TAG, "unknown phase '$phase'")
@@ -162,6 +173,148 @@ class MainActivity : Activity() {
         receiver.unsubscribe(subLate)
         listOf(a, b, c, late).forEach { it.close() }
         SenderService.stop(this, "probe-a")
+        receiver.stop()
+    }
+
+    // Needs the hub's own "Screen" share running, with sound, and this app allowed in the hub.
+    private fun screenSound() {
+        val receiver = startReceiver()
+        check("the screen share is announced") { waitFor(60_000) { "Screen" in senders } }
+
+        val reading = Watch(withAudio = true)
+        val stalled = Watch(withAudio = true, readAudio = false)
+        receiver.subscribe("Screen", reading.reader.surface, 320, 240, reading.audioSink)
+        receiver.subscribe("Screen", stalled.reader.surface, 320, 240, stalled.audioSink)
+        // The owner may take a while to allow this app in the hub.
+        check("sound arrives once the app is allowed") { waitFor(90_000) { reading.audioBytes.get() > 0 } }
+        Thread.sleep(2000)
+        val before = reading.audioBytes.get()
+        Thread.sleep(10_000)
+        val gained = reading.audioBytes.get() - before
+        report("sound keeps flowing while another watcher stops reading", gained >= 1_500_000, "bytes in 10 s=$gained of ~1920000 expected")
+
+        listOf(reading, stalled).forEach { it.close() }
+        receiver.stop()
+    }
+
+    // Flashes this screen and plays a click at the same moment, then compares when the hub's screen share delivers each.
+    // The screen share has to be running with sound, and this activity has to stay in front.
+    private fun screenSync() {
+        val receiver = startReceiver()
+        check("the screen share is announced") { waitFor(60_000) { "Screen" in senders } }
+
+        val view = View(this)
+        runOnUiThread {
+            view.setBackgroundColor(Color.BLACK)
+            setContentView(view)
+        }
+        val flashedAt = AtomicLong()
+        val pictureAt = AtomicLong()
+        val soundAt = AtomicLong()
+        val reader = ImageReader.newInstance(108, 240, PixelFormat.RGBA_8888, 4)
+        reader.setOnImageAvailableListener({ r ->
+            val image = try { r.acquireLatestImage() } catch (_: Throwable) { null }
+            image?.use {
+                val buffer = it.planes[0].buffer
+                val middle = (it.planes[0].rowStride * it.height / 2) + it.planes[0].pixelStride * it.width / 2
+                val bright = (buffer.get(middle).toInt() and 0xFF) > 200
+                if (bright && flashedAt.get() != 0L) pictureAt.compareAndSet(0, System.nanoTime())
+            }
+        }, imageHandler)
+        val pipe = ParcelFileDescriptor.createPipe()
+        Thread({
+            val chunk = ByteArray(1024)
+            try {
+                ParcelFileDescriptor.AutoCloseInputStream(pipe[0]).use { input ->
+                    while (true) {
+                        val n = input.read(chunk)
+                        if (n < 0) break
+                        var loudest = 0
+                        for (i in 0 until n - 1 step 2) {
+                            val sample = (chunk[i].toInt() and 0xFF) or (chunk[i + 1].toInt() shl 8)
+                            loudest = maxOf(loudest, abs(sample.toShort().toInt()))
+                        }
+                        if (loudest > 3000 && flashedAt.get() != 0L) soundAt.compareAndSet(0, System.nanoTime())
+                    }
+                }
+            } catch (_: IOException) {
+            }
+        }, "probe-sync-audio").start()
+        receiver.subscribe("Screen", reader.surface, 108, 240, pipe[1])
+        Thread.sleep(3000)
+
+        val rate = 48_000
+        val tone = ShortArray(rate / 10) { (sin(2 * PI * 1000 * it / rate) * 20_000).toInt().toShort() }
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
+            .setAudioFormat(
+                AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(rate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build(),
+            )
+            .setBufferSizeInBytes(tone.size * 2)
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .build()
+        track.write(tone, 0, tone.size)
+
+        val offsets = mutableListOf<Long>()
+        val pictureDelays = mutableListOf<Long>()
+        val soundDelays = mutableListOf<Long>()
+        repeat(10) {
+            runOnUiThread { view.setBackgroundColor(Color.BLACK) }
+            Thread.sleep(1200)
+            pictureAt.set(0)
+            soundAt.set(0)
+            val start = System.nanoTime()
+            flashedAt.set(start)
+            runOnUiThread { view.setBackgroundColor(Color.WHITE) }
+            track.stop()
+            track.reloadStaticData()
+            track.play()
+            waitFor(1500) { pictureAt.get() != 0L && soundAt.get() != 0L }
+            flashedAt.set(0)
+            if (pictureAt.get() != 0L && soundAt.get() != 0L) {
+                pictureDelays += (pictureAt.get() - start) / 1_000_000
+                soundDelays += (soundAt.get() - start) / 1_000_000
+                offsets += (pictureAt.get() - soundAt.get()) / 1_000_000
+            }
+        }
+        track.release()
+        report(
+            "picture and sound of the screen share arrive close together",
+            offsets.size >= 6,
+            "picture minus sound in ms: $offsets  (picture ${pictureDelays}, sound $soundDelays after the flash)",
+        )
+        receiver.stop()
+        reader.close()
+    }
+
+    // A sender on this phone draws with transparency into the surface a receiver on this phone gave the hub.
+    private fun alpha() {
+        val receiver = startReceiver()
+        SenderService.start(this, "probe-alpha", transparent = true)
+        check("sender is discovered") { waitFor(5000) { "probe-alpha" in senders } }
+
+        val seen = AtomicReference<IntArray>()
+        val reader = ImageReader.newInstance(320, 240, PixelFormat.RGBA_8888, 4)
+        reader.setOnImageAvailableListener({ r ->
+            val image = try { r.acquireLatestImage() } catch (_: Throwable) { null }
+            image?.use {
+                val plane = it.planes[0]
+                fun alphaAt(x: Int, y: Int) = plane.buffer.get(y * plane.rowStride + x * plane.pixelStride + 3).toInt() and 0xFF
+                seen.set(intArrayOf(alphaAt(40, 120), alphaAt(280, 120)))
+            }
+        }, imageHandler)
+        val subscription = receiver.subscribe("probe-alpha", reader.surface, 320, 240)
+        // The owner may take a while to allow this app in the hub.
+        waitFor(90_000) { seen.get() != null }
+        Thread.sleep(1000)
+        val alphas = seen.get()
+        // The sender draws the right half at 50% alpha, which is 128 out of 255.
+        report("alpha survives between a sender and a receiver on the phone", alphas != null && alphas[0] == 0 && alphas[1] in 120..136, "alpha left/right=${alphas?.toList()} (expected 0 and about 128)")
+
+        receiver.unsubscribe(subscription)
+        reader.close()
+        SenderService.stop(this, "probe-alpha")
         receiver.stop()
     }
 

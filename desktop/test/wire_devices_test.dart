@@ -88,6 +88,23 @@ void main() {
       expect(old.sendCamera, isFalse);
     });
 
+    test('the Spout permission is saved, is off in older books, and fields from a newer version are ignored', () {
+      final saved = <String>[];
+      final book = DeviceBook(null, saved.add)..put(Device(publicKey: keyHex, name: 'Beta', send: true));
+      book.update(keyHex, (device) => device.copyWith(sendSpout: true));
+
+      final reloaded = DeviceBook(saved.last, (_) {}).findKey(key)!;
+      expect(reloaded.sendSpout, isTrue);
+      expect(reloaded.sendCamera, isFalse);
+
+      final withCamera = DeviceBook('$keyHex\tBeta\t\ttrue\ttrue\ttrue', (_) {}).findKey(key)!;
+      expect(withCamera.sendCamera, isTrue);
+      expect(withCamera.sendSpout, isFalse);
+
+      final newer = DeviceBook('$keyHex\tBeta\t\ttrue\ttrue\ttrue\ttrue\tsomething new', (_) {}).findKey(key)!;
+      expect(newer.sendSpout, isTrue);
+    });
+
     test('removing forgets the device', () {
       final saved = <String>[];
       final book = DeviceBook(null, saved.add)..put(Device(publicKey: keyHex, name: 'Beta'));

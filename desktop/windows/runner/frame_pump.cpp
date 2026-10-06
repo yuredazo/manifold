@@ -1,5 +1,7 @@
 #include "frame_pump.h"
 
+#include <timeapi.h>
+
 #include <algorithm>
 #include <chrono>
 
@@ -24,6 +26,8 @@ int64_t NowIn100ns() {
 bool FramePump::Start(int width, int height, int bitrate_kbps, int64_t epoch_100ns, H264Encoder::Sink sink) {
   if (running_) return false;
   if (!encoder_.Open(width, height, std::clamp(bitrate_kbps, kMinBitrateKbps, kMaxBitrateKbps), kFrameRate, kKeyframeEvery)) return false;
+  // The pacing waits below round up to the 15.6 ms system tick otherwise, and a 33 ms frame interval becomes 47 ms.
+  timeBeginPeriod(1);
   sink_ = std::move(sink);
   epoch_ = epoch_100ns;
   latest_.clear();
@@ -36,7 +40,10 @@ bool FramePump::Start(int width, int height, int bitrate_kbps, int64_t epoch_100
 void FramePump::Stop() {
   running_ = false;
   wake_.notify_all();
-  if (thread_.joinable()) thread_.join();
+  if (thread_.joinable()) {
+    thread_.join();
+    timeEndPeriod(1);
+  }
   encoder_.Close();
 }
 
