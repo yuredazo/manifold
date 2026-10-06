@@ -56,7 +56,7 @@ A feed list holds the feeds the other device may see, and is sent again on every
 
 These are sent once and never acknowledged, because they are worth nothing when late: ping, the time request and reply (a round trip measurement every second), the publisher's numbers for a stream (once a second), the receiver's report on a stream (twice a second), and the request to send fragments again.
 
-A session ends after 15 seconds without any packet, and a ping every 3 seconds keeps an idle one alive. If a paired device dials in while its old session is still up, because it restarted, the old session is reported down first, so streams that belonged to it stop.
+A session ends after 15 seconds without any packet, and a ping every 3 seconds keeps an idle one alive. A message that needs an answer is sent again every 400 ms for as long as the session may still be heard, so a gap of a few seconds does not end it, and a redial of a dropped session starts at the next tick. The Windows hub starts its player again when packets return after more than 2.5 seconds of silence, because the player stays stuck for many seconds on the jump in the timestamps. If a paired device dials in while its old session is still up, because it restarted, the old session is reported down first, so streams that belonged to it stop.
 
 ## Video
 
@@ -114,7 +114,7 @@ To publish, the hub subscribes to the local feed as a receiver of its own, with 
 
 To receive, the hub registers a remote feed as a sender named like `camera (Pixel)`. When an allowed local app subscribes, the hub starts a decoder into that app's surface, and stops it when the subscription ends.
 
-Tapping a feed on the Live screen previews it full screen. The hub subscribes as a receiver of its own, so local and remote feeds preview the same way and no permission is asked. A feed with sound plays through an audio pipe with a mute button, and the hub does not take audio focus. If the sender goes away the preview keeps waiting, since a subscription outlives its sender.
+Tapping a feed on the Live screen previews it full screen. The hub subscribes as a receiver of its own, so local and remote feeds preview the same way and no permission is asked. A feed with sound plays through an audio pipe with a mute button, and the hub does not take audio focus. If the sender goes away the preview keeps waiting, since a subscription outlives its sender. The preview shows a top bar with the title, the sending device, the size and a picture-in-picture button, and a bottom bar with a LIVE badge, the ping and frame rate for a feed from another device, mute, fit or fill, and a landscape toggle. The bars fade after 3 seconds, a tap brings them back and a double tap switches between fitting the picture and filling the screen. Leaving the app while a picture is previewed (Android 8 or later) shrinks it into a picture-in-picture window, which keeps playing over other apps and has no controls of its own.
 
 ## Sharing the phone's screen
 
