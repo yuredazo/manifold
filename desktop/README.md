@@ -56,7 +56,7 @@ On the Share page, "Share" opens a picker with the open windows, the connected d
 - A camera is shared without sound. Cameras are hidden from the picker until "Offer cameras in the Share list" is switched on in About, and switching it off again withdraws any that are shared. A camera is opened only while a device watches it, and Windows must allow desktop apps to use the camera.
 - Programs that output through Spout (TouchDesigner, Resolume and others) appear as Spout senders, without sound, and are read only while a device watches them.
 
-A feed is captured only while a device is watching it. Shares are remembered in `%APPDATA%\Manifold\shares.json`. After a restart, or when a window closes and opens again, the share finds its window the way OBS does: same program, then the exact title, then any window of the same type. Until one is found the share shows "waiting for the window".
+Windows 11 draws a yellow outline around a window or display while it is captured, and the hub asks Windows to leave it off. Earlier Windows versions keep the outline. A feed is captured only while a device is watching it. Shares are remembered in `%APPDATA%\Manifold\shares.json`. After a restart, or when a window closes and opens again, the share finds its window the way OBS does: same program, then the exact title, then any window of the same type. Until one is found the share shows "waiting for the window".
 
 "Stop all sharing", on the Share page and in the tray menu, withdraws every feed, ends every stream and stops every capture. The shares stay listed and Resume offers them again. It is not remembered across a restart. The Share page also lists recent activity, such as which device started or stopped watching what.
 

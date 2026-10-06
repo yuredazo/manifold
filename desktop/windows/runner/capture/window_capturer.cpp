@@ -5,10 +5,12 @@
 #include <mfapi.h>
 #include <wrl/client.h>
 
+#include <winrt/Windows.Foundation.Metadata.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
 #include <winrt/Windows.Graphics.DirectX.h>
+#include <winrt/Windows.Security.Authorization.AppCapabilityAccess.h>
 
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
@@ -16,6 +18,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <thread>
 
 #include "nv12_converter.h"
 
@@ -27,6 +30,28 @@ using winrt::Windows::Graphics::SizeInt32;
 namespace {
 
 constexpr int kFrameRate = FramePump::kFrameRate;
+
+// Windows 11 outlines what is captured in yellow unless the app was granted borderless access. An unpackaged app asks once
+// and the answer is kept. The request waits for the system, so it runs off the UI thread, where blocking on it is not allowed.
+bool BorderlessAllowed() {
+  static const bool allowed = [] {
+    bool granted = false;
+    std::thread asking([&granted] {
+      try {
+        winrt::init_apartment(winrt::apartment_type::multi_threaded);
+        namespace metadata = winrt::Windows::Foundation::Metadata;
+        if (!metadata::ApiInformation::IsMethodPresent(L"Windows.Graphics.Capture.GraphicsCaptureAccess", L"RequestAccessAsync")) return;
+        const auto answer = capture::GraphicsCaptureAccess::RequestAccessAsync(capture::GraphicsCaptureAccessKind::Borderless).get();
+        granted = answer == winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus::Allowed;
+      } catch (const winrt::hresult_error&) {
+        // Windows without the API keeps the border.
+      }
+    });
+    asking.join();
+    return granted;
+  }();
+  return allowed;
+}
 
 }  // namespace
 
@@ -120,6 +145,13 @@ bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height,
       state.session.IsCursorCaptureEnabled(cursor);
     } catch (const winrt::hresult_error&) {
       // Windows before 10 version 2004 cannot leave the cursor out, so it stays in the picture.
+    }
+    if (BorderlessAllowed()) {
+      try {
+        state.session.IsBorderRequired(false);
+      } catch (const winrt::hresult_error&) {
+        // The border is only a hint to the user, so a refusal never stops the capture.
+      }
     }
     state.running = true;
     state.session.StartCapture();
