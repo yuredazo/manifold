@@ -16,9 +16,12 @@
 
     <string name="devices_fingerprint">Fingerprint %1$s</string>
     <string name="devices_accept">Accept connections</string>
-    <string name="devices_off">Off. Other devices cannot connect.</string>
-    <string name="devices_no_address">Listening, but no network address was found.</string>
-    <string name="devices_reachable">Another device on this network can reach it at:</string>
+    <string name="devices_off">Off</string>
+    <string name="devices_no_address">No network address found</string>
+    <string name="devices_reachable_at">%1$s</string>
+    <string name="devices_this_phone">This phone</string>
+    <string name="devices_details">Connection details</string>
+    <string name="devices_details_off">Accept connections is off, so there is no address to show.</string>
     <string name="address_local">Local</string>
     <string name="address_public">Public</string>
     <string name="address_lookup">Look up</string>
@@ -27,7 +30,15 @@
     <string name="address_copy">Copy</string>
     <string name="address_copied">Copied</string>
     <string name="devices_pair">Pair a device</string>
-    <string name="devices_allow_pairing">Allow pairing</string>
+    <string name="pair_nearby_title">Nearby</string>
+    <string name="pair_nearby_looking">Looking for devices</string>
+    <string name="pair_nearby_hint">Devices that allow pairing show up here.</string>
+    <string name="pair_enter_title">Enter its address</string>
+    <string name="pair_enter_body">Type the address the other device shows.</string>
+    <string name="pair_show_title">Let another device pair with this one</string>
+    <string name="pair_show_body">Then type this phone&#8217;s address there.</string>
+    <string name="pair_open_hint">Nearby devices can see this phone</string>
+    <string name="common_close">Close</string>
     <string name="devices_pairing_open">Pairing open, %1$s left</string>
     <string name="devices_paired_header">Paired devices</string>
     <string name="devices_none">No device is paired yet.</string>
@@ -35,9 +46,16 @@
     <string name="device_online">online</string>
     <string name="device_offline">offline</string>
     <string name="device_receive">Receive their feeds</string>
+    <string name="device_receive_hint">Their feeds show up in Live.</string>
     <string name="device_send">Share my feeds</string>
+    <string name="device_send_hint">They can watch the feeds you share.</string>
+    <string name="device_receiving">receiving</string>
+    <string name="device_sharing">sharing</string>
+    <string name="device_fingerprint">Fingerprint</string>
+    <string name="device_address">Address</string>
     <string name="device_offers">Offers %1$s</string>
     <string name="device_offers_nothing">Offers no feeds right now</string>
+    <string name="device_options">Device options</string>
     <string name="device_unpair">Unpair</string>
     <string name="device_refused_not_shared">%1$s: that device has not allowed this one to watch. Switch on Share my feeds there.</string>
     <string name="device_refused_not_found">%1$s: that device no longer has this feed.</string>
@@ -47,7 +65,7 @@
     <string name="device_unpair_body">It has to be paired again before it can connect.</string>
 
     <string name="pair_address_title">Pair a device</string>
-    <string name="pair_address_help">On the other device, open Devices, switch on Accept connections and tap Allow pairing. It shows its address.</string>
+    <string name="pair_address_help">On the other device, open Devices, switch on Accept connections, tap Pair a device and choose to let another device pair with it. It shows its address.</string>
     <string name="pair_address_hint">Address of the other device</string>
     <string name="pair_start">Pair</string>
     <string name="pair_connecting">Connecting to %1$s...</string>
@@ -85,10 +103,9 @@
     <string name="action_allow">Allow</string>
     <string name="action_block">Block</string>
 
-    <string name="feed_audio">audio</string>
     <string name="feed_sound_only">sound only</string>
     <string name="feed_not_announced">Not announced yet</string>
-    <string name="feed_no_watchers">Nobody watching</string>
+    <string name="feed_watched_by">Watched by %1$s</string>
     <string name="feed_tap_preview">Tap to preview</string>
     <string name="preview_watcher">Preview</string>
     <string name="preview_waiting">Waiting for the feed</string>
@@ -108,13 +125,16 @@
     <string name="access_ask">Asks</string>
     <string name="access_blocked">Blocked</string>
     <string name="menu_allow">Allow</string>
+    <string name="menu_allow_hint">Can watch any feed.</string>
     <string name="menu_ask">Ask each time</string>
+    <string name="menu_ask_hint">Waits until you allow or block it.</string>
     <string name="menu_block">Block</string>
+    <string name="menu_block_hint">Gets no feeds and not even their names.</string>
     <string name="app_connected">connected</string>
     <string name="cert_changed">Signing certificate changed</string>
 
     <string name="about_version">Version %1$s</string>
-    <string name="about_body">Manifold lets one app send live video to another on this phone. This app only introduces them. Video never passes through it.</string>
+    <string name="about_body">Manifold sends live video between apps on this phone and to your other devices. This hub asks you which apps may watch, and on this phone the video never passes through it.</string>
     <string name="about_source">Source code</string>
     <string name="about_how">How it works</string>
     <string name="about_report">Report a vulnerability</string>
