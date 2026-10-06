@@ -23,6 +23,9 @@ abstract class EndpointListener {
 
   void onLinkDown(Device device) {}
 
+  /// Heard again after a silence. Nothing is lost, but a stream has a hole in its timeline.
+  void onLinkResumed(Device device) {}
+
   void onConnectFailed(Device device) {}
 
   void onFeeds(Device device, List<FeedInfo> feeds) {}
@@ -107,6 +110,7 @@ final class Endpoint {
     required this.listener,
     KeyPair Function()? newKeyPair,
     int Function()? wallClock,
+    this.log,
   })  : _newKeyPair = newKeyPair ?? Crypto.generateKeyPair,
         _wallClock = wallClock ?? (() => DateTime.now().millisecondsSinceEpoch);
 
@@ -117,6 +121,12 @@ final class Endpoint {
   static const confirmTimeoutMs = 120000;
   static const pingIntervalMs = 3000;
   static const linkTimeoutMs = 15000;
+
+  // Pings and probes arrive every one to three seconds.
+  static const resumeAfterSilenceMs = 2500;
+
+  // Resent until the link would time out anyway.
+  static const _establishedAttempts = linkTimeoutMs ~/ ControlChannel.resendAfterMs;
   static const probeIntervalMs = 1000;
   static const _rttSamples = 9;
 
@@ -128,6 +138,8 @@ final class Endpoint {
   final void Function(Address, Uint8List) transmit;
   final EndpointListener listener;
   final KeyPair Function() _newKeyPair;
+
+  final void Function(String message)? log;
 
   /// Stamps each hello. It has to keep growing across restarts, which [clock] does not.
   final int Function() _wallClock;
@@ -186,7 +198,7 @@ final class Endpoint {
     final link = _links[publicKey];
     if (link == null) return;
     link.control.send(const Bye(), clock());
-    _drop(link);
+    _drop(link, 'closed from this device');
   }
 
   void unpair(String publicKey) {
@@ -392,8 +404,9 @@ final class Endpoint {
     // A peer that restarts dials in again before the old link has timed out. Whatever was
     // running over the old link has to hear that it ended, because the peer forgot it.
     final old = _links[publicKey];
-    if (old != null) _drop(old);
+    if (old != null) _drop(old, 'the other device dialed in again');
     final link = _newLink(publicKey, address, session, index);
+    link.control.giveUpAfter = _establishedAttempts;
     _links[publicKey] = link;
     _linksByIndex[index] = link;
     final device = devices.find(publicKey);
@@ -407,8 +420,14 @@ final class Endpoint {
     if (link == null) return;
     final opened = link.session.open(datagram);
     if (opened == null) return;
-    link.heard = clock();
+    final heardAt = clock();
+    final silentFor = heardAt - link.heard;
+    link.heard = heardAt;
     link.address = from;
+    if (silentFor > resumeAfterSilenceMs && identical(_links[link.publicKey], link)) {
+      final device = devices.find(link.publicKey);
+      if (device != null) listener.onLinkResumed(device);
+    }
     final current = _pairing;
     if (current != null && identical(current.link, link)) current.heardData = true;
     switch (opened.stream) {
@@ -475,7 +494,7 @@ final class Endpoint {
       case StreamReport():
         listener.onStreamReport(device, control);
       case Bye():
-        _drop(link);
+        _drop(link, 'the other device said goodbye');
       default:
         break;
     }
@@ -541,7 +560,7 @@ final class Endpoint {
   void _tickLink(_Link link, int now) {
     link.control.tick(now);
     if (!_links.containsValue(link)) return;
-    if (now - link.heard > linkTimeoutMs) return _drop(link);
+    if (now - link.heard > linkTimeoutMs) return _drop(link, 'nothing heard for ${(now - link.heard) / 1000} s');
     if (now - link.probed >= probeIntervalMs) {
       link.probed = now;
       link.control.send(TimeRequest(now), now);
@@ -562,7 +581,8 @@ final class Endpoint {
     // One pairing is what the owner opened the window for.
     _pairingOpenUntil = 0;
     final old = _links[link.publicKey];
-    if (old != null) _drop(old);
+    if (old != null) _drop(old, 'replaced by a new pairing');
+    link.control.giveUpAfter = _establishedAttempts;
     _links[link.publicKey] = link;
     final stored = devices.find(link.publicKey)!;
     listener.onPaired(stored);
@@ -578,11 +598,14 @@ final class Endpoint {
     listener.onPairingFailed(reason);
   }
 
-  void _drop(_Link link) {
+  void _drop(_Link link, String reason) {
     final known = identical(_links[link.publicKey], link);
     if (known) _links.remove(link.publicKey);
     _linksByIndex.remove(link.index);
-    if (known) listener.onLinkDown(devices.find(link.publicKey) ?? Device(publicKey: link.publicKey, name: ''));
+    if (!known) return;
+    final device = devices.find(link.publicKey) ?? Device(publicKey: link.publicKey, name: '');
+    log?.call('link to ${device.name.isEmpty ? link.publicKey.substring(0, 8) : device.name} down: $reason');
+    listener.onLinkDown(device);
   }
 
   _Link _newLink(String publicKey, Address address, Session session, int index) {
@@ -595,7 +618,7 @@ final class Endpoint {
         if (current != null && identical(current.link, link)) {
           _endPairing('lost contact');
         } else {
-          _drop(link);
+          _drop(link, 'a message got no answer after ${link.control.giveUpAfter} tries');
         }
       },
     );

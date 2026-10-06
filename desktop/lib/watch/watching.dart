@@ -133,6 +133,13 @@ final class Watching extends ChangeNotifier with NetworkFeature {
   void onLinkDown(Device device) => stopWhere((session) => session.deviceKey == device.publicKey);
 
   @override
+  void onLinkResumed(Device device) {
+    for (final session in _sessions.values) {
+      if (session.deviceKey == device.publicKey) unawaited(session.restartPlayer());
+    }
+  }
+
+  @override
   void onFeeds(Device device, List<FeedInfo> feeds) {
     stopWhere((session) => session.deviceKey == device.publicKey && !feeds.any((feed) => feed.name == session.feedName));
     for (final feed in feeds) {

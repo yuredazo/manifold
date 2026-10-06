@@ -80,6 +80,7 @@ class DevicesPage extends StatelessWidget {
                     _DeviceRow(
                       device,
                       online: network.online.contains(device.publicKey),
+                      latency: network.latencyMs(device.publicKey),
                       onTap: () => showDetails<void>(
                         context,
                         title: device.name,
@@ -96,10 +97,11 @@ class DevicesPage extends StatelessWidget {
 }
 
 class _DeviceRow extends StatelessWidget {
-  const _DeviceRow(this.device, {required this.online, required this.onTap});
+  const _DeviceRow(this.device, {required this.online, required this.latency, required this.onTap});
 
   final Device device;
   final bool online;
+  final int? latency;
   final VoidCallback onTap;
 
   @override
@@ -107,6 +109,7 @@ class _DeviceRow extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final summary = [
       online ? 'Online' : 'Offline',
+      if (online && latency != null) '$latency ms',
       if (device.receive) 'receiving',
       if (device.send || device.sendCamera || device.sendSpout) 'sharing',
     ].join(' · ');
@@ -260,6 +263,7 @@ class _DeviceBody extends StatelessWidget {
         if (device == null) return const SizedBox.shrink();
         final theme = Theme.of(context);
         final online = network.online.contains(publicKey);
+        final latency = network.latencyMs(publicKey);
         final offered = network.remoteFeeds[publicKey]?.map((feed) => feed.label).toList() ?? const <String>[];
         final refused = network.refused[publicKey] ?? const <String, Refusal>{};
         return Column(
@@ -268,7 +272,7 @@ class _DeviceBody extends StatelessWidget {
             Group(
               children: [
                 ListRow(
-                  title: online ? 'Online' : 'Offline',
+                  title: online ? (latency == null ? 'Online' : 'Online \u00b7 $latency ms') : 'Offline',
                   subtitle: readableFingerprint(device.fingerprint) + (device.address == null ? '' : '  ·  ${device.address}'),
                   leading: IconBadge(Icons.devices_outlined, badge: online ? theme.colorScheme.primary : theme.colorScheme.outline),
                 ),

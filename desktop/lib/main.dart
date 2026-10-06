@@ -19,6 +19,7 @@ import 'watch/watching.dart';
 
 const _listeningKey = 'listening';
 const _sharesFile = 'shares.json';
+const _linkLogFile = 'network.log';
 
 Future<void> main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,7 +49,12 @@ Future<void> main(List<String> arguments) async {
     report: (deviceKey, report) => network.sendStreamReport(deviceKey, report),
     rttMs: (deviceKey) => network.rttMs(deviceKey),
   );
-  network = Network(storage.loadIdentity(), book, features: [sharing, watching]);
+  network = Network(
+    storage.loadIdentity(),
+    book,
+    features: [sharing, watching],
+    log: (message) => storage.append(_linkLogFile, '${DateTime.now().toIso8601String()} $message'),
+  );
   // The switch on the Devices page is remembered, so the hub is reachable again after a restart.
   network.addListener(() => storage.write(_listeningKey, network.listening ? 'on' : 'off'));
   if (storage.read(_listeningKey) == 'on') network.start();

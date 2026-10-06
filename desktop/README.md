@@ -74,4 +74,4 @@ About checks GitHub for a newer release and can install it. How that works is in
 
 ## Files
 
-Everything the app stores is in `%APPDATA%\Manifold`: the paired devices (`devices.txt`), the shares (`shares.json`), the switches from About, and the identity key (`identity.key`), which is encrypted with Windows data protection for the signed-in user. Other programs running as the same user can read the other files.
+Everything the app stores is in `%APPDATA%\Manifold`: the paired devices (`devices.txt`), the shares (`shares.json`), the switches from About, a log of why links went down (`network.log`, newest lines kept), and the identity key (`identity.key`), which is encrypted with Windows data protection for the signed-in user. Other programs running as the same user can read the other files.

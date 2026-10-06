@@ -97,6 +97,7 @@ final class ViewerSession {
   int _lastPts = _startTimestamp;
   int _lastKeyframeRequest = 0;
   int? _firstAudioTimestamp;
+  bool _restarting = false;
   int _audioStart = _startTimestamp;
   int _lastAudioPts = _startTimestamp;
   int _frames = 0;
@@ -199,6 +200,18 @@ final class ViewerSession {
       _frames++;
     }
     if (frames.isNotEmpty) stats.value = ViewerStats(frames: _frames, lostFrames: _buffer.lostFrames, bytes: _bytes);
+  }
+
+  // libmpv stays stuck for many seconds on the timestamp gap after a break, and reconnecting resets its clock.
+  Future<void> restartPlayer() async {
+    final server = _server;
+    if (server == null || _stopped || _restarting) return;
+    _restarting = true;
+    try {
+      await player.open(Media('tcp://127.0.0.1:${server.port}'));
+    } finally {
+      _restarting = false;
+    }
   }
 
   /// Audio counts from its own start, so it is pinned to where the picture is when the first

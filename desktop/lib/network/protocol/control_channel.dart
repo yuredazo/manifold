@@ -19,6 +19,9 @@ final class ControlChannel {
   int _newestFeedList = 0;
   bool _failed = false;
 
+  // Pairing gives up fast. A link that is up is judged by silence, so it retries for as long.
+  int giveUpAfter = maxAttempts;
+
   void send(Control control, int now) {
     final id = _nextId++;
     final bytes = ControlCodec.encode(id, control);
@@ -50,7 +53,7 @@ final class ControlChannel {
     if (_failed) return;
     for (final message in _waiting.values.toList()) {
       if (now - message.sentAt < resendAfterMs) continue;
-      if (message.attempts >= maxAttempts) {
+      if (message.attempts >= giveUpAfter) {
         _failed = true;
         _onFailed();
         return;

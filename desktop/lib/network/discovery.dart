@@ -16,7 +16,6 @@ final class NearbyDevice {
   final int port;
 }
 
-/// Devices heard recently. A device that stops announcing drops out after [ttl].
 final class NearbyBook {
   NearbyBook({this.ttl = const Duration(seconds: 4), this.limit = 16});
 

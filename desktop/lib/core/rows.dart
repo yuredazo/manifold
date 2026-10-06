@@ -21,13 +21,11 @@ class SectionLabel extends StatelessWidget {
   }
 }
 
-/// Rows that belong together sit in one rounded container, with an inset divider between them.
 class Group extends StatelessWidget {
   const Group({required this.children, this.indented = true, super.key});
 
   final List<Widget> children;
 
-  /// Dividers start under the text instead of under the icon when rows have an [IconBadge].
   final bool indented;
 
   @override
@@ -54,7 +52,6 @@ class Group extends StatelessWidget {
   }
 }
 
-/// A neutral circle with an icon. [badge] adds a small status dot, used for online and offline.
 class IconBadge extends StatelessWidget {
   const IconBadge(this.icon, {this.badge, super.key});
 
@@ -170,7 +167,6 @@ class SwitchRow extends StatelessWidget {
   }
 }
 
-/// A window for one thing and the controls that belong to it, the desktop counterpart of the phone's bottom sheet.
 Future<T?> showDetails<T>(BuildContext context, {required String title, required WidgetBuilder builder, String? status, Color? statusColor}) {
   return showDialog<T>(
     context: context,
