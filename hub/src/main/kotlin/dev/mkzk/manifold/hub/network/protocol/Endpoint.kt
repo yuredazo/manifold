@@ -15,6 +15,7 @@ internal class Endpoint(
     private val newKeyPair: () -> KeyPair = Crypto::generateKeyPair,
     /** Stamps each hello. It has to keep growing across restarts and reboots, which [clock] does not. */
     private val wallClock: () -> Long = System::currentTimeMillis,
+    private val log: (String) -> Unit = {},
 ) {
     interface Listener {
         fun onPairingCode(address: Address, remoteName: String, code: String) {}
@@ -131,7 +132,7 @@ internal class Endpoint(
         dialing.remove(publicKey)
         val link = links[publicKey] ?: return
         link.control.send(Control.Bye, clock())
-        drop(link)
+        drop(link, "closed from this device")
     }
 
     fun unpair(publicKey: String) {
@@ -321,8 +322,9 @@ internal class Endpoint(
     private fun bringUp(publicKey: String, address: Address, session: Session, index: Int) {
         // A peer that restarts dials in again before the old link has timed out. Whatever was
         // running over the old link has to hear that it ended, because the peer forgot it.
-        links[publicKey]?.let(::drop)
+        links[publicKey]?.let { drop(it, "the other device dialed in again") }
         val link = newLink(publicKey, address, session, index)
+        link.control.giveUpAfter = ESTABLISHED_ATTEMPTS
         links[publicKey] = link
         linksByIndex[index] = link
         devices.find(publicKey)?.let { listener.onLinkUp(it, address) }
@@ -381,7 +383,7 @@ internal class Endpoint(
             is Control.SenderStats -> listener.onSenderStats(device, control)
             is Control.Nack -> listener.onNack(device, control)
             is Control.StreamReport -> listener.onStreamReport(device, control)
-            Control.Bye -> drop(link)
+            Control.Bye -> drop(link, "the other device said goodbye")
             else -> Unit
         }
     }
@@ -439,7 +441,7 @@ internal class Endpoint(
     private fun tickLink(link: Link, now: Long) {
         link.control.tick(now)
         if (!links.containsValue(link)) return
-        if (now - link.heard > LINK_TIMEOUT_MS) return drop(link)
+        if (now - link.heard > LINK_TIMEOUT_MS) return drop(link, "nothing heard for ${(now - link.heard) / 1000.0} s")
         if (now - link.probed >= PROBE_INTERVAL_MS) {
             link.probed = now
             link.control.send(Control.TimeRequest(now), now)
@@ -460,7 +462,8 @@ internal class Endpoint(
         pairing = null
         // One pairing is what the owner opened the window for.
         pairingOpenUntil = 0
-        links[link.publicKey]?.let(::drop)
+        links[link.publicKey]?.let { drop(it, "replaced by a new pairing") }
+        link.control.giveUpAfter = ESTABLISHED_ATTEMPTS
         links[link.publicKey] = link
         listener.onPaired(devices.find(link.publicKey) ?: device)
         listener.onLinkUp(devices.find(link.publicKey) ?: device, current.address)
@@ -473,11 +476,14 @@ internal class Endpoint(
         listener.onPairingFailed(reason)
     }
 
-    private fun drop(link: Link) {
+    private fun drop(link: Link, reason: String) {
         val known = links[link.publicKey] === link
         if (known) links.remove(link.publicKey)
         linksByIndex.remove(link.index)
-        if (known) listener.onLinkDown(devices.find(link.publicKey) ?: Device(link.publicKey, "", null))
+        if (!known) return
+        val device = devices.find(link.publicKey) ?: Device(link.publicKey, "", null)
+        log("link to ${device.name.ifEmpty { link.publicKey.take(8) }} down: $reason")
+        listener.onLinkDown(device)
     }
 
     private fun newLink(publicKey: String, address: Address, session: Session, index: Int): Link {
@@ -485,7 +491,7 @@ internal class Endpoint(
         link.control = ControlChannel(
             transmit = { payload -> transmit(link.address, session.seal(Stream.Control, payload)) },
             onMessage = { handleControl(link, it) },
-            onFailed = { if (pairing?.link === link) endPairing("lost contact") else drop(link) },
+            onFailed = { if (pairing?.link === link) endPairing("lost contact") else drop(link, "a message got no answer after ${link.control.giveUpAfter} tries") },
         )
         link.heard = clock()
         link.pinged = link.heard
@@ -539,6 +545,9 @@ internal class Endpoint(
         const val PROBE_INTERVAL_MS = 1_000L
         private const val RTT_SAMPLES = 9
         const val LINK_TIMEOUT_MS = 15_000L
+
+        // Resent until the link would time out anyway.
+        private const val ESTABLISHED_ATTEMPTS = (LINK_TIMEOUT_MS / ControlChannel.RESEND_AFTER_MS).toInt()
 
         private val PROLOGUE = "manifold-net/1".toByteArray(Charsets.US_ASCII)
     }

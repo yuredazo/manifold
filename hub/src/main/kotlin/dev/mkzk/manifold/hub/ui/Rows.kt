@@ -50,7 +50,6 @@ internal fun SectionLabel(title: Int) {
     )
 }
 
-/** Rows that belong together sit in one rounded container. */
 @Composable
 internal fun Group(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Surface(
@@ -70,7 +69,6 @@ internal fun GroupDivider(withIcon: Boolean = true) {
     )
 }
 
-/** A neutral circle with an icon. [badge] adds a small status dot, used for online and offline. */
 @Composable
 internal fun IconBadge(icon: ImageVector, badge: Color? = null) {
     Box(modifier = Modifier.size(IconColumn)) {

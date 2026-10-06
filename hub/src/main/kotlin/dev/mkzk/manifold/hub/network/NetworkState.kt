@@ -24,6 +24,7 @@ internal data class NetworkState(
     val pairingOpenUntil: Long = 0,
     val pairing: PairingUi = PairingUi.None,
     val online: Set<String> = emptySet(),
+    val latencyMs: Map<String, Int> = emptyMap(),
     val remoteFeeds: Map<String, List<FeedInfo>> = emptyMap(),
     /** What a feed from another device is called now, by the name the registry gave it. Only feeds with a title of their own are here. */
     val feedTitles: Map<String, String> = emptyMap(),

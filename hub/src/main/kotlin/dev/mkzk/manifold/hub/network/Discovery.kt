@@ -22,7 +22,6 @@ private const val LIMITED_BROADCAST = "255.255.255.255"
 
 internal class NearbyDevice(val id: String, val name: String, val host: String, val port: Int)
 
-/** Devices heard recently. A device that stops announcing drops out after [ttlMs]. */
 internal class NearbyBook(private val ttlMs: Long = 4_000, private val limit: Int = 16) {
     private class Heard(val device: NearbyDevice, val at: Long)
 
@@ -46,10 +45,7 @@ internal class NearbyBook(private val ttlMs: Long = 4_000, private val limit: In
     }
 }
 
-/**
- * Finds devices on the same network that are open for pairing. It listens only while the pairing sheet is open and
- * announces only while this device lets others pair, so an idle hub says nothing.
- */
+/** Listens only while the pairing sheet is open and announces only while pairing is open, so an idle hub says nothing. */
 internal class Discovery(private val identity: Identity, private val hold: () -> Closeable? = { null }) {
     private val ownId = identity.fingerprint.take(16)
     private val book = NearbyBook()

@@ -44,6 +44,7 @@
     <string name="devices_none">No device is paired yet.</string>
 
     <string name="device_online">online</string>
+    <string name="device_latency">%1$d ms</string>
     <string name="device_offline">offline</string>
     <string name="device_receive">Receive their feeds</string>
     <string name="device_receive_hint">Their feeds show up in Live.</string>
@@ -111,6 +112,12 @@
     <string name="preview_waiting">Waiting for the feed</string>
     <string name="preview_close">Close the preview</string>
     <string name="preview_mute">Mute</string>
+    <string name="preview_live">LIVE</string>
+    <string name="preview_offline">OFFLINE</string>
+    <string name="preview_pip">Picture in picture</string>
+    <string name="preview_rotate">Rotate</string>
+    <string name="preview_fill">Fill the screen</string>
+    <string name="preview_fit">Fit the screen</string>
     <string name="preview_unmute">Unmute</string>
     <string name="preview_refused">The preview could not start. Close it and try again.</string>
     <string name="feed_more_watchers">+%1$d more</string>

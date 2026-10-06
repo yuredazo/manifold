@@ -69,6 +69,7 @@ internal fun LiveScreen(
     registry: Registry,
     snapshot: Snapshot,
     titles: Map<String, String>,
+    stats: Map<String, PreviewStats>,
     notificationsOn: Boolean,
     openNotificationSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -88,7 +89,7 @@ internal fun LiveScreen(
     SideEffect { if (current != null) lastSeen = current }
     previewed?.let { name ->
         val known = current ?: lastSeen?.takeIf { it.name == name } ?: SenderRow(name, "", "", 0, 0, 0, false, 0)
-        FeedPreview(registry, known, title = titles[name] ?: name, live = current != null) { previewed = null }
+        FeedPreview(registry, known, title = titles[name] ?: name, stats = stats[name], live = current != null) { previewed = null }
     }
 
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp)) {
