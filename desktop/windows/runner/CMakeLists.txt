@@ -10,17 +10,17 @@ add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
   "utils.cpp"
-  "window_host.cpp"
-  "capture_host.cpp"
-  "window_capturer.cpp"
-  "camera_capturer.cpp"
-  "frame_pump.cpp"
-  "nv12_converter.cpp"
-  "spout_capturer.cpp"
-  "app_audio_capturer.cpp"
-  "h264_encoder.cpp"
-  "aac_encoder.cpp"
-  "mft.cpp"
+  "viewer/window_host.cpp"
+  "capture/capture_host.cpp"
+  "capture/window_capturer.cpp"
+  "capture/camera_capturer.cpp"
+  "capture/frame_pump.cpp"
+  "capture/nv12_converter.cpp"
+  "capture/spout_capturer.cpp"
+  "audio/app_audio_capturer.cpp"
+  "encode/h264_encoder.cpp"
+  "encode/aac_encoder.cpp"
+  "encode/mft.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
@@ -73,7 +73,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "_SILENCE_EXPERIMENTAL_COROUTI
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" spout_dx)
 target_link_libraries(${BINARY_NAME} PRIVATE d3d11 dxgi mfplat mf mfreadwrite mfuuid strmiids wmcodecdspuuid mmdevapi windowsapp winmm)
-target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

@@ -7,8 +7,8 @@
 #include <memory>
 
 #include "win32_window.h"
-#include "capture_host.h"
-#include "window_host.h"
+#include "capture/capture_host.h"
+#include "viewer/window_host.h"
 
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {

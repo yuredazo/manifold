@@ -4,13 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import 'autostart.dart';
-import 'network.dart';
-import 'settings.dart';
-import 'storage.dart';
-import 'ui/app.dart';
-import 'updates.dart';
-import 'window_control.dart';
+import 'app/app.dart';
+import 'app/autostart.dart';
+import 'app/hub.dart';
+import 'app/settings.dart';
+import 'app/window_control.dart';
+import 'core/storage.dart';
+import 'network/network_storage.dart';
+import 'network/network.dart';
+import 'share/activity.dart';
+import 'share/sharing.dart';
+import 'update/updater.dart';
+import 'watch/watching.dart';
 
 const _listeningKey = 'listening';
 const _sharesFile = 'shares.json';
@@ -20,20 +25,38 @@ Future<void> main(List<String> arguments) async {
   MediaKit.ensureInitialized();
 
   final storage = Storage.open();
-  final network = Network(
-    storage.loadIdentity(),
-    storage.loadDevices(),
-    savedShares: storage.read(_sharesFile),
+  final book = storage.loadDevices();
+  final activity = Activity();
+  late final Network network;
+  final sharing = Sharing(
+    book: book,
+    sendVideo: (deviceKey, streamId, fragments) => network.sendVideo(deviceKey, streamId, fragments),
+    sendAudio: (deviceKey, streamId, timestamp, frame) => network.sendAudio(deviceKey, streamId, timestamp, frame),
+    refuse: (deviceKey, streamId, reason) => network.refuseSubscribe(deviceKey, streamId, reason),
+    feedsChanged: () => network.offerToAll(),
+    watchChanged: (deviceKey, feed, watching) => activity.record(device: book.find(deviceKey)?.name ?? 'A device', feed: feed, started: watching),
+    saved: storage.read(_sharesFile),
     saveShares: (text) => storage.write(_sharesFile, text),
   );
+  final watching = Watching(
+    book: book,
+    refused: (deviceKey, feed, reason) => network.recordRefusal(deviceKey, feed, reason),
+    subscribe: (deviceKey, request) => network.subscribe(deviceKey, request),
+    unsubscribe: (deviceKey, streamId) => network.unsubscribe(deviceKey, streamId),
+    requestKeyframe: (deviceKey, streamId) => network.requestKeyframe(deviceKey, streamId),
+    requestResend: (deviceKey, nack) => network.requestResend(deviceKey, nack),
+    report: (deviceKey, report) => network.sendStreamReport(deviceKey, report),
+    rttMs: (deviceKey) => network.rttMs(deviceKey),
+  );
+  network = Network(storage.loadIdentity(), book, features: [sharing, watching]);
   // The switch on the Devices page is remembered, so the hub is reachable again after a restart.
   network.addListener(() => storage.write(_listeningKey, network.listening ? 'on' : 'off'));
   if (storage.read(_listeningKey) == 'on') network.start();
 
   final settings = Settings(storage);
-  network.sharing.offerCameras = settings.offerCameras;
-  settings.addListener(() => network.sharing.offerCameras = settings.offerCameras);
-  final window = WindowControl(settings, network.sharing, hidden: arguments.contains(hiddenFlag));
+  sharing.offerCameras = settings.offerCameras;
+  settings.addListener(() => sharing.offerCameras = settings.offerCameras);
+  final window = WindowControl(settings, sharing, hidden: arguments.contains(hiddenFlag));
   await window.start();
   final autostart = Autostart(executable: Platform.resolvedExecutable)..refresh();
 
@@ -45,5 +68,13 @@ Future<void> main(List<String> arguments) async {
   )..cleanUp();
   if (settings.checkOnLaunch) updater.checkOnLaunch();
 
-  runApp(HubApp(network, settings, updater, autostart));
+  runApp(HubApp(Hub(
+    network: network,
+    sharing: sharing,
+    watching: watching,
+    activity: activity,
+    settings: settings,
+    updater: updater,
+    autostart: autostart,
+  )));
 }
