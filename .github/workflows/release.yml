@@ -4,7 +4,8 @@ name: Release
 # versionName and the Windows app's version, because both hubs compare their own
 # version with the tag to offer updates. The Android signing key comes from
 # repository secrets.
-# The Windows hub is built after the Android release exists and attached to it.
+# Both hubs build at the same time. The release is created once both are built and
+# carries both files, so nobody is offered a version that has only one of them.
 on:
   push:
     tags: ['v*']
@@ -56,16 +57,18 @@ jobs:
           "$apksigner" verify --print-certs hub/build/outputs/apk/release/hub-release.apk | tee certs.txt
           grep -q 'CN=Manifold, O=mkzk' certs.txt
 
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          apk="manifold-hub-$GITHUB_REF_NAME.apk"
-          cp hub/build/outputs/apk/release/hub-release.apk "$apk"
-          gh release create "$GITHUB_REF_NAME" "$apk" --title "Manifold Hub ${GITHUB_REF_NAME#v}" --notes ""
+      - name: Name the APK after the tag
+        run: cp hub/build/outputs/apk/release/hub-release.apk "manifold-hub-$GITHUB_REF_NAME.apk"
+
+      - name: Keep the APK for the release
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-hub
+          path: manifold-hub-${{ github.ref_name }}.apk
+          if-no-files-found: error
+          retention-days: 1
 
   desktop:
-    needs: hub
     runs-on: windows-latest
     defaults:
       run:
@@ -82,7 +85,25 @@ jobs:
       - run: flutter build windows --release
       - name: Zip the build
         run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "manifold-hub-windows-$env:GITHUB_REF_NAME.zip"
-      - name: Attach it to the release
+      - name: Keep the zip for the release
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-hub
+          path: desktop/manifold-hub-windows-${{ github.ref_name }}.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [hub, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: files
+          merge-multiple: true
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$env:GITHUB_REF_NAME" "manifold-hub-windows-$env:GITHUB_REF_NAME.zip"
+        run: |
+          ls -l files
+          gh release create "$GITHUB_REF_NAME" files/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "Manifold Hub ${GITHUB_REF_NAME#v}" --notes ""
