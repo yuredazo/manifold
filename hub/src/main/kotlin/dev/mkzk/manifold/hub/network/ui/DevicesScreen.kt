@@ -130,7 +130,7 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
                     }
                     devices.forEachIndexed { index, device ->
                         if (index > 0) GroupDivider()
-                        DeviceRow(device, online = device.publicKey in state.online, onClick = { openDevice = device.publicKey })
+                        DeviceRow(device, online = device.publicKey in state.online, latency = state.latencyMs[device.publicKey], onClick = { openDevice = device.publicKey })
                     }
                 }
             }
@@ -233,6 +233,7 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
             network,
             shown,
             online = shown.publicKey in state.online,
+            latency = state.latencyMs[shown.publicKey],
             offered = state.remoteFeeds[shown.publicKey].orEmpty().map { it.name },
             streams = state.streams.filter { it.deviceKey == shown.publicKey },
             refused = state.refused[shown.publicKey].orEmpty(),
@@ -254,10 +255,11 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
 }
 
 @Composable
-private fun DeviceRow(device: Device, online: Boolean, onClick: () -> Unit) {
+private fun DeviceRow(device: Device, online: Boolean, latency: Int?, onClick: () -> Unit) {
     val dot = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
     val summary = buildList {
         add(stringResource(if (online) R.string.device_online else R.string.device_offline))
+        if (online && latency != null) add(stringResource(R.string.device_latency, latency))
         if (device.receive) add(stringResource(R.string.device_receiving))
         if (device.send) add(stringResource(R.string.device_sharing))
     }.joinToString(" · ").replaceFirstChar { it.uppercase() }
@@ -275,6 +277,7 @@ private fun DeviceSheet(
     network: Network,
     device: Device,
     online: Boolean,
+    latency: Int?,
     offered: List<String>,
     streams: List<StreamSnapshot>,
     refused: Map<String, Control.Refusal>,
@@ -284,7 +287,10 @@ private fun DeviceSheet(
     Sheet(onDismiss) {
         SheetTitle(
             device.name,
-            trailing = stringResource(if (online) R.string.device_online else R.string.device_offline),
+            trailing = listOfNotNull(
+                stringResource(if (online) R.string.device_online else R.string.device_offline),
+                latency?.takeIf { online }?.let { stringResource(R.string.device_latency, it) },
+            ).joinToString(" · "),
             trailingColor = if (online) MaterialTheme.colorScheme.primary else secondaryText(),
         )
         SwitchRow(

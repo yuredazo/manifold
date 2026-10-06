@@ -13,6 +13,9 @@ internal class ControlChannel(
     private var newestFeedList = 0
     private var failed = false
 
+    // Pairing gives up fast. A link that is up is judged by silence, so it retries for as long.
+    var giveUpAfter = MAX_ATTEMPTS
+
     fun send(control: Control, now: Long) {
         val id = nextId++
         val bytes = ControlCodec.encode(id, control)
@@ -43,7 +46,7 @@ internal class ControlChannel(
         if (failed) return
         for (message in waiting.values) {
             if (now - message.sentAt < RESEND_AFTER_MS) continue
-            if (message.attempts >= MAX_ATTEMPTS) {
+            if (message.attempts >= giveUpAfter) {
                 failed = true
                 onFailed()
                 return

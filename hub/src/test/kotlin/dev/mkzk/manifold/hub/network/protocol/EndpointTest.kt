@@ -64,6 +64,7 @@ class EndpointTest {
         val nacks = ArrayList<Control.Nack>()
         val video = ArrayList<kotlin.Pair<Int, ByteArray>>()
         val audio = ArrayList<AudioPacket>()
+        val logs = ArrayList<String>()
         lateinit var endpoint: Endpoint
 
         init {
@@ -133,7 +134,7 @@ class EndpointTest {
                 override fun onAudio(device: Device, streamId: Int, timestamp: Int, frame: ByteArray) {
                     audio += AudioPacket(streamId, timestamp, frame)
                 }
-            }, wallClock = { world.now })
+            }, wallClock = { world.now }, log = { logs += it })
         }
 
         val publicKey get() = identity.keys.public.toHex()
@@ -413,6 +414,22 @@ class EndpointTest {
         assertFalse(beta.endpoint.isLinked(alpha.publicKey))
         assertEquals(1, alpha.linksDown.size)
         assertEquals(1, beta.linksDown.size)
+        assertTrue(alpha.logs.single().startsWith("link to Beta down: nothing heard for 15."))
+    }
+
+    @Test
+    fun aFewSecondsWithoutPacketsDoNotDropALinkEvenWithAMessageStillWaitingForItsAnswer() {
+        val (world, alpha, beta) = pairedWorld()
+        alpha.endpoint.requestKeyframe(beta.publicKey, 1)
+
+        world.cut = true
+        world.advance(8_000)
+        world.cut = false
+        world.advance(3_000)
+
+        assertTrue(alpha.endpoint.isLinked(beta.publicKey) && beta.endpoint.isLinked(alpha.publicKey))
+        assertTrue(alpha.linksDown.isEmpty() && beta.linksDown.isEmpty())
+        assertEquals(listOf(1), beta.keyframeRequests)
     }
 
     @Test
@@ -447,6 +464,8 @@ class EndpointTest {
 
         assertFalse(beta.endpoint.isLinked(alpha.publicKey))
         assertEquals(1, beta.linksDown.size)
+        assertEquals(listOf("link to Alpha down: the other device said goodbye"), beta.logs)
+        assertEquals(listOf("link to Beta down: closed from this device"), alpha.logs)
     }
 
     @Test

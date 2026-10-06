@@ -62,7 +62,9 @@
 
         <activity
             android:name=".app.HubActivity"
-            android:exported="true">
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
+            android:exported="true"
+            android:supportsPictureInPicture="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

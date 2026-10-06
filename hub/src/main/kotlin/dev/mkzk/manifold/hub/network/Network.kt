@@ -34,11 +34,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 private const val TAG = "Network"
 internal const val LISTEN_PORT = 47200
 private const val TICK_MS = 250L
+private const val LATENCY_EVERY_TICKS = 4
 private const val CONNECT_EVERY_TICKS = 20
 private const val ANNOUNCE_EVERY_TICKS = 4
 private const val POLL_MS = 4L
@@ -87,6 +89,9 @@ internal class Network(
 
     @Volatile private var socket: DatagramSocket? = null
     private var ticks = 0
+
+    // A dropped link usually comes back within a second.
+    private var redialNow = false
     private var polling = false
 
     private val endpoint: Endpoint = Endpoint(identity, book, SystemClock::elapsedRealtime, ::send, object : Endpoint.Listener {
@@ -109,6 +114,7 @@ internal class Network(
         }
 
         override fun onLinkDown(device: Device) {
+            redialNow = true
             flow.update {
                 it.copy(online = it.online - device.publicKey, remoteFeeds = it.remoteFeeds - device.publicKey, refused = it.refused - device.publicKey)
             }
@@ -156,7 +162,7 @@ internal class Network(
         override fun onVideo(device: Device, streamId: Int, fragment: ByteArray) {
             remote.onVideo(device, streamId, fragment)
         }
-    })
+    }, log = { Log.i(TAG, it) })
 
     private val tick = object : Runnable {
         override fun run() {
@@ -169,7 +175,12 @@ internal class Network(
                 polling = true
                 handler.post(poll)
             }
-            if (ticks++ % CONNECT_EVERY_TICKS == 0) connectKnownDevices()
+            if (redialNow || ticks % CONNECT_EVERY_TICKS == 0) {
+                redialNow = false
+                connectKnownDevices()
+            }
+            if (ticks % LATENCY_EVERY_TICKS == 0) publishLatency()
+            ticks++
             handler.postDelayed(this, TICK_MS)
         }
     }
@@ -310,6 +321,11 @@ internal class Network(
             endpoint.unpair(publicKey)
             flow.update { it.copy(online = it.online - publicKey, remoteFeeds = it.remoteFeeds - publicKey) }
         }
+    }
+
+    private fun publishLatency() {
+        val latency = flow.value.online.mapNotNull { key -> endpoint.rttMs(key)?.let { key to it.roundToInt() } }.toMap()
+        if (latency != flow.value.latencyMs) flow.update { it.copy(latencyMs = latency) }
     }
 
     private fun connectKnownDevices() {

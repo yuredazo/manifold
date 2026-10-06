@@ -18,6 +18,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -25,13 +26,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mkzk.manifold.Manifold
 import dev.mkzk.manifold.hub.R
 import dev.mkzk.manifold.hub.about.AboutScreen
 import dev.mkzk.manifold.hub.about.UpdateAnnouncement
 import dev.mkzk.manifold.hub.broker.ui.AppsScreen
 import dev.mkzk.manifold.hub.broker.ui.LiveScreen
+import dev.mkzk.manifold.hub.broker.ui.PreviewStats
 import dev.mkzk.manifold.hub.network.ui.DevicesScreen
 import dev.mkzk.manifold.hub.screen.ScreenShareAction
+import kotlin.math.roundToInt
 
 private enum class Tab(val title: Int, val icon: ImageVector) {
     Live(R.string.tab_live, Icons.Outlined.LiveTv),
@@ -51,6 +55,12 @@ internal fun HubShell(
     val snapshot by graph.registry.state.collectAsStateWithLifecycle()
     val network = graph.network
     val networkState by network.state.collectAsStateWithLifecycle()
+    // A feed from another device is registered as "feed (device)", which is what the preview looks it up by.
+    val previewStats = remember(networkState.streams) {
+        networkState.streams.associate {
+            "${it.feed} (${it.device})".take(Manifold.MAX_NAME_LENGTH) to PreviewStats(it.window.fps, it.rttMs?.roundToInt())
+        }
+    }
     val devices by network.devices.collectAsStateWithLifecycle()
     var selected by rememberSaveable { mutableIntStateOf(0) }
 
@@ -87,7 +97,7 @@ internal fun HubShell(
     ) { padding ->
         val modifier = Modifier.padding(padding)
         when (Tab.entries[selected]) {
-            Tab.Live -> LiveScreen(graph.registry, snapshot, networkState.feedTitles, notificationsOn, openNotificationSettings, modifier)
+            Tab.Live -> LiveScreen(graph.registry, snapshot, networkState.feedTitles, previewStats, notificationsOn, openNotificationSettings, modifier)
             Tab.Apps -> AppsScreen(graph.registry, snapshot.apps, modifier)
             Tab.Devices -> DevicesScreen(network, networkState, devices, modifier)
             Tab.About -> AboutScreen(graph.updater, modifier)
