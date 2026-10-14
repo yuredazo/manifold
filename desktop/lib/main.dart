@@ -39,8 +39,10 @@ Future<void> main(List<String> arguments) async {
     saved: storage.read(_sharesFile),
     saveShares: (text) => storage.write(_sharesFile, text),
   );
+  final settings = Settings(storage);
   final watching = Watching(
     book: book,
+    profile: () => settings.streamProfile,
     refused: (deviceKey, feed, reason) => network.recordRefusal(deviceKey, feed, reason),
     subscribe: (deviceKey, request) => network.subscribe(deviceKey, request),
     unsubscribe: (deviceKey, streamId) => network.unsubscribe(deviceKey, streamId),
@@ -59,7 +61,6 @@ Future<void> main(List<String> arguments) async {
   network.addListener(() => storage.write(_listeningKey, network.listening ? 'on' : 'off'));
   if (storage.read(_listeningKey) == 'on') network.start();
 
-  final settings = Settings(storage);
   sharing.offerCameras = settings.offerCameras;
   settings.addListener(() => sharing.offerCameras = settings.offerCameras);
   final window = WindowControl(settings, sharing, hidden: arguments.contains(hiddenFlag));

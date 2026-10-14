@@ -10,6 +10,7 @@ internal data class SenderRow(
     val hasAudio: Boolean,
     val watchers: Int,
     val soundOnly: Boolean = false,
+    val hasAlpha: Boolean = false,
 )
 
 internal data class SubscriptionRow(

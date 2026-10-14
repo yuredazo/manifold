@@ -82,16 +82,55 @@ void main() {
 
   test('the same piece is asked for at most six times', () {
     final buffer = FrameBuffer()..maxWait = 1 << 60;
-    buffer.add(Fragmenter.split(_frame(1, 5000, keyframe: true)).first, 0);
+    buffer.add(Fragmenter.split(_frame(1, 5000)).first, 0);
 
     final asked = [for (var i = 1; i <= 40; i++) buffer.poll(i * 20 * _ms).missing].where((missing) => missing.isNotEmpty).length;
 
     expect(asked, 6);
   });
 
-  test('each ask waits longer than the one before', () {
+  test('a keyframe is asked for at an even pace and more often', () {
     final buffer = FrameBuffer()..maxWait = 1 << 60;
     buffer.add(Fragmenter.split(_frame(1, 5000, keyframe: true)).first, 0);
+
+    final askedAt = [for (var i = 1; i <= 2000; i++) if (buffer.poll(i * _ms).missing.isNotEmpty) i];
+    final gaps = [for (var i = 1; i < askedAt.length; i++) askedAt[i] - askedAt[i - 1]];
+
+    expect(askedAt, hasLength(14));
+    expect(gaps.toSet(), hasLength(1));
+  });
+
+  test('a keyframe is waited for longer than an ordinary frame', () {
+    final buffer = FrameBuffer()..maxWait = 50 * _ms;
+    buffer.add(Fragmenter.split(_frame(1, 5000, keyframe: true)).first, 0);
+    buffer.add(Fragmenter.split(_frame(2, 5000)).first, 0);
+
+    buffer.poll(200 * _ms);
+    expect(buffer.lostFrames, 0);
+    expect(buffer.repairingKeyframe, isTrue);
+
+    buffer.poll(1600 * _ms);
+    expect(buffer.lostFrames, greaterThanOrEqualTo(1));
+  });
+
+  test('a picture waiting for a keyframe skips what comes before it', () {
+    final buffer = FrameBuffer();
+    _feed(buffer, _frame(1, 500, keyframe: true));
+    for (final fragment in Fragmenter.split(_frame(2, 5000)).sublist(0, Fragmenter.split(_frame(2, 5000)).length - 1)) {
+      buffer.add(fragment, 0);
+    }
+    buffer.needKeyframe();
+    final released = [for (final fragment in Fragmenter.split(_frame(4, 500, keyframe: true))) ...buffer.add(fragment, _ms)];
+
+    final polled = buffer.poll(2 * _ms).frames;
+
+    expect([...released, ...polled].map((assembled) => assembled.frame.id), [4]);
+    expect(buffer.lostFrames, 2);
+  });
+
+  test('each ask waits longer than the one before', () {
+    final buffer = FrameBuffer()..maxWait = 1 << 60;
+    buffer.add(Fragmenter.split(_frame(1, 5000)).first, 0);
 
     final askedAt = [for (var i = 1; i <= 1000; i++) if (buffer.poll(i * _ms).missing.isNotEmpty) i];
     final gaps = [for (var i = 1; i < askedAt.length; i++) askedAt[i] - askedAt[i - 1]];

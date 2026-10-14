@@ -18,6 +18,7 @@ export 'share_models.dart';
 const _maxStreamsPerDevice = 4;
 const _maxStreams = 8;
 const _minSize = 160;
+const _keyframeCoalesceNs = 400000000;
 const _maxSize = 3840;
 const _minBitrateKbps = 500;
 const _maxBitrateKbps = 20000;
@@ -118,7 +119,7 @@ final class Sharing extends ChangeNotifier with NetworkFeature {
           if (window.soundOnly)
             FeedInfo(window.feedName, 0, 0, 0, true, soundOnly: true, title: window.shownTitle)
           else
-            FeedInfo(window.feedName, window.width, window.height, 30, window.withAudio, title: window.shownTitle),
+            FeedInfo(window.feedName, window.width, window.height, window.frameRate, window.withAudio, hasAlpha: window.withAlpha, title: window.shownTitle),
       ];
 
   /// A feed that does not exist is judged as a window, so asking for it is answered the same as before.
@@ -289,7 +290,7 @@ final class Sharing extends ChangeNotifier with NetworkFeature {
   }
 
   /// [soundOnly] shares no picture, so it needs sound and does not apply to a camera or a Spout sender.
-  SharedWindow share(ShareableWindow window, {required bool audio, bool soundOnly = false, bool showCursor = true}) {
+  SharedWindow share(ShareableWindow window, {required bool audio, bool soundOnly = false, bool showCursor = true, bool alpha = true, int frameRate = defaultShareFrameRate}) {
     final existing = _byHandle(window.handle);
     if (existing != null) return existing;
     final soundAlone = soundOnly && !window.pictureOnly;
@@ -305,6 +306,8 @@ final class Sharing extends ChangeNotifier with NetworkFeature {
       kind: window.kind,
       soundOnly: soundAlone,
       showCursor: showCursor,
+      withAlpha: window.spout && alpha,
+      frameRate: window.camera || soundAlone ? defaultShareFrameRate : frameRate,
       device: window.device,
     );
     entry.seenTitle = feedLabelFor(window, soundOnly: soundAlone);
@@ -328,6 +331,11 @@ final class Sharing extends ChangeNotifier with NetworkFeature {
     final window = _named(request.feed);
     if (_paused || window == null || !window.present) return Refusal.notFound;
     final replacing = window.isWatchedBy(deviceKey, request.streamId);
+    final alpha = request.alpha && window.withAlpha;
+    if (window.capturing && window.capturingAlpha != alpha) {
+      if (window.watchers.any((watcher) => !watcher.isStream(deviceKey, request.streamId))) return Refusal.busy;
+      _stopCapture(window);
+    }
     final all = [for (final entry in shared) ...entry.watchers];
     if (!replacing && (all.length >= _maxStreams || all.where((watcher) => watcher.deviceKey == deviceKey).length >= _maxStreamsPerDevice)) {
       return Refusal.busy;
@@ -346,17 +354,20 @@ final class Sharing extends ChangeNotifier with NetworkFeature {
       return null;
     }
     window.capturing = true;
+    window.capturingAlpha = alpha;
     try {
       await _channel.invokeMethod('start', {
         'handle': window.handle,
-        'width': request.width.clamp(_minSize, _maxSize),
-        'height': request.height.clamp(_minSize, _maxSize),
+        'width': request.width.clamp(_minSize, alpha ? Subscribe.maxAlphaWidth : _maxSize),
+        'height': request.height.clamp(_minSize, alpha ? Subscribe.maxAlphaHeight : _maxSize),
         'bitrateKbps': request.bitrateKbps.clamp(_minBitrateKbps, _maxBitrateKbps),
         'audio': window.withAudio,
         if (window.soundOnly) 'picture': false,
         if (!window.showCursor) 'cursor': false,
         if (window.camera) 'device': window.device,
         if (window.spout) 'device': window.title,
+        if (alpha) 'alpha': true,
+        if (window.frameRate != defaultShareFrameRate) 'fps': window.frameRate,
       });
     } on PlatformException {
       window.capturing = false;
@@ -407,9 +418,13 @@ final class Sharing extends ChangeNotifier with NetworkFeature {
     }
   }
 
+  // A second request while the first keyframe is still on its way would only make another one.
   void requestKeyframe(String deviceKey, int streamId) {
+    final now = monotonicNs();
     for (final window in shared) {
-      if (window.isWatchedBy(deviceKey, streamId)) unawaited(_channel.invokeMethod('keyframe', {'handle': window.handle}));
+      if (!window.isWatchedBy(deviceKey, streamId) || now - window.lastKeyframeAt < _keyframeCoalesceNs) continue;
+      window.lastKeyframeAt = now;
+      unawaited(_channel.invokeMethod('keyframe', {'handle': window.handle}));
     }
   }
 

@@ -104,7 +104,7 @@ class MainActivity : Activity() {
                     "screensync" -> screenSync()
                     "alpha" -> alpha()
                     // Leaves a sender running for manual tests of other apps.
-                    "sender" -> SenderService.start(this, intent.getStringExtra("name") ?: "probe-a")
+                    "sender" -> SenderService.start(this, intent.getStringExtra("name") ?: "probe-a", transparent = intent.getBooleanExtra("transparent", false))
                     else -> Log.i(TAG, "unknown phase '$phase'")
                 }
             } catch (t: Throwable) {
@@ -291,8 +291,10 @@ class MainActivity : Activity() {
     // A sender on this phone draws with transparency into the surface a receiver on this phone gave the hub.
     private fun alpha() {
         val receiver = startReceiver()
-        SenderService.start(this, "probe-alpha", transparent = true)
-        check("sender is discovered") { waitFor(5000) { "probe-alpha" in senders } }
+        val remote = intent.getStringExtra("feed")
+        val feed = remote ?: "probe-alpha"
+        if (remote == null) SenderService.start(this, feed, transparent = true)
+        check("sender is discovered") { waitFor(if (remote == null) 5000 else 30_000) { feed in senders } }
 
         val seen = AtomicReference<IntArray>()
         val reader = ImageReader.newInstance(320, 240, PixelFormat.RGBA_8888, 4)
@@ -304,7 +306,7 @@ class MainActivity : Activity() {
                 seen.set(intArrayOf(alphaAt(40, 120), alphaAt(280, 120)))
             }
         }, imageHandler)
-        val subscription = receiver.subscribe("probe-alpha", reader.surface, 320, 240)
+        val subscription = receiver.subscribe(feed, reader.surface, 320, 240)
         // The owner may take a while to allow this app in the hub.
         waitFor(90_000) { seen.get() != null }
         Thread.sleep(1000)
@@ -314,7 +316,7 @@ class MainActivity : Activity() {
 
         receiver.unsubscribe(subscription)
         reader.close()
-        SenderService.stop(this, "probe-alpha")
+        if (remote == null) SenderService.stop(this, feed)
         receiver.stop()
     }
 

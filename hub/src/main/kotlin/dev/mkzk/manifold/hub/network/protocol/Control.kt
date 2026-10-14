@@ -4,7 +4,10 @@ import dev.mkzk.manifold.Manifold
 import java.nio.BufferUnderflowException
 import java.nio.ByteBuffer
 
-/** [soundOnly] has no picture, and its size is 0. It travels in bit 1 of the audio byte, so an older hub still reads "has audio". */
+/**
+ * [soundOnly] has no picture, and its size is 0. It travels in bit 1 of the audio byte, so an older hub still reads "has audio".
+ * [hasAlpha] travels in bit 2 and means the picture can be asked for with its transparency.
+ */
 internal data class FeedInfo(
     /** What subscribers ask for, so it stays the same for as long as the feed exists. */
     val name: String,
@@ -13,6 +16,7 @@ internal data class FeedInfo(
     val fps: Int,
     val hasAudio: Boolean,
     val soundOnly: Boolean = false,
+    val hasAlpha: Boolean = false,
     /** What people read, such as a window's title, which changes while the feed keeps its [name]. Empty means [name]. */
     val title: String = "",
 ) {
@@ -39,10 +43,16 @@ internal sealed interface Control {
         val audio: Boolean = false,
         /** Older senders of this message leave it out, which means [DEFAULT_FPS]. */
         val fps: Int = DEFAULT_FPS,
+        /** Asks for the picture with its transparency, packed into the stream. A hub that does not know it sends an opaque picture. */
+        val alpha: Boolean = false,
     ) : Control {
         companion object {
             const val DEFAULT_FPS = 30
             const val MAX_FPS = 60
+
+            /** Colour and alpha share one picture twice as tall as the feed, which has to stay within what encoders take. */
+            const val MAX_ALPHA_WIDTH = 3840
+            const val MAX_ALPHA_HEIGHT = 2048
         }
     }
 
@@ -121,6 +131,7 @@ internal object ControlCodec {
     private const val SUBSCRIBE_REFUSED = 14
     private const val AUDIO_BIT = 1
     private const val SOUND_ONLY_BIT = 2
+    private const val ALPHA_BIT = 4
     const val MAX_NACK_INDEXES = 200
 
     /** Pings and measurements are never acknowledged or resent: a late measurement is worth nothing. */
@@ -190,8 +201,8 @@ internal object ControlCodec {
     private fun encodeSubscribe(request: Control.Subscribe): ByteArray {
         val name = request.feed.toByteArray(Charsets.UTF_8)
         require(name.size <= 255) { "feed name too long" }
-        val fpsBytes = if (request.fps != Control.Subscribe.DEFAULT_FPS) 1 else 0
-        return ByteBuffer.allocate(10 + name.size + fpsBytes)
+        val withFps = request.alpha || request.fps != Control.Subscribe.DEFAULT_FPS
+        return ByteBuffer.allocate(10 + name.size + (if (request.alpha) 2 else if (withFps) 1 else 0))
             .putShort(request.streamId.toShort())
             .putShort(request.width.toShort())
             .putShort(request.height.toShort())
@@ -199,7 +210,10 @@ internal object ControlCodec {
             .put(name.size.toByte())
             .put(name)
             .put(if (request.audio) 1 else 0)
-            .also { if (request.fps != Control.Subscribe.DEFAULT_FPS) it.put(request.fps.coerceIn(1, Control.Subscribe.MAX_FPS).toByte()) }
+            .also {
+                if (withFps) it.put(request.fps.coerceIn(1, Control.Subscribe.MAX_FPS).toByte())
+                if (request.alpha) it.put(1)
+            }
             .array()
     }
 
@@ -215,7 +229,8 @@ internal object ControlCodec {
         // Older senders of this message stop after the name, or after the audio byte.
         val audio = reader.hasRemaining() && reader.get().toInt() != 0
         val fps = if (reader.hasRemaining()) (reader.get().toInt() and 0xFF).coerceIn(1, Control.Subscribe.MAX_FPS) else Control.Subscribe.DEFAULT_FPS
-        return Control.Subscribe(streamId, name.trim(), width, height, bitrate, audio, fps)
+        val alpha = reader.hasRemaining() && reader.get().toInt() and 1 != 0
+        return Control.Subscribe(streamId, name.trim(), width, height, bitrate, audio, fps, alpha)
     }
 
     private fun encodeFeeds(feeds: List<FeedInfo>): ByteArray {
@@ -228,7 +243,7 @@ internal object ControlCodec {
             val entry = ByteBuffer.allocate(1 + name.size + 6)
                 .put(name.size.toByte()).put(name)
                 .putShort(feed.width.toShort()).putShort(feed.height.toShort())
-                .put(feed.fps.toByte()).put(((if (feed.hasAudio) AUDIO_BIT else 0) or (if (feed.soundOnly) SOUND_ONLY_BIT else 0)).toByte())
+                .put(feed.fps.toByte()).put(((if (feed.hasAudio) AUDIO_BIT else 0) or (if (feed.soundOnly) SOUND_ONLY_BIT else 0) or (if (feed.hasAlpha) ALPHA_BIT else 0)).toByte())
                 .array()
             if (used + entry.size > Session.MAX_PAYLOAD - 5) break
             encoded += entry
@@ -306,7 +321,7 @@ internal object ControlCodec {
             val fps = reader.get().toInt() and 0xFF
             val flags = reader.get().toInt() and 0xFF
             entries += if (Manifold.isValidName(name) && width <= Manifold.MAX_DIMENSION && height <= Manifold.MAX_DIMENSION) {
-                FeedInfo(name.trim(), width, height, fps, flags != 0, soundOnly = flags and SOUND_ONLY_BIT != 0)
+                FeedInfo(name.trim(), width, height, fps, flags and AUDIO_BIT != 0, soundOnly = flags and SOUND_ONLY_BIT != 0, hasAlpha = flags and ALPHA_BIT != 0)
             } else {
                 null
             }

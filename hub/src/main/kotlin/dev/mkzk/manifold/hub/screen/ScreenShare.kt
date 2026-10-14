@@ -100,7 +100,7 @@ internal class ScreenShare(private val registry: Registry) {
         private val main = Handler(Looper.getMainLooper())
         private val watching = HashSet<String>()
         private var size = measure()
-        private val frames = ScreenFrames(size.width, size.height)
+        private val frames = ScreenFrames(size.width, size.height, FEED_FPS)
         private val voice: SoundCapture? = if (sound) openSound(projection) else null
         private var screen: VirtualDisplay? = null
 

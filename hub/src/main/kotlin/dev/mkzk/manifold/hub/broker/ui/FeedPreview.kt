@@ -4,16 +4,21 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.graphics.SurfaceTexture
 import android.os.Build
 import android.os.Process
 import android.util.Rational
+import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.TextureView
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -51,6 +56,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -123,29 +131,15 @@ internal fun FeedPreview(registry: Registry, feed: SenderRow, title: String, sta
                 LaunchedEffect(session) { refused = !session.start(null, 1, 1) }
                 Icon(Icons.AutoMirrored.Outlined.VolumeUp, contentDescription = null, modifier = Modifier.size(72.dp), tint = Color.White.copy(alpha = 0.6f))
             } else {
-                AndroidView(
-                    modifier = Modifier.requiredSize(pictureWidth, pictureWidth / ratio),
-                    factory = { viewContext ->
-                        SurfaceView(viewContext).apply {
-                            holder.addCallback(object : SurfaceHolder.Callback {
-                                private var started = false
-
-                                override fun surfaceCreated(holder: SurfaceHolder) {}
-
-                                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                                    if (started) return
-                                    started = true
-                                    refused = !session.start(holder.surface, width, height)
-                                }
-
-                                override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                    started = false
-                                    session.stop()
-                                }
-                            })
-                        }
-                    },
-                )
+                Box(modifier = Modifier.requiredSize(pictureWidth, pictureWidth / ratio)) {
+                    if (feed.hasAlpha) Checkerboard()
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { viewContext ->
+                            pictureView(viewContext, feed.hasAlpha, onReady = { surface, width, height -> refused = !session.start(surface, width, height) }, onGone = session::stop)
+                        },
+                    )
+                }
             }
             if (refused || !live) {
                 Text(
@@ -278,6 +272,63 @@ private fun KeepOrientation(landscape: Boolean) {
         activity.requestedOrientation =
             if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         onDispose { activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+    }
+}
+
+/** A transparent feed needs a view that is composited with what is behind it, which a SurfaceView is not. */
+private fun pictureView(context: Context, transparent: Boolean, onReady: (Surface, Int, Int) -> Unit, onGone: () -> Unit): View {
+    if (transparent) {
+        return TextureView(context).apply {
+            isOpaque = false
+            var own: Surface? = null
+            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                    own = Surface(texture).also { onReady(it, width, height) }
+                }
+
+                override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
+
+                override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+                    onGone()
+                    own?.release()
+                    own = null
+                    return true
+                }
+
+                override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
+            }
+        }
+    }
+    return SurfaceView(context).apply {
+        holder.addCallback(object : SurfaceHolder.Callback {
+            private var started = false
+
+            override fun surfaceCreated(holder: SurfaceHolder) {}
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                if (started) return
+                started = true
+                onReady(holder.surface, width, height)
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                started = false
+                onGone()
+            }
+        })
+    }
+}
+
+@Composable
+private fun Checkerboard() {
+    Canvas(modifier = Modifier.fillMaxSize().clipToBounds()) {
+        val square = 12.dp.toPx()
+        drawRect(Color(0xFF3A3A3A))
+        for (row in 0..(size.height / square).toInt()) {
+            for (column in row % 2..(size.width / square).toInt() step 2) {
+                drawRect(Color(0xFF5A5A5A), Offset(column * square, row * square), Size(square, square))
+            }
+        }
     }
 }
 

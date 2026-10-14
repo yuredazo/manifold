@@ -146,6 +146,13 @@
     <string name="about_how">How it works</string>
     <string name="about_report">Report a vulnerability</string>
     <string name="about_license">License: Apache 2.0</string>
+    <string name="about_streaming">Streaming from other devices</string>
+    <string name="stream_low_title">Low latency</string>
+    <string name="stream_low_body">Least delay, may stutter.</string>
+    <string name="stream_balanced_title">Balanced</string>
+    <string name="stream_balanced_body">About 0.3 s delay, steady.</string>
+    <string name="stream_smooth_title">Smooth</string>
+    <string name="stream_smooth_body">About 1 s delay, smoothest.</string>
     <string name="about_updates">Updates</string>
     <string name="about_project">Project</string>
 

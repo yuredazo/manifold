@@ -43,7 +43,7 @@ Callbacks from the hub are `oneway`:
 - `IManifoldReceiver.onSenders(list)`, always the full list.
 - `IManifoldReceiver.onAccess(id, access)`, where `access` is 0 (pending), 1 (allowed) or 2 (blocked). It is sent when a subscription is made and whenever the owner changes the decision.
 
-`SenderInfo` carries `name`, `label`, `packageName`, `width`, `height`, `fps`, `hasAudio` and `soundOnly`. A sound-only feed needs `hasAudio`; the hub ignores the flag otherwise. Its subscribers still pass a surface, and the sender is expected not to draw into it.
+`SenderInfo` carries `name`, `label`, `packageName`, `width`, `height`, `fps`, `hasAudio`, `soundOnly` and `hasAlpha`. A sound-only feed needs `hasAudio`; the hub ignores the flag otherwise. Its subscribers still pass a surface, and the sender is expected not to draw into it.
 
 ## Behavior you can rely on
 

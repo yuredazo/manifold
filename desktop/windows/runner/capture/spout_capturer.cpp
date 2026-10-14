@@ -99,7 +99,7 @@ SpoutCapturer::SpoutCapturer() : impl_(std::make_unique<Impl>()) {}
 SpoutCapturer::~SpoutCapturer() { Stop(); }
 
 bool SpoutCapturer::Start(const std::string& name, int width, int height, int bitrate_kbps, int64_t epoch_100ns, Sink sink,
-                          std::function<void()> closed) {
+                          std::function<void()> closed, bool alpha, int frame_rate) {
   Impl& state = *impl_;
   if (state.running) return false;
   const std::string sender = AnsiFromUtf8(name);
@@ -116,8 +116,8 @@ bool SpoutCapturer::Start(const std::string& name, int width, int height, int bi
   state.out_width = StreamSide(width);
   state.out_height = StreamSide(height);
   if (!CreateCaptureDevice(state.device, state.context) ||
-      !state.converter.Open(state.device.Get(), state.context.Get(), state.out_width, state.out_height, FramePump::kFrameRate) ||
-      !state.pump.Start(state.out_width, state.out_height, bitrate_kbps, epoch_100ns, std::move(sink))) {
+      !state.converter.Open(state.device.Get(), state.context.Get(), state.out_width, state.out_height, frame_rate, alpha) ||
+      !state.pump.Start(state.out_width, alpha ? state.out_height * 2 : state.out_height, bitrate_kbps, epoch_100ns, std::move(sink), frame_rate)) {
     Stop();
     return false;
   }

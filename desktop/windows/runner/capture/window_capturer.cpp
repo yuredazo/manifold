@@ -29,7 +29,6 @@ using winrt::Windows::Graphics::SizeInt32;
 
 namespace {
 
-constexpr int kFrameRate = FramePump::kFrameRate;
 
 // Windows 11 outlines what is captured in yellow unless the app was granted borderless access. An unpackaged app asks once
 // and the answer is kept. The request waits for the system, so it runs off the UI thread, where blocking on it is not allowed.
@@ -109,7 +108,7 @@ WindowCapturer::WindowCapturer() : impl_(std::make_unique<Impl>()) {}
 WindowCapturer::~WindowCapturer() { Stop(); }
 
 bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height, int bitrate_kbps, int64_t epoch_100ns,
-                           bool cursor, Sink sink, std::function<void()> closed) {
+                           bool cursor, Sink sink, std::function<void()> closed, int frame_rate) {
   Impl& state = *impl_;
   if (state.running || !capture::GraphicsCaptureSession::IsSupported()) return false;
   if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) return false;
@@ -127,8 +126,8 @@ bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height,
     if (size.Width <= 0 || size.Height <= 0) return false;
     state.out_width = StreamSide(width);
     state.out_height = StreamSide(height);
-    if (!state.converter.Open(state.device.Get(), state.context.Get(), state.out_width, state.out_height, kFrameRate)) return false;
-    if (!state.pump.Start(state.out_width, state.out_height, bitrate_kbps, epoch_100ns, std::move(sink))) return false;
+    if (!state.converter.Open(state.device.Get(), state.context.Get(), state.out_width, state.out_height, frame_rate)) return false;
+    if (!state.pump.Start(state.out_width, state.out_height, bitrate_kbps, epoch_100ns, std::move(sink), frame_rate)) return false;
 
     state.pool_size = size;
     state.pool = capture::Direct3D11CaptureFramePool::CreateFreeThreaded(

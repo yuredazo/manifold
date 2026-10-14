@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../network/network_feature.dart';
 import '../network/protocol/control.dart';
 import '../network/protocol/devices.dart';
+import '../network/stream/stream_profile.dart';
 import 'viewer.dart';
 
 final class Watching extends ChangeNotifier with NetworkFeature {
@@ -17,6 +18,7 @@ final class Watching extends ChangeNotifier with NetworkFeature {
     required this.requestResend,
     required this.report,
     required this.rttMs,
+    required this.profile,
   }) {
     book.devices.addListener(_devicesChanged);
   }
@@ -29,6 +31,7 @@ final class Watching extends ChangeNotifier with NetworkFeature {
   final void Function(String deviceKey, Nack nack) requestResend;
   final void Function(String deviceKey, StreamReport report) report;
   final double? Function(String deviceKey) rttMs;
+  final StreamProfile Function() profile;
 
   final Map<int, ViewerSession> _sessions = {};
 
@@ -46,10 +49,11 @@ final class Watching extends ChangeNotifier with NetworkFeature {
 
   Future<void> watch(Device device, FeedInfo feed) async {
     if (of(device, feed) != null) return;
-    final width = feed.width > 0 ? feed.width : 1280;
-    final height = feed.height > 0 ? feed.height : 720;
+    final alpha = feed.hasAlpha && !feed.soundOnly;
+    final width = (feed.width > 0 ? feed.width : 1280).clamp(1, alpha ? Subscribe.maxAlphaWidth : maxDimension);
+    final height = (feed.height > 0 ? feed.height : 720).clamp(1, alpha ? Subscribe.maxAlphaHeight : maxDimension);
     final fps = feed.fps > 0 ? feed.fps.clamp(1, Subscribe.maxFps) : Subscribe.defaultFps;
-    final kbps = (width * height * fps * 7 ~/ 100 ~/ 1000).clamp(500, 20000);
+    final kbps = (width * height * (alpha ? 2 : 1) * fps * 7 ~/ 100 ~/ 1000 * profile().bitratePercent ~/ 100).clamp(500, 20000);
     late final ViewerSession session;
     session = ViewerSession(
       feedName: feed.name,
@@ -60,13 +64,15 @@ final class Watching extends ChangeNotifier with NetworkFeature {
       height: height,
       withAudio: feed.hasAudio,
       soundOnly: feed.soundOnly,
+      hasAlpha: alpha,
       onClosed: () => unawaited(stop(session)),
-      subscribe: (streamId) => subscribe(device.publicKey, Subscribe(streamId, feed.name, width, height, kbps, audio: feed.hasAudio, fps: fps)),
+      subscribe: (streamId) => subscribe(device.publicKey, Subscribe(streamId, feed.name, width, height, kbps, audio: feed.hasAudio, fps: fps, alpha: alpha)),
       unsubscribe: (streamId) => unsubscribe(device.publicKey, streamId),
       requestKeyframe: (streamId) => requestKeyframe(device.publicKey, streamId),
       requestResend: (nack) => requestResend(device.publicKey, nack),
       report: (streamReport) => report(device.publicKey, streamReport),
       rttMs: () => rttMs(device.publicKey),
+      profile: profile,
     );
     _sessions[session.streamId] = session;
     notifyListeners();

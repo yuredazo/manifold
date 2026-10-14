@@ -5,6 +5,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
 import android.util.Log
 import android.view.Surface
 import dev.mkzk.manifold.hub.network.protocol.Frame
@@ -97,6 +98,7 @@ internal class H264Encoder(width: Int, height: Int, bitrateKbps: Int, frameRate:
         }
 
     private fun drainLoop() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
         val bufferInfo = MediaCodec.BufferInfo()
         var parameters: ByteArray? = null
         var nextId = 0

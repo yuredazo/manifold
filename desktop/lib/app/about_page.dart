@@ -5,8 +5,41 @@ import 'package:url_launcher/url_launcher.dart';
 import 'autostart.dart';
 import '../core/page_frame.dart';
 import '../core/rows.dart';
+import '../network/stream/stream_profile.dart';
 import 'settings.dart';
 import '../update/updater.dart';
+
+const _profileText = {
+  StreamProfile.lowLatency: ('Low latency', 'Least delay, may stutter.'),
+  StreamProfile.balanced: ('Balanced', 'About 0.3 s delay, steady.'),
+  StreamProfile.smooth: ('Smooth', 'About 1 s delay, smoothest.'),
+};
+
+Future<void> _chooseProfile(BuildContext context, Settings settings) => showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Streaming from other devices'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final entry in _profileText.entries)
+                ListRow(
+                  title: entry.value.$1,
+                  subtitle: entry.value.$2,
+                  trailing: Icon(settings.streamProfile == entry.key ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+                  onTap: () {
+                    settings.streamProfile = entry.key;
+                    Navigator.of(context).pop();
+                  },
+                ),
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))],
+      ),
+    );
 
 class AboutPage extends StatelessWidget {
   const AboutPage({required this.settings, required this.updater, required this.autostart, super.key});
@@ -40,6 +73,20 @@ class AboutPage extends StatelessWidget {
           'Shows the feeds your paired devices share, with their sound, and shares your own windows with them. '
           'Everything between two devices is encrypted, and a device has to be paired before it can see anything.',
           style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+        ),
+        const SectionLabel('Streaming from other devices'),
+        ListenableBuilder(
+          listenable: settings,
+          builder: (context, _) => Group(
+            children: [
+              ListRow(
+                title: _profileText[settings.streamProfile]!.$1,
+                subtitle: _profileText[settings.streamProfile]!.$2,
+                trailing: const Icon(Icons.arrow_drop_down),
+                onTap: () => _chooseProfile(context, settings),
+              ),
+            ],
+          ),
         ),
         const SectionLabel('Updates'),
         _UpdatePanel(settings: settings, updater: updater),

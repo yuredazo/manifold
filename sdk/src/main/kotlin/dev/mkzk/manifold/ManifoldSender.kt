@@ -23,6 +23,7 @@ public class ManifoldSender @JvmOverloads constructor(
     /**
      * What the feed announces about itself. A [width] or [height] of 0 means "no preference". A [soundOnly] feed has no
      * picture: it needs [hasAudio], its subscribers' surfaces stay empty, and receivers that understand it play only the sound.
+     * A feed with [hasAlpha] draws pixels that are not opaque, and the hub keeps that transparency when it sends the feed to another device.
      */
     public class Config @JvmOverloads constructor(
         public val name: String,
@@ -31,6 +32,7 @@ public class ManifoldSender @JvmOverloads constructor(
         public val fps: Int = 0,
         public val hasAudio: Boolean = false,
         public val soundOnly: Boolean = false,
+        public val hasAlpha: Boolean = false,
     ) {
         init {
             require(Manifold.isValidName(name)) {
@@ -51,11 +53,13 @@ public class ManifoldSender @JvmOverloads constructor(
             fps: Int = this.fps,
             hasAudio: Boolean = this.hasAudio,
             soundOnly: Boolean = this.soundOnly,
-        ): Config = Config(name, width, height, fps, hasAudio, soundOnly)
+            hasAlpha: Boolean = this.hasAlpha,
+        ): Config = Config(name, width, height, fps, hasAudio, soundOnly, hasAlpha)
 
         override fun equals(other: Any?): Boolean =
             other is Config && name == other.name && width == other.width && height == other.height &&
-                fps == other.fps && hasAudio == other.hasAudio && soundOnly == other.soundOnly
+                fps == other.fps && hasAudio == other.hasAudio && soundOnly == other.soundOnly &&
+                hasAlpha == other.hasAlpha
 
         override fun hashCode(): Int {
             var hash = name.hashCode()
@@ -64,11 +68,12 @@ public class ManifoldSender @JvmOverloads constructor(
             hash = 31 * hash + fps
             hash = 31 * hash + hasAudio.hashCode()
             hash = 31 * hash + soundOnly.hashCode()
+            hash = 31 * hash + hasAlpha.hashCode()
             return hash
         }
 
         override fun toString(): String =
-            "Config(name=$name, width=$width, height=$height, fps=$fps, hasAudio=$hasAudio, soundOnly=$soundOnly)"
+            "Config(name=$name, width=$width, height=$height, fps=$fps, hasAudio=$hasAudio, soundOnly=$soundOnly, hasAlpha=$hasAlpha)"
     }
 
     public class Subscription internal constructor(
@@ -215,5 +220,6 @@ public class ManifoldSender @JvmOverloads constructor(
         it.fps = c.fps
         it.hasAudio = c.hasAudio
         it.soundOnly = c.soundOnly
+        it.hasAlpha = c.hasAlpha
     }
 }

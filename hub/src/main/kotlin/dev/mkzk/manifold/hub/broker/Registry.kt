@@ -252,6 +252,7 @@ internal class Registry(
         it.fps = raw.fps.coerceIn(0, limits.maxFps)
         it.hasAudio = raw.hasAudio
         it.soundOnly = raw.soundOnly && raw.hasAudio
+        it.hasAlpha = raw.hasAlpha && !it.soundOnly
     }
 
     /** A blocked app is not told what is running either. */
@@ -277,6 +278,7 @@ internal class Registry(
                     hasAudio = s.announced.hasAudio,
                     watchers = subscriptions.values.count { it.senderName == s.announced.name && it.delivered },
                     soundOnly = s.announced.soundOnly,
+                    hasAlpha = s.announced.hasAlpha,
                 )
             },
             subscriptions = subscriptions.values.map {

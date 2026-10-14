@@ -73,6 +73,8 @@ If `Config.hasAudio` is set, `Subscription.audioSink` is a pipe to write 48 kHz,
 
 A feed that is only sound sets `Config(name, hasAudio = true, soundOnly = true)`. Its subscribers still pass a surface, which is never drawn into, and receivers that understand the flag play only the sound. `soundOnly` needs `hasAudio` and has been in the SDK since 1.1.0.
 
+A feed that draws pixels that are not opaque sets `Config(name, hasAlpha = true)`. Between apps on one phone nothing changes, because the receiver's surface takes whatever alpha the sender draws. When the feed is sent to another device, `hasAlpha` makes the hub keep the transparency (see [docs/NETWORK.md](docs/NETWORK.md)). Draw premultiplied colour, which is what Android surfaces hold anyway.
+
 Run the sender inside a foreground service. Android can wait about 20 seconds before it restarts a killed background service (seen on an Android 14 phone), which is a long gap in a live feed.
 
 ### Receiving

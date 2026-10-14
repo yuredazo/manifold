@@ -15,8 +15,9 @@ bool isValidName(String name) {
 }
 
 /// A [soundOnly] feed has no picture, and its size is 0. It travels in bit 1 of the audio byte, so an older hub still reads "has audio".
+/// [hasAlpha] travels in bit 2 and means the picture can be asked for with its transparency.
 final class FeedInfo {
-  const FeedInfo(this.name, this.width, this.height, this.fps, this.hasAudio, {this.soundOnly = false, this.title = ''});
+  const FeedInfo(this.name, this.width, this.height, this.fps, this.hasAudio, {this.soundOnly = false, this.hasAlpha = false, this.title = ''});
 
   /// What subscribers ask for, so it stays the same for as long as the feed exists.
   final String name;
@@ -28,10 +29,11 @@ final class FeedInfo {
   final int fps;
   final bool hasAudio;
   final bool soundOnly;
+  final bool hasAlpha;
 
   String get label => title.isEmpty ? name : title;
 
-  FeedInfo withTitle(String title) => title == this.title ? this : FeedInfo(name, width, height, fps, hasAudio, soundOnly: soundOnly, title: title);
+  FeedInfo withTitle(String title) => title == this.title ? this : FeedInfo(name, width, height, fps, hasAudio, soundOnly: soundOnly, hasAlpha: hasAlpha, title: title);
 
   @override
   bool operator ==(Object other) =>
@@ -42,13 +44,14 @@ final class FeedInfo {
       other.height == height &&
       other.fps == fps &&
       other.hasAudio == hasAudio &&
-      other.soundOnly == soundOnly;
+      other.soundOnly == soundOnly &&
+      other.hasAlpha == hasAlpha;
 
   @override
-  int get hashCode => Object.hash(name, title, width, height, fps, hasAudio, soundOnly);
+  int get hashCode => Object.hash(name, title, width, height, fps, hasAudio, soundOnly, hasAlpha);
 
   @override
-  String toString() => 'FeedInfo($name${title.isEmpty ? '' : ' "$title"'}, ${width}x$height, $fps fps, audio=$hasAudio${soundOnly ? ', sound only' : ''})';
+  String toString() => 'FeedInfo($name${title.isEmpty ? '' : ' "$title"'}, ${width}x$height, $fps fps, audio=$hasAudio${soundOnly ? ', sound only' : ''}${hasAlpha ? ', alpha' : ''})';
 }
 
 sealed class Control {
@@ -78,10 +81,14 @@ final class FeedList extends Control {
 }
 
 final class Subscribe extends Control {
-  const Subscribe(this.streamId, this.feed, this.width, this.height, this.bitrateKbps, {this.audio = false, this.fps = defaultFps});
+  const Subscribe(this.streamId, this.feed, this.width, this.height, this.bitrateKbps, {this.audio = false, this.fps = defaultFps, this.alpha = false});
 
   static const defaultFps = 30;
   static const maxFps = 60;
+
+  /// Colour and alpha share one picture twice as tall as the feed, which has to stay within what encoders take.
+  static const maxAlphaWidth = 3840;
+  static const maxAlphaHeight = 2048;
 
   final int streamId;
   final String feed;
@@ -93,6 +100,9 @@ final class Subscribe extends Control {
   /// Frames per second wanted. Older senders of this message leave it out, which means [defaultFps].
   final int fps;
 
+  /// Asks for the picture with its transparency, packed into the stream. A hub that does not know it sends an opaque picture.
+  final bool alpha;
+
   @override
   bool operator ==(Object other) =>
       other is Subscribe &&
@@ -102,10 +112,11 @@ final class Subscribe extends Control {
       other.height == height &&
       other.bitrateKbps == bitrateKbps &&
       other.audio == audio &&
-      other.fps == fps;
+      other.fps == fps &&
+      other.alpha == alpha;
 
   @override
-  int get hashCode => Object.hash(streamId, feed, width, height, bitrateKbps, audio, fps);
+  int get hashCode => Object.hash(streamId, feed, width, height, bitrateKbps, audio, fps, alpha);
 }
 
 /// A reason this version does not know reads as [failed].
@@ -285,6 +296,7 @@ abstract final class ControlCodec {
   static const _subscribeRefused = 14;
   static const _audioBit = 1;
   static const _soundOnlyBit = 2;
+  static const _alphaBit = 4;
 
   /// Pings and measurements are never acknowledged or resent: a late measurement is worth nothing.
   static bool needsAck(Control control) =>
@@ -428,8 +440,8 @@ abstract final class ControlCodec {
   static Uint8List _encodeSubscribe(Subscribe request) {
     final name = utf8.encode(request.feed);
     if (name.length > 255) throw ArgumentError('feed name too long');
-    final fpsBytes = request.fps == Subscribe.defaultFps ? 0 : 1;
-    final out = Uint8List(10 + name.length + fpsBytes);
+    final withFps = request.alpha || request.fps != Subscribe.defaultFps;
+    final out = Uint8List(10 + name.length + (request.alpha ? 2 : (withFps ? 1 : 0)));
     final view = ByteData.sublistView(out);
     view.setUint16(0, request.streamId, Endian.big);
     view.setUint16(2, request.width, Endian.big);
@@ -438,7 +450,8 @@ abstract final class ControlCodec {
     out[8] = name.length;
     out.setRange(9, 9 + name.length, name);
     out[9 + name.length] = request.audio ? 1 : 0;
-    if (fpsBytes == 1) out[10 + name.length] = request.fps.clamp(1, Subscribe.maxFps);
+    if (withFps) out[10 + name.length] = request.fps.clamp(1, Subscribe.maxFps);
+    if (request.alpha) out[11 + name.length] = 1;
     return out;
   }
 
@@ -454,7 +467,8 @@ abstract final class ControlCodec {
     // Older senders of this message stop after the name, or after the audio byte.
     final audio = reader.hasMore && reader.u8() != 0;
     final fps = reader.hasMore ? reader.u8().clamp(1, Subscribe.maxFps) : Subscribe.defaultFps;
-    return Subscribe(streamId, name.trim(), width, height, bitrate, audio: audio, fps: fps);
+    final alpha = reader.hasMore && reader.u8() & 1 != 0;
+    return Subscribe(streamId, name.trim(), width, height, bitrate, audio: audio, fps: fps, alpha: alpha);
   }
 
   static Uint8List _encodeFeeds(List<FeedInfo> feeds) {
@@ -471,7 +485,7 @@ abstract final class ControlCodec {
       view.setUint16(1 + name.length, feed.width, Endian.big);
       view.setUint16(3 + name.length, feed.height, Endian.big);
       entry[5 + name.length] = feed.fps;
-      entry[6 + name.length] = (feed.hasAudio ? _audioBit : 0) | (feed.soundOnly ? _soundOnlyBit : 0);
+      entry[6 + name.length] = (feed.hasAudio ? _audioBit : 0) | (feed.soundOnly ? _soundOnlyBit : 0) | (feed.hasAlpha ? _alphaBit : 0);
       if (used + entry.length > Session.maxPayload - 5) break;
       encoded.add(entry);
       titles.add(Uint8List.fromList(utf8.encode(feed.title == feed.name ? '' : feed.title)));
@@ -511,7 +525,7 @@ abstract final class ControlCodec {
       final flags = reader.u8();
       entries.add(
         isValidName(name) && width <= maxDimension && height <= maxDimension
-            ? FeedInfo(name.trim(), width, height, fps, flags != 0, soundOnly: flags & _soundOnlyBit != 0)
+            ? FeedInfo(name.trim(), width, height, fps, flags & _audioBit != 0, soundOnly: flags & _soundOnlyBit != 0, hasAlpha: flags & _alphaBit != 0)
             : null,
       );
     }

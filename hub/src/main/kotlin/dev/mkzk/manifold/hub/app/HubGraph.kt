@@ -11,6 +11,7 @@ import dev.mkzk.manifold.hub.broker.AccessBook
 import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.network.KeystoreSealer
 import dev.mkzk.manifold.hub.network.Network
+import dev.mkzk.manifold.hub.network.StreamPreference
 import dev.mkzk.manifold.hub.network.loadIdentityKeys
 import dev.mkzk.manifold.hub.network.protocol.DeviceBook
 import dev.mkzk.manifold.hub.network.protocol.Identity
@@ -24,12 +25,14 @@ private const val BOOK_KEY = "book"
 private const val PRIVATE_KEY = "private"
 private const val DEVICES_KEY = "devices"
 private const val CHECK_KEY = "update_check"
+private const val PROFILE_KEY = "stream_profile"
 
 /** The one place that knows how the features are connected. Services and receivers get theirs through [hubGraph]. */
 internal class HubGraph(app: Application) {
     val registry: Registry
     val network: Network
     val updater: Updater
+    val streamPreference: StreamPreference
     val screenShare: ScreenShare
 
     init {
@@ -42,14 +45,16 @@ internal class HubGraph(app: Application) {
         val net = app.getSharedPreferences("network", Context.MODE_PRIVATE)
         val name = Settings.Global.getString(app.contentResolver, "device_name")?.takeIf { it.isNotBlank() } ?: Build.MODEL
         val wifi = app.getSystemService(WifiManager::class.java)
+        val settings = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        streamPreference = StreamPreference(settings.getString(PROFILE_KEY, null)) { settings.edit().putString(PROFILE_KEY, it).apply() }
         network = Network(
             Identity(identityKeys(net), name),
             DeviceBook(net.getString(DEVICES_KEY, null)) { net.edit().putString(DEVICES_KEY, it).apply() },
             registry,
             multicast = { wifi?.let { holdMulticast(it) } },
+            profile = { streamPreference.profile.value },
         )
 
-        val settings = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
         val version = runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull().orEmpty()
         updater = Updater(
             currentVersion = version,

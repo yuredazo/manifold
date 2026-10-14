@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:manifold_hub/network/protocol/control.dart';
 import 'package:manifold_hub/network/protocol/devices.dart';
 import 'package:manifold_hub/network/protocol/video.dart';
+import 'package:manifold_hub/share/share_book.dart';
 import 'package:manifold_hub/share/sharing.dart';
 
 const _channel = MethodChannel('manifold/capture');
@@ -135,8 +136,8 @@ Map<String, Object?> _entry(
 }) =>
     {'name': name, 'title': title, 'process': process, 'class': windowClass, 'audio': audio, 'display': display};
 
-Subscribe _request(String feed, int streamId, {bool audio = false, int width = 1280, int height = 720, int kbps = 3000}) =>
-    Subscribe(streamId, feed, width, height, kbps, audio: audio);
+Subscribe _request(String feed, int streamId, {bool audio = false, int width = 1280, int height = 720, int kbps = 3000, bool alpha = false}) =>
+    Subscribe(streamId, feed, width, height, kbps, audio: audio, alpha: alpha);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -257,6 +258,17 @@ void main() {
       }
 
       expect(await sharing.subscribe('phone', _request('Notes', 5)), Refusal.busy);
+    });
+
+    test('a second keyframe request right after the first is not passed on', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+      await sharing.subscribe('phone', _request('Notes', 1));
+
+      sharing.requestKeyframe('phone', 1);
+      sharing.requestKeyframe('phone', 1);
+
+      expect(harness.methods, ['start', 'keyframe']);
     });
 
     test('a device that goes away takes only its own streams with it', () async {
@@ -1064,6 +1076,44 @@ void main() {
     });
   });
 
+  group('frame rate', () {
+    test('a share runs at 30 frames a second unless it says otherwise, and the runner is told only then', () async {
+      final sharing = harness.sharing;
+      sharing.share(_window(1, 'Notes'), audio: false);
+      sharing.share(_window(2, 'Paint'), audio: false, frameRate: 60);
+
+      await sharing.subscribe('phone', _request('Notes', 1));
+      await sharing.subscribe('phone', _request('Paint', 2));
+
+      expect(sharing.feeds.map((feed) => feed.fps), [30, 60]);
+      expect((harness.calls.first.arguments as Map).containsKey('fps'), isFalse);
+      expect((harness.calls.last.arguments as Map)['fps'], 60);
+    });
+
+    test('a camera and a sound-only share keep 30 whatever was chosen', () {
+      final sharing = harness.sharing;
+      final camera = sharing.share(_camera(1 << 61 | 7, 'Webcam'), audio: false, frameRate: 60);
+      final sound = sharing.share(_window(1, 'Spotify'), audio: true, soundOnly: true, frameRate: 60);
+
+      expect(camera.frameRate, 30);
+      expect(sound.frameRate, 30);
+    });
+
+    test('the choice is saved and comes back, and a value nobody offers reads as 30', () {
+      harness.sharing.share(_window(1, 'Notes'), audio: false, frameRate: 45);
+      harness.sharing.share(_window(2, 'Paint'), audio: false);
+
+      final saved = jsonDecode(harness.saves.last) as List;
+      expect(saved.map((entry) => (entry as Map)['fps']), [45, null]);
+      expect(decodeShares(harness.saves.last).map((share) => share.frameRate), [45, 30]);
+      final odd = jsonEncode([
+        {..._entry('Notes'), 'fps': 7},
+        {..._entry('Paint'), 'fps': 'fast'},
+      ]);
+      expect(decodeShares(odd).map((share) => share.frameRate), [30, 30]);
+    });
+  });
+
   group('Spout senders', () {
     const handle = 1 << 60 | 5;
 
@@ -1073,7 +1123,7 @@ void main() {
       expect(window.feedName, 'TouchDesigner');
       expect(window.withAudio, isFalse);
       expect(window.soundOnly, isFalse);
-      expect(harness.sharing.feeds, [const FeedInfo('TouchDesigner', 1920, 1080, 30, false)]);
+      expect(harness.sharing.feeds, [const FeedInfo('TouchDesigner', 1920, 1080, 30, false, hasAlpha: true)]);
       final saved = jsonDecode(harness.saves.last) as List;
       expect(saved.single, {..._entry('TouchDesigner', title: 'TouchDesigner', process: '', windowClass: ''), 'spout': true});
     });
@@ -1084,6 +1134,59 @@ void main() {
       await harness.sharing.subscribe('phone', _request('TouchDesigner', 1));
 
       expect(harness.calls.single.arguments, {'handle': handle, 'width': 1280, 'height': 720, 'bitrateKbps': 3000, 'audio': false, 'device': 'TouchDesigner'});
+    });
+
+    test('a sender keeps its transparency unless it was shared without it, and the choice is saved', () {
+      final kept = harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+      final plain = harness.sharing.share(_spout(handle + 1, 'Resolume'), audio: false, alpha: false);
+
+      expect(kept.withAlpha, isTrue);
+      expect(plain.withAlpha, isFalse);
+      expect(harness.sharing.feeds.map((feed) => feed.hasAlpha), [true, false]);
+      final saved = jsonDecode(harness.saves.last) as List;
+      expect(saved.map((entry) => (entry as Map)['alpha']), [null, false]);
+      expect(decodeShares(harness.saves.last).map((share) => share.withAlpha), [true, false]);
+    });
+
+    test('a window is never announced with transparency', () {
+      final window = harness.sharing.share(_window(1, 'Notes'), audio: false);
+
+      expect(window.withAlpha, isFalse);
+      expect(harness.sharing.feeds.single.hasAlpha, isFalse);
+    });
+
+    test('an alpha request starts a picture twice as tall within the limits, and a plain request does not', () async {
+      harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+
+      await harness.sharing.subscribe('phone', _request('TouchDesigner', 1, width: 3000, height: 3000, alpha: true));
+
+      expect(harness.calls.single.arguments, {'handle': handle, 'width': 3000, 'height': 2048, 'bitrateKbps': 3000, 'audio': false, 'device': 'TouchDesigner', 'alpha': true});
+    });
+
+    test('a sender shared without transparency ignores a request for it', () async {
+      harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: false, alpha: false);
+
+      await harness.sharing.subscribe('phone', _request('TouchDesigner', 1, alpha: true));
+
+      expect(harness.calls.single.arguments.containsKey('alpha'), isFalse);
+    });
+
+    test('a second watcher that wants the other kind of picture is turned away while the first one watches', () async {
+      harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+      await harness.sharing.subscribe('phone', _request('TouchDesigner', 1, alpha: true));
+
+      expect(await harness.sharing.subscribe('laptop', _request('TouchDesigner', 1)), Refusal.busy);
+      expect(await harness.sharing.subscribe('tablet', _request('TouchDesigner', 1, alpha: true)), isNull);
+    });
+
+    test('a sole watcher that comes back for the other kind of picture restarts the capture', () async {
+      harness.sharing.share(_spout(handle, 'TouchDesigner'), audio: false);
+      await harness.sharing.subscribe('phone', _request('TouchDesigner', 1, alpha: true));
+
+      expect(await harness.sharing.subscribe('phone', _request('TouchDesigner', 1)), isNull);
+
+      expect(harness.methods, ['start', 'stop', 'start']);
+      expect(harness.calls.last.arguments.containsKey('alpha'), isFalse);
     });
 
     test('a sender that cannot be opened is dropped and the owner is told why', () async {

@@ -22,7 +22,7 @@ class WindowCapturer : public FrameSource {
 
   // `closed` is called from another thread when the window goes away.
   bool Start(HWND window, HMONITOR monitor, int width, int height, int bitrate_kbps, int64_t epoch_100ns, bool cursor, Sink sink,
-             std::function<void()> closed);
+             std::function<void()> closed, int frame_rate);
   void Stop() override;
   void RequestKeyframe() override;
   void SetBitrate(int bitrate_kbps) override;

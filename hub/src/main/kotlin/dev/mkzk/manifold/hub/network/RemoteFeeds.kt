@@ -10,6 +10,7 @@ import dev.mkzk.manifold.hub.broker.Owner
 import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.broker.SenderLink
 import dev.mkzk.manifold.hub.network.codec.AacDecoder
+import dev.mkzk.manifold.hub.network.codec.AlphaUnpacker
 import dev.mkzk.manifold.hub.network.codec.H264Decoder
 import dev.mkzk.manifold.hub.network.protocol.Control
 import dev.mkzk.manifold.hub.network.protocol.Device
@@ -18,25 +19,24 @@ import dev.mkzk.manifold.hub.network.protocol.FeedInfo
 import dev.mkzk.manifold.hub.network.protocol.Frame
 import dev.mkzk.manifold.hub.network.stream.Assembled
 import dev.mkzk.manifold.hub.network.stream.FrameBuffer
+import dev.mkzk.manifold.hub.network.stream.KeyframeRequests
 import dev.mkzk.manifold.hub.network.stream.PlayoutClock
 import dev.mkzk.manifold.hub.network.stream.ReceiveStats
+import dev.mkzk.manifold.hub.network.stream.StreamProfile
 import dev.mkzk.manifold.hub.network.stream.StreamSnapshot
 import dev.mkzk.manifold.hub.network.stream.describe
 
 private const val TAG = "RemoteFeeds"
 private const val STATS_TAG = "NetStats"
-private const val KEYFRAME_REQUEST_EVERY_MS = 500L
 private const val MIN_BITRATE_KBPS = 500
 private const val MAX_BITRATE_KBPS = 20_000
 private const val DEFAULT_FPS = Control.Subscribe.DEFAULT_FPS
-private const val NANOS_PER_MS = 1_000_000f
+private const val NANOS_PER_MS = 1_000_000L
 
 private const val UNKNOWN_RTT_MS = 20f
 private const val MIN_NACK_INTERVAL_NS = 10_000_000L
 
 /** The delay grows when the link stalls and shrinks slowly afterwards, which keeps it short without freezing. */
-private const val MIN_DELAY_NS = 30_000_000L
-private const val MAX_EXTRA_DELAY_NS = 470_000_000L
 private const val SPIKE_MEMORY_NS = 10_000_000_000L
 private const val SPIKE_FACTOR = 1.1
 
@@ -45,8 +45,6 @@ private const val MAX_SHRINK_RATE = 0.003
 
 /** Leaves room to decode and draw a frame that was held back to its due time. */
 private const val HOLD_MARGIN_NS = 60_000_000L
-private const val MIN_HOLD_NS = 30_000_000L
-private const val MAX_HOLD_NS = 300_000_000L
 private const val DECODE_LEAD_NS = 40_000_000L
 
 internal class RemoteFeeds(
@@ -56,6 +54,7 @@ internal class RemoteFeeds(
     private val onStats: (List<StreamSnapshot>) -> Unit = {},
     private val onRefused: (deviceKey: String, feed: String, reason: Control.Refusal) -> Unit = { _, _, _ -> },
     private val onTitles: (Map<String, String>) -> Unit = {},
+    private val profile: () -> StreamProfile = { StreamProfile.Balanced },
 ) {
     private class Received(
         val deviceKey: String,
@@ -65,14 +64,16 @@ internal class RemoteFeeds(
         val subscriptionId: String,
         val decoder: H264Decoder?,
         val audio: AacDecoder?,
+        val unpacker: AlphaUnpacker?,
+        profile: StreamProfile,
     ) {
         val buffer = FrameBuffer()
 
         /** Picture and sound share it, which is what keeps them together. */
-        val playout = PlayoutClock(SPIKE_MEMORY_NS, MAX_EXTRA_DELAY_NS, MIN_DELAY_NS, SPIKE_FACTOR, MAX_SHRINK_RATE)
+        val playout = PlayoutClock(SPIKE_MEMORY_NS, profile.maxExtraDelayMs * NANOS_PER_MS, profile.minDelayMs * NANOS_PER_MS, SPIKE_FACTOR, MAX_SHRINK_RATE)
         val videoDue = ArrayDeque<DueFrame>()
         val stats = ReceiveStats(System.nanoTime())
-        var lastKeyframeRequest = 0L
+        val keyframes = KeyframeRequests()
         var lostSeen = 0
         val subscribedAt = System.nanoTime()
         var shown = false
@@ -88,6 +89,7 @@ internal class RemoteFeeds(
         val feed: String,
         val fps: Int,
         val soundOnly: Boolean,
+        val hasAlpha: Boolean,
     ) : SenderLink {
         override val key = Any()
 
@@ -118,7 +120,7 @@ internal class RemoteFeeds(
         known.keys.filter { it !in offered }.forEach { removeSender(device.publicKey, it) }
         for (feed in feeds) {
             if (feed.name in known) continue
-            val sender = RemoteSender(device.publicKey, device.name, feed.name, feed.fps, feed.soundOnly)
+            val sender = RemoteSender(device.publicKey, device.name, feed.name, feed.fps, feed.soundOnly, feed.hasAlpha)
             val announced = SenderInfo().also {
                 it.name = "${feed.name} (${device.name})".take(Manifold.MAX_NAME_LENGTH)
                 it.width = feed.width
@@ -126,6 +128,7 @@ internal class RemoteFeeds(
                 it.fps = feed.fps
                 it.hasAudio = feed.hasAudio
                 it.soundOnly = feed.soundOnly
+                it.hasAlpha = feed.hasAlpha
             }
             val owner = Owner(ownUid, REMOTE_PREFIX + device.fingerprint, device.name)
             registry.addSender(sender, announced, owner)?.let {
@@ -167,7 +170,9 @@ internal class RemoteFeeds(
         for (stream in streams.values) {
             val roundTrip = ((endpoint.rttMs(stream.deviceKey) ?: UNKNOWN_RTT_MS) * NANOS_PER_MS).toLong()
             stream.buffer.nackInterval = (roundTrip * 13 / 10).coerceAtLeast(MIN_NACK_INTERVAL_NS)
-            stream.buffer.maxWait = (stream.playout.delay - HOLD_MARGIN_NS).coerceIn(MIN_HOLD_NS, MAX_HOLD_NS)
+            val chosen = profile()
+            stream.buffer.maxWait = (stream.playout.delay - HOLD_MARGIN_NS).coerceIn(chosen.holdMinMs * NANOS_PER_MS, chosen.holdMaxMs * NANOS_PER_MS)
+            stream.buffer.keyframeMaxWait = chosen.keyframeWaitMs * NANOS_PER_MS
             val result = stream.buffer.poll(now)
             for (missing in result.missing) {
                 stream.stats.resendRequested(if (missing.indexes.isEmpty()) 1 else missing.indexes.size)
@@ -215,8 +220,7 @@ internal class RemoteFeeds(
     fun tick(now: Long) {
         var updated = false
         for (stream in streams.values) {
-            if (stream.decoder != null && stream.buffer.needsKeyframe && now - stream.lastKeyframeRequest >= KEYFRAME_REQUEST_EVERY_MS) {
-                stream.lastKeyframeRequest = now
+            if (stream.decoder != null && stream.keyframes.due(now, stream.buffer.needsKeyframe, stream.buffer.repairingKeyframe)) {
                 stream.stats.keyframeRequested()
                 endpoint.requestKeyframe(stream.deviceKey, stream.streamId)
             }
@@ -251,11 +255,21 @@ internal class RemoteFeeds(
         // Sound alone has nothing to play without a pipe to play it into.
         if (sender.soundOnly && audioSink == null) return
         val streamId = nextStreamId(sender.deviceKey)
+        // Colour and alpha come as one picture twice as tall, so both ends have to agree on the size.
+        val unpacker = if (sender.hasAlpha && !sender.soundOnly && surface != null) try {
+            AlphaUnpacker(surface)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "cannot unpack the alpha of '${sender.feed}', asking for it opaque", e)
+            null
+        } else null
+        val rows = if (unpacker != null) 2 else 1
+        val pictureWidth = if (unpacker != null) minOf(width, Control.Subscribe.MAX_ALPHA_WIDTH) else width
+        val pictureHeight = if (unpacker != null) minOf(height, Control.Subscribe.MAX_ALPHA_HEIGHT) else height
         val decoder = if (sender.soundOnly || surface == null) null else try {
             H264Decoder(
-                surface,
-                width,
-                height,
+                unpacker?.surface ?: surface,
+                pictureWidth,
+                pictureHeight * rows,
                 onStall = {
                     post {
                         streams[sender.deviceKey to streamId]?.let {
@@ -277,6 +291,7 @@ internal class RemoteFeeds(
             )
         } catch (e: RuntimeException) {
             Log.w(TAG, "cannot decode '${sender.feed}'", e)
+            unpacker?.release()
             return
         }
         // A feed that cannot be decoded for sound still shows its picture.
@@ -289,10 +304,10 @@ internal class RemoteFeeds(
             }
         }
         if (sender.soundOnly && audio == null) return
-        streams[sender.deviceKey to streamId] = Received(sender.deviceKey, sender.deviceName, streamId, sender.feed, subscriptionId, decoder, audio)
+        streams[sender.deviceKey to streamId] = Received(sender.deviceKey, sender.deviceName, streamId, sender.feed, subscriptionId, decoder, audio, unpacker, profile())
         val fps = sender.fps.takeIf { it > 0 }?.coerceAtMost(Control.Subscribe.MAX_FPS) ?: DEFAULT_FPS
-        val kbps = (width.toLong() * height * fps * 7 / 100 / 1000).toInt().coerceIn(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS)
-        endpoint.subscribe(sender.deviceKey, Control.Subscribe(streamId, sender.feed, width, height, kbps, audio = audio != null, fps = fps))
+        val kbps = (pictureWidth.toLong() * pictureHeight * rows * fps * 7 / 100 / 1000 * profile().bitratePercent / 100).toInt().coerceIn(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS)
+        endpoint.subscribe(sender.deviceKey, Control.Subscribe(streamId, sender.feed, pictureWidth, pictureHeight, kbps, audio = audio != null, fps = fps, alpha = unpacker != null))
     }
 
     private fun stopStream(subscriptionId: String) {
@@ -300,6 +315,7 @@ internal class RemoteFeeds(
         streams.remove(entry.key)
         endpoint.unsubscribe(entry.value.deviceKey, entry.value.streamId)
         entry.value.decoder?.stop()
+        entry.value.unpacker?.release()
         entry.value.audio?.stop()
         publishStats()
     }

@@ -29,9 +29,9 @@ class SpoutCapturer : public FrameSource {
   SpoutCapturer(const SpoutCapturer&) = delete;
   SpoutCapturer& operator=(const SpoutCapturer&) = delete;
 
-  // `closed` is called from another thread when the sender stops.
+  // `closed` is called from another thread when the sender stops. With `alpha` the stream is twice as tall, see Nv12Converter.
   bool Start(const std::string& name, int width, int height, int bitrate_kbps, int64_t epoch_100ns, Sink sink,
-             std::function<void()> closed);
+             std::function<void()> closed, bool alpha, int frame_rate);
   void Stop() override;
   void RequestKeyframe() override;
   void SetBitrate(int bitrate_kbps) override;

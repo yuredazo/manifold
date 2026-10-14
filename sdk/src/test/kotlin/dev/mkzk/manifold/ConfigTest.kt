@@ -70,13 +70,24 @@ class ConfigTest {
     }
 
     @Test
+    fun aFeedWithAlphaIsNotTheDefault() {
+        assertFalse(ManifoldSender.Config("avatar").hasAlpha)
+
+        val config = ManifoldSender.Config("avatar", hasAlpha = true)
+
+        assertTrue(config.hasAlpha)
+        assertNotEquals(config, config.copy(hasAlpha = false))
+        assertTrue(config.copy(name = "other").hasAlpha)
+    }
+
+    @Test
     fun equalConfigsHaveEqualHashCodesAndReadableText() {
         val a = ManifoldSender.Config("avatar", 1, 2, 3, true)
         val b = ManifoldSender.Config("avatar", 1, 2, 3, true)
 
         assertEquals(a, b)
         assertEquals(a.hashCode(), b.hashCode())
-        assertEquals("Config(name=avatar, width=1, height=2, fps=3, hasAudio=true, soundOnly=false)", a.toString())
+        assertEquals("Config(name=avatar, width=1, height=2, fps=3, hasAudio=true, soundOnly=false, hasAlpha=false)", a.toString())
     }
 
     @Test

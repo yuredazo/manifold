@@ -198,6 +198,8 @@ class _PickWindowState extends State<_PickWindow> {
   bool _withAudio = true;
   bool _withPicture = true;
   bool _withCursor = true;
+  bool _withAlpha = true;
+  int _frameRate = defaultShareFrameRate;
 
   Future<List<ShareableWindow>> _find() async {
     final found = await Future.wait([widget.sharing.displays(), widget.sharing.spouts(), widget.sharing.cameras(), widget.sharing.windows()]);
@@ -248,7 +250,7 @@ class _PickWindowState extends State<_PickWindow> {
                               },
                               leading: IconBadge(_kindIcon(choice.kind)),
                               onTap: () {
-                                widget.sharing.share(choice, audio: _withAudio, soundOnly: !_withPicture, showCursor: _withCursor);
+                                widget.sharing.share(choice, audio: _withAudio, soundOnly: !_withPicture, showCursor: _withCursor, alpha: _withAlpha, frameRate: _frameRate);
                                 Navigator.of(context).pop();
                               },
                             ),
@@ -260,25 +262,36 @@ class _PickWindowState extends State<_PickWindow> {
               ),
             ),
             const Divider(height: 16),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
               children: [
                 FilterChip(
                   label: const Text('Picture'),
                   selected: _withPicture,
                   onSelected: (on) => setState(() => _withPicture = on),
                 ),
-                const SizedBox(width: 8),
                 FilterChip(
                   label: const Text('Sound'),
                   selected: _withAudio || !_withPicture,
                   onSelected: _withPicture ? (on) => setState(() => _withAudio = on) : null,
                 ),
-                const SizedBox(width: 8),
                 FilterChip(
                   label: const Text('Pointer'),
                   selected: _withCursor && _withPicture,
                   onSelected: _withPicture ? (on) => setState(() => _withCursor = on) : null,
                 ),
+                FilterChip(
+                  label: const Text('Transparency'),
+                  selected: _withAlpha && _withPicture,
+                  onSelected: _withPicture ? (on) => setState(() => _withAlpha = on) : null,
+                ),
+                for (final rate in shareFrameRates)
+                  FilterChip(
+                    label: Text('$rate fps'),
+                    selected: _frameRate == rate && _withPicture,
+                    onSelected: _withPicture ? (_) => setState(() => _frameRate = rate) : null,
+                  ),
               ],
             ),
             const SizedBox(height: 6),
@@ -287,6 +300,7 @@ class _PickWindowState extends State<_PickWindow> {
               child: Text(
                 [
                   if (_withPicture) 'A window brings its app\'s sound, a display all sound except Manifold.' else 'Sound only, which a phone can play.',
+                  if (_withPicture) 'Transparency is kept for Spout senders and doubles the picture sent.',
                   if (!widget.sharing.offerCameras) 'Cameras are hidden. Switch them on in About.',
                 ].join(' '),
                 style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
