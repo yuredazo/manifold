@@ -32,6 +32,8 @@ internal class FrameBuffer {
 
     var maxWait = 50_000_000L
 
+    var keyframeMaxWait = KEYFRAME_MAX_WAIT
+
     var reorderWait = 4_000_000L
 
     var nackInterval = 15_000_000L
@@ -71,11 +73,19 @@ internal class FrameBuffer {
         return release()
     }
 
+    val repairingKeyframe get() = pending.values.any { it.keyframe && !it.complete }
+
     fun poll(now: Long): Poll {
         val frames = ArrayList<Assembled>()
+        if (needsKeyframe) {
+            skipToKeyframe()
+            frames += release()
+        }
         while (pending.isNotEmpty()) {
-            val waitingSince = (pending[nextId] ?: pending.firstEntry().value).firstAt
-            if (now - waitingSince < maxWait) break
+            val head = pending[nextId] ?: pending.firstEntry().value
+            // Giving up on a keyframe costs another one, which is the biggest frame there is, so it is waited for longer.
+            val wait = if (head.keyframe) maxOf(maxWait, keyframeMaxWait) else maxWait
+            if (now - head.firstAt < wait) break
             pending.remove(nextId)
             wholeFrameNacks.remove(nextId)
             nextId++
@@ -88,6 +98,16 @@ internal class FrameBuffer {
 
     fun needKeyframe() {
         needsKeyframe = true
+    }
+
+    private fun skipToKeyframe() {
+        val keyframe = pending.entries.firstOrNull { it.value.keyframe && it.key != nextId && compareIds(it.key, nextId) > 0 } ?: return
+        while (nextId != keyframe.key) {
+            pending.remove(nextId)
+            wholeFrameNacks.remove(nextId)
+            nextId++
+            lostFrames++
+        }
     }
 
     private fun release(): List<Assembled> {
@@ -117,7 +137,7 @@ internal class FrameBuffer {
                 if (after != null && now - after.firstAt >= reorderWait && due(nacks, now)) {
                     missing += MissingFragments(id, emptyList())
                 }
-            } else if (!partial.complete && now - partial.lastAt >= reorderWait && due(partial.nacks, now)) {
+            } else if (!partial.complete && now - partial.lastAt >= reorderWait && due(partial.nacks, now, partial.keyframe)) {
                 val indexes = partial.chunks.indices.filter { partial.chunks[it] == null }
                 requestedFragments += indexes.size
                 missing += MissingFragments(id, indexes)
@@ -127,10 +147,11 @@ internal class FrameBuffer {
         return missing
     }
 
-    private fun due(nacks: Nacks, now: Long): Boolean {
-        // Each ask waits twice as long as the one before, so one bad stretch of radio does not use them all up.
-        val wait = nackInterval shl (nacks.count - 1).coerceAtLeast(0)
-        if (nacks.count >= MAX_REQUESTS || now - nacks.lastAt < wait) return false
+    private fun due(nacks: Nacks, now: Long, keyframe: Boolean = false): Boolean {
+        // Each ask waits twice as long as the one before, so one bad stretch of radio does not use them all up. A keyframe is asked for
+        // at an even pace for as long as it is waited for, since nothing else can start the picture again.
+        val wait = if (keyframe) nackInterval else nackInterval shl (nacks.count - 1).coerceAtLeast(0)
+        if (nacks.count >= (if (keyframe) MAX_KEYFRAME_REQUESTS else MAX_REQUESTS) || now - nacks.lastAt < wait) return false
         nacks.lastAt = now
         nacks.count++
         return true
@@ -149,6 +170,8 @@ internal class FrameBuffer {
         const val LONG_AGO = Long.MIN_VALUE / 2
         const val MAX_AHEAD = 120
         const val MAX_REQUESTS = 6
+        const val MAX_KEYFRAME_REQUESTS = 14
+        const val KEYFRAME_MAX_WAIT = 1_500_000_000L
 
         /** Frame ids wrap around, so they are compared by the difference. */
         fun compareIds(first: Int, second: Int): Int = (first - second).coerceIn(-1, 1)

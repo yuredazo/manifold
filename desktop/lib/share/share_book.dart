@@ -16,8 +16,10 @@ String encodeShares(Iterable<SharedWindow> shares) => jsonEncode([
           'display': window.display,
           if (window.camera) ...{'camera': true, 'device': window.device},
           if (window.spout) 'spout': true,
+          if (window.spout && !window.withAlpha) 'alpha': false,
           if (window.soundOnly) 'soundOnly': true,
           if (!window.showCursor) 'cursor': false,
+          if (window.frameRate != defaultShareFrameRate) 'fps': window.frameRate,
         },
     ]);
 
@@ -60,6 +62,8 @@ List<SharedWindow> decodeShares(String? text) {
                   : ShareKind.window,
       soundOnly: soundOnly,
       showCursor: entry['cursor'] != false,
+      withAlpha: spout && entry['alpha'] != false,
+      frameRate: !camera && !soundOnly && shareFrameRates.contains(entry['fps']) ? entry['fps'] as int : defaultShareFrameRate,
       device: device is String ? device : '',
     ));
   }

@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'session.dart';
@@ -106,6 +107,8 @@ final class _Partial {
 final class FrameBuffer {
   static const _maxAhead = 120;
   static const _maxRequests = 6;
+  static const _maxKeyframeRequests = 14;
+  static const _defaultKeyframeMaxWait = 1500000000;
 
   /// Far enough back that the time since it is large, yet far enough from the limit that subtracting cannot overflow.
   static const _longAgo = -(1 << 60);
@@ -116,6 +119,8 @@ final class FrameBuffer {
   bool _started = false;
 
   int maxWait = 50000000;
+
+  int keyframeMaxWait = _defaultKeyframeMaxWait;
 
   int reorderWait = 4000000;
 
@@ -153,11 +158,19 @@ final class FrameBuffer {
     return _release();
   }
 
+  bool get repairingKeyframe => _pending.values.any((partial) => partial.keyframe && !partial.complete);
+
   Poll poll(int now) {
     final frames = <Assembled>[];
+    if (needsKeyframe) {
+      _skipToKeyframe();
+      frames.addAll(_release());
+    }
     while (_pending.isNotEmpty) {
-      final waitingSince = (_pending[_nextId] ?? _pending[_pending.firstKey()!]!).firstAt;
-      if (now - waitingSince < maxWait) break;
+      final head = _pending[_nextId] ?? _pending[_pending.firstKey()!]!;
+      // Giving up on a keyframe costs another one, which is the biggest frame there is, so it is waited for longer.
+      final wait = head.keyframe ? max(maxWait, keyframeMaxWait) : maxWait;
+      if (now - head.firstAt < wait) break;
       _pending.remove(_nextId);
       _wholeFrameNacks.remove(_nextId);
       _nextId = (_nextId + 1).toSigned(32);
@@ -170,6 +183,23 @@ final class FrameBuffer {
 
   void needKeyframe() {
     needsKeyframe = true;
+  }
+
+  void _skipToKeyframe() {
+    int? keyframe;
+    for (final entry in _pending.entries) {
+      if (entry.value.keyframe && entry.key != _nextId && (entry.key - _nextId).toSigned(32) > 0) {
+        keyframe = entry.key;
+        break;
+      }
+    }
+    if (keyframe == null) return;
+    while (_nextId != keyframe) {
+      _pending.remove(_nextId);
+      _wholeFrameNacks.remove(_nextId);
+      _nextId = (_nextId + 1).toSigned(32);
+      lostFrames++;
+    }
   }
 
   List<Assembled> _release() {
@@ -204,7 +234,7 @@ final class FrameBuffer {
         if (after != null && now - after.firstAt >= reorderWait && _due(nacks, now)) {
           missing.add(MissingFragments(id, const []));
         }
-      } else if (!partial.complete && now - partial.lastAt >= reorderWait && _due(partial.nacks, now)) {
+      } else if (!partial.complete && now - partial.lastAt >= reorderWait && _due(partial.nacks, now, keyframe: partial.keyframe)) {
         final indexes = [
           for (var i = 0; i < partial.chunks.length; i++)
             if (partial.chunks[i] == null) i,
@@ -217,10 +247,11 @@ final class FrameBuffer {
     return missing;
   }
 
-  bool _due(_Nacks nacks, int now) {
-    // Each ask waits twice as long as the one before, so one bad stretch of radio does not use them all up.
-    final wait = nackInterval << (nacks.count - 1).clamp(0, 30);
-    if (nacks.count >= _maxRequests || now - nacks.lastAt < wait) return false;
+  bool _due(_Nacks nacks, int now, {bool keyframe = false}) {
+    // Each ask waits twice as long as the one before, so one bad stretch of radio does not use them all up. A keyframe is asked for
+    // at an even pace for as long as it is waited for, since nothing else can start the picture again.
+    final wait = keyframe ? nackInterval : nackInterval << (nacks.count - 1).clamp(0, 30);
+    if (nacks.count >= (keyframe ? _maxKeyframeRequests : _maxRequests) || now - nacks.lastAt < wait) return false;
     nacks.lastAt = now;
     nacks.count++;
     return true;

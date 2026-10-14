@@ -9,6 +9,7 @@ import dev.mkzk.manifold.hub.broker.Owner
 import dev.mkzk.manifold.hub.broker.ReceiverLink
 import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.network.codec.AacEncoder
+import dev.mkzk.manifold.hub.network.codec.AlphaPacker
 import dev.mkzk.manifold.hub.network.codec.H264Encoder
 import dev.mkzk.manifold.hub.network.protocol.Control
 import dev.mkzk.manifold.hub.network.protocol.Device
@@ -31,6 +32,7 @@ private const val MAX_STREAMS = 8
 private const val MAX_SIZE = 3840
 private const val MIN_BITRATE_KBPS = 200
 private const val MAX_BITRATE_KBPS = 40_000
+private const val KEYFRAME_COALESCE_NS = 400_000_000L
 
 internal class NetworkPublisher(
     private val endpoint: Endpoint,
@@ -42,11 +44,13 @@ internal class NetworkPublisher(
         val link: ReceiverLink,
         val encoder: H264Encoder?,
         val audio: AacEncoder?,
+        val packer: AlphaPacker?,
         val stats: SendStats,
         val rate: RateControl,
     ) {
         val store = RetransmitStore()
         var lastReport: Control.StreamReport? = null
+        var lastKeyframe = Long.MIN_VALUE / 2
     }
 
     private val streams = HashMap<Pair<String, Int>, Served>()
@@ -64,13 +68,14 @@ internal class NetworkPublisher(
             return refuse(Control.Refusal.BUSY)
         }
 
-        val width = request.width.coerceIn(1, MAX_SIZE)
-        val height = request.height.coerceIn(1, MAX_SIZE)
+        val alpha = request.alpha && feed.hasAlpha
+        val width = request.width.coerceIn(1, if (alpha) Control.Subscribe.MAX_ALPHA_WIDTH else MAX_SIZE)
+        val height = request.height.coerceIn(1, if (alpha) Control.Subscribe.MAX_ALPHA_HEIGHT else MAX_SIZE)
         val stats = SendStats(System.nanoTime())
         val rate = RateControl(MIN_BITRATE_KBPS, request.bitrateKbps.coerceIn(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS))
         // A feed with no picture has nothing to encode, only its sound to pass on.
         val encoder = if (feed.soundOnly) null else try {
-            H264Encoder(width, height, rate.kbps, request.fps) { frame ->
+            H264Encoder(width, if (alpha) height * 2 else height, rate.kbps, request.fps) { frame ->
                 val producedAt = System.nanoTime()
                 post {
                     val stream = streams[key] ?: return@post
@@ -86,6 +91,14 @@ internal class NetworkPublisher(
             return refuse(Control.Refusal.FAILED)
         }
 
+        val packer = if (alpha && encoder != null) try {
+            AlphaPacker(width, height, encoder.surface)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "cannot pack the alpha of '${feed.name}' for ${current.name}", e)
+            encoder.stop()
+            return refuse(Control.Refusal.FAILED)
+        } else null
+
         val pipe = if (request.audio && feed.hasAudio) ParcelFileDescriptor.createPipe() else null
         val audio = pipe?.let { (source, _) -> openAudio(source, current, request.streamId, key) }
         val audioSink = if (audio != null) pipe?.get(1) else null
@@ -98,15 +111,16 @@ internal class NetworkPublisher(
         }
         val owner = Owner(ownUid, REMOTE_PREFIX + current.fingerprint, "${current.name} (network)")
         val subscribed = registry.addReceiver(link, owner) &&
-            registry.subscribe(link.key, ownUid, feed.name, encoder?.surface, width, height, audioSink) != null
+            registry.subscribe(link.key, ownUid, feed.name, packer?.surface ?: encoder?.surface, width, height, audioSink) != null
         if (!subscribed) {
             registry.removeReceiver(link.key, ownUid)
+            packer?.release()
             encoder?.stop()
             audio?.stop()
             audioSink?.close()
             return refuse(Control.Refusal.FAILED)
         }
-        streams[key] = Served(link, encoder, audio, stats, rate)
+        streams[key] = Served(link, encoder, audio, packer, stats, rate)
     }
 
     /** A feed whose sound cannot be encoded is still sent, without it. */
@@ -152,8 +166,13 @@ internal class NetworkPublisher(
         stream.encoder?.setBitrate(kbps)
     }
 
+    // A second request while the first keyframe is still on its way would only make another one.
     fun onKeyframeRequest(device: Device, streamId: Int) {
-        streams[device.publicKey to streamId]?.encoder?.requestKeyframe()
+        val stream = streams[device.publicKey to streamId] ?: return
+        val now = System.nanoTime()
+        if (now - stream.lastKeyframe < KEYFRAME_COALESCE_NS) return
+        stream.lastKeyframe = now
+        stream.encoder?.requestKeyframe()
     }
 
     fun stopDevice(publicKey: String) {
@@ -172,6 +191,7 @@ internal class NetworkPublisher(
         val stream = streams.remove(key) ?: return
         // The feed is told to stop drawing before the encoder goes away.
         registry.removeReceiver(stream.link.key, ownUid)
+        stream.packer?.release()
         stream.encoder?.stop()
         stream.audio?.stop()
     }

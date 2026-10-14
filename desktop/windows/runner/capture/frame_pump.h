@@ -2,6 +2,7 @@
 #define RUNNER_FRAME_PUMP_H_
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -18,8 +19,9 @@ int64_t NowIn100ns();
 class FramePump {
  public:
   static constexpr int kFrameRate = 30;
+  static constexpr int kMaxFrameRate = 60;
 
-  bool Start(int width, int height, int bitrate_kbps, int64_t epoch_100ns, H264Encoder::Sink sink);
+  bool Start(int width, int height, int bitrate_kbps, int64_t epoch_100ns, H264Encoder::Sink sink, int frame_rate = kFrameRate);
   void Stop();
 
   // Takes the picture and leaves `nv12` holding the previous one, to be reused.
@@ -34,6 +36,7 @@ class FramePump {
   H264Encoder encoder_;
   H264Encoder::Sink sink_;
   int64_t epoch_ = 0;
+  std::chrono::microseconds frame_interval_{1'000'000 / kFrameRate};
 
   std::mutex lock_;
   std::condition_variable wake_;

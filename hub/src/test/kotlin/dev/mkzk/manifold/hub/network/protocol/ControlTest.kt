@@ -32,6 +32,27 @@ class ControlTest {
         assertEquals(listOf(true, false, false), decoded.feeds.map { it.soundOnly })
     }
 
+    @Test
+    fun theAlphaFlagSurvivesEncodingWithoutMakingTheFeedLookLikeItHasSound() {
+        val avatar = FeedInfo("avatar", 720, 1080, 30, false, hasAlpha = true)
+        val withSound = FeedInfo("radio", 720, 1080, 30, true, hasAlpha = true)
+
+        val decoded = roundTrip(Control.FeedList(listOf(avatar, withSound))) as Control.FeedList
+
+        assertEquals(listOf(avatar, withSound), decoded.feeds)
+        assertEquals(listOf(false, true), decoded.feeds.map { it.hasAudio })
+    }
+
+    @Test
+    fun anAlphaRequestKeepsItsRateAndAnOlderRequestReadsAsOpaque() {
+        val alpha = Control.Subscribe(1, "avatar", 720, 1080, 2_000, audio = true, fps = 30, alpha = true)
+        val other = Control.Subscribe(1, "avatar", 720, 1080, 2_000, audio = true, fps = 45)
+
+        assertEquals(alpha, roundTrip(alpha))
+        assertEquals(other, roundTrip(other))
+        assertEquals(false, (roundTrip(Control.Subscribe(1, "avatar", 720, 1080, 2_000)) as Control.Subscribe).alpha)
+    }
+
     private fun feedsOf(bytes: ByteArray) = ((ControlCodec.decode(bytes) as Decoded.Message).control as Control.FeedList).feeds
 
     @Test

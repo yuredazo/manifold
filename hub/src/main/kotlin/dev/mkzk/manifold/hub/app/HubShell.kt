@@ -100,7 +100,7 @@ internal fun HubShell(
             Tab.Live -> LiveScreen(graph.registry, snapshot, networkState.feedTitles, previewStats, notificationsOn, openNotificationSettings, modifier)
             Tab.Apps -> AppsScreen(graph.registry, snapshot.apps, modifier)
             Tab.Devices -> DevicesScreen(network, networkState, devices, modifier)
-            Tab.About -> AboutScreen(graph.updater, modifier)
+            Tab.About -> AboutScreen(graph.updater, graph.streamPreference, modifier)
         }
     }
     UpdateAnnouncement(graph.updater)

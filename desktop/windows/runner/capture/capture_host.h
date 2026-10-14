@@ -48,8 +48,8 @@ class CaptureHost {
 
   void Post(std::function<void()> task);
   void Start(const flutter::EncodableMap& arguments, Result result);
-  template <typename Capturer, typename Source>
-  void StartPicture(const flutter::EncodableMap& arguments, Source source, const char* failure, Result result);
+  template <typename Capturer, typename Source, typename... Extra>
+  void StartPicture(const flutter::EncodableMap& arguments, Source source, const char* failure, Result result, Extra... extra);
   void Register(int64_t handle, std::unique_ptr<Session> session, Result result);
   H264Encoder::Sink VideoSink(int64_t handle);
   std::function<void()> ClosedCallback(int64_t handle);

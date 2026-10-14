@@ -5,6 +5,7 @@ import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Process
 import android.util.Log
 import android.view.Surface
 import dev.mkzk.manifold.hub.network.protocol.Frame
@@ -25,7 +26,7 @@ internal class H264Decoder(
     private val onShown: (Long) -> Unit = {},
 ) {
 
-    private val thread = HandlerThread("manifold-decoder").apply { start() }
+    private val thread = HandlerThread("manifold-decoder", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply { start() }
     private val handler = Handler(thread.looper)
     private val codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
     private val freeInputs = ArrayDeque<Int>()

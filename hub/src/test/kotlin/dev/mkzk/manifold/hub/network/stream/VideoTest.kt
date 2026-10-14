@@ -97,7 +97,7 @@ class VideoTest {
     @Test
     fun theSamePieceIsAskedForAtMostSixTimes() {
         val buffer = FrameBuffer().apply { maxWait = Long.MAX_VALUE / 4 }
-        val fragments = Fragmenter.split(frame(1, 5_000, keyframe = true))
+        val fragments = Fragmenter.split(frame(1, 5_000))
         buffer.add(fragments.first(), 0)
 
         val asked = (1..40).count { buffer.poll(it * 20 * ms).missing.isNotEmpty() }
@@ -108,13 +108,53 @@ class VideoTest {
     @Test
     fun eachAskWaitsLongerThanTheOneBefore() {
         val buffer = FrameBuffer().apply { maxWait = Long.MAX_VALUE / 4 }
-        buffer.add(Fragmenter.split(frame(1, 5_000, keyframe = true)).first(), 0)
+        buffer.add(Fragmenter.split(frame(1, 5_000)).first(), 0)
 
         val askedAt = (1..1_000).filter { buffer.poll(it * ms).missing.isNotEmpty() }
         val gaps = askedAt.zipWithNext { a, b -> b - a }
 
         assertEquals(6, askedAt.size)
         assertTrue("gaps $gaps ms", gaps.zipWithNext().all { (before, after) -> after >= 2 * before - 1 })
+    }
+
+    @Test
+    fun aKeyframeIsAskedForAtAnEvenPaceAndMoreOften() {
+        val buffer = FrameBuffer().apply { maxWait = Long.MAX_VALUE / 4 }
+        buffer.add(Fragmenter.split(frame(1, 5_000, keyframe = true)).first(), 0)
+
+        val askedAt = (1..2_000).filter { buffer.poll(it * ms).missing.isNotEmpty() }
+        val gaps = askedAt.zipWithNext { a, b -> b - a }
+
+        assertEquals(14, askedAt.size)
+        assertTrue("gaps $gaps ms", gaps.all { it == gaps.first() })
+    }
+
+    @Test
+    fun aKeyframeIsWaitedForLongerThanAnOrdinaryFrame() {
+        val buffer = FrameBuffer().apply { maxWait = 50 * ms }
+        buffer.add(Fragmenter.split(frame(1, 5_000, keyframe = true)).first(), 0)
+        buffer.add(Fragmenter.split(frame(2, 5_000)).first(), 0)
+
+        buffer.poll(200 * ms)
+        assertEquals("the keyframe is still waited for", 0, buffer.lostFrames)
+        assertTrue(buffer.repairingKeyframe)
+
+        buffer.poll(1_600 * ms)
+        assertTrue("after its longer wait it is given up on", buffer.lostFrames >= 1)
+    }
+
+    @Test
+    fun aPictureWaitingForAKeyframeSkipsWhatComesBeforeIt() {
+        val buffer = FrameBuffer()
+        buffer.feed(frame(1, 500, keyframe = true))
+        Fragmenter.split(frame(2, 5_000)).dropLast(1).forEach { buffer.add(it, 0) }
+        buffer.needKeyframe()
+        val key = Fragmenter.split(frame(4, 500, keyframe = true))
+        val released = key.flatMap { buffer.add(it, 1 * ms) }
+
+        val polled = buffer.poll(2 * ms).frames
+        assertEquals(listOf(4), (released + polled).map { it.frame.id })
+        assertEquals(2, buffer.lostFrames)
     }
 
     @Test

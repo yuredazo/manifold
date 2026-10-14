@@ -60,6 +60,9 @@ final class Watcher {
   bool isStream(String deviceKey, int streamId) => this.deviceKey == deviceKey && this.streamId == streamId;
 }
 
+const defaultShareFrameRate = Subscribe.defaultFps;
+const shareFrameRates = [24, defaultShareFrameRate, 45, 60];
+
 final class SharedWindow {
   SharedWindow({
     required this.feedName,
@@ -70,6 +73,8 @@ final class SharedWindow {
     this.kind = ShareKind.window,
     this.soundOnly = false,
     this.showCursor = true,
+    this.withAlpha = false,
+    this.frameRate = defaultShareFrameRate,
     this.device = '',
     this.handle = 0,
     this.width = 1280,
@@ -99,6 +104,12 @@ final class SharedWindow {
 
   final bool showCursor;
 
+  final bool withAlpha;
+  final int frameRate;
+
+  /// A capture has one picture size, so every watcher of it asked for the same thing.
+  bool capturingAlpha = false;
+
   /// The same camera on another USB port has another one, so the name is the fallback when matching.
   String device;
 
@@ -117,6 +128,7 @@ final class SharedWindow {
   final List<Watcher> watchers = [];
   final RetransmitStore store = RetransmitStore();
   bool capturing = false;
+  int lastKeyframeAt = -(1 << 60);
   int nextFrame = 0;
 
   bool isWatchedBy(String deviceKey, int streamId) => watchers.any((watcher) => watcher.isStream(deviceKey, streamId));

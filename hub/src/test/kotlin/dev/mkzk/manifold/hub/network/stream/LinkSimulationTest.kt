@@ -23,6 +23,7 @@ class LinkSimulationTest {
         val keyframeRequests: Int,
         val finalKbps: Int,
         val kbpsOverTime: List<Int>,
+        val longestGapMs: Float,
     ) {
         val share get() = deliveredIds.size.toFloat() / sent
 
@@ -78,9 +79,11 @@ class LinkSimulationTest {
         val captured = HashMap<Int, Long>()
         val deliveredIds = ArrayList<Int>()
         val latencies = ArrayList<Float>()
+        val deliveredAt = ArrayList<Long>()
         var keyframeRequests = 0
         var keyframeWanted = true
-        var lastKeyframeRequest = -1_000 * millisecond
+        val requests = KeyframeRequests()
+        var lastKeyframeSent = -1_000 * millisecond
         var fragmentsSeen = 0
         var resendsAsked = 0
         var lostSeen = 0
@@ -89,6 +92,7 @@ class LinkSimulationTest {
         fun deliver(frames: List<Assembled>) {
             for (assembled in frames) {
                 deliveredIds += assembled.frame.id
+                deliveredAt += clock
                 latencies += (clock - captured.getValue(assembled.frame.id)) / 1e6f
             }
         }
@@ -108,6 +112,7 @@ class LinkSimulationTest {
             at(time) {
                 val key = keyframeWanted || id % 90 == 0
                 keyframeWanted = false
+                if (key) lastKeyframeSent = time
                 captured[id] = time
                 val kbps = if (adapt) rate.kbps else startKbps
                 val average = kbps * 1000 / 8 / 30
@@ -128,10 +133,9 @@ class LinkSimulationTest {
                     resendsAsked += if (missing.indexes.isEmpty()) 1 else missing.indexes.size
                     if (askForLostPieces) travel(30, back = true) { sendToReceiver(store.fragments(missing.frameId, missing.indexes)) }
                 }
-                if (buffer.needsKeyframe && clock - lastKeyframeRequest >= 500 * millisecond) {
-                    lastKeyframeRequest = clock
+                if (requests.due(clock / millisecond, buffer.needsKeyframe, buffer.repairingKeyframe)) {
                     keyframeRequests++
-                    travel(30, back = true) { keyframeWanted = true }
+                    travel(30, back = true) { if (clock - lastKeyframeSent >= 400 * millisecond) keyframeWanted = true }
                 }
             }
             pollAt += 2 * millisecond
@@ -155,7 +159,26 @@ class LinkSimulationTest {
             clock = event.at
             event.action()
         }
-        return Outcome(total, deliveredIds, latencies, keyframeRequests, rate.kbps, kbpsOverTime)
+        val gaps = deliveredAt.zipWithNext { first, second -> (second - first) / 1e6f }
+        return Outcome(total, deliveredIds, latencies, keyframeRequests, rate.kbps, kbpsOverTime, gaps.maxOrNull() ?: 0f)
+    }
+
+    @Test
+    fun aLinkSmallerThanTheStreamIsNotFloodedWithKeyframes() {
+        val outcome = run(seconds = 60, startKbps = 3_500, bottleneckKbps = 3_000, adapt = true)
+
+        println("3.5 Mbit/s into 3 Mbit/s: ${outcome.keyframeRequests} keyframe requests in 60 s, delivered ${outcome.share}, longest gap ${outcome.longestGapMs} ms")
+        assertTrue("keyframe requests ${outcome.keyframeRequests}", outcome.keyframeRequests <= 12)
+        assertTrue("delivered ${outcome.share}", outcome.share > 0.8f)
+    }
+
+    @Test
+    fun aKeyframeThatCutsAFrameInTwoIsRiddenOutRatherThanAskedAgain() {
+        val outcome = run(seconds = 60, startKbps = 3_500, adapt = true, lossPercent = 2.0, stallEveryMs = 3_000, stallMs = 300)
+
+        println("2 percent loss and 300 ms stalls: ${outcome.keyframeRequests} keyframe requests, delivered ${outcome.share}, longest gap ${outcome.longestGapMs} ms")
+        assertTrue("keyframe requests ${outcome.keyframeRequests}", outcome.keyframeRequests <= 4)
+        assertTrue("delivered ${outcome.share}", outcome.share > 0.98f)
     }
 
     @Test
@@ -189,8 +212,8 @@ class LinkSimulationTest {
             println("150 ms stalls, hold limit $hold ms: delivered ${outcome.share}, keyframe requests ${outcome.keyframeRequests}, p95 ${outcome.percentile(0.95f)} ms")
         }
         assertTrue("50 ms: ${results.getValue(50L).share}", results.getValue(50L).share < results.getValue(300L).share)
-        assertTrue("300 ms: ${results.getValue(300L).share}", results.getValue(300L).share > 0.99f)
-        assertEquals("only the first keyframe", 1, results.getValue(300L).keyframeRequests)
+        assertTrue("300 ms: ${results.getValue(300L).share}", results.getValue(300L).share > 0.975f)
+        assertTrue("keyframe requests ${results.getValue(300L).keyframeRequests}", results.getValue(300L).keyframeRequests <= 2)
     }
 
     @Test

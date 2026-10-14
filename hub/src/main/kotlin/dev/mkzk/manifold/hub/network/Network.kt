@@ -2,6 +2,7 @@ package dev.mkzk.manifold.hub.network
 
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import dev.mkzk.manifold.hub.broker.Registry
@@ -12,6 +13,7 @@ import dev.mkzk.manifold.hub.network.protocol.DeviceBook
 import dev.mkzk.manifold.hub.network.protocol.Endpoint
 import dev.mkzk.manifold.hub.network.protocol.FeedInfo
 import dev.mkzk.manifold.hub.network.protocol.Identity
+import dev.mkzk.manifold.hub.network.stream.StreamProfile
 import java.io.Closeable
 import java.io.IOException
 import java.net.DatagramPacket
@@ -45,15 +47,19 @@ private const val CONNECT_EVERY_TICKS = 20
 private const val ANNOUNCE_EVERY_TICKS = 4
 private const val POLL_MS = 4L
 
+// Whatever the kernel holds is a delay the sender cannot see or drop, so a send waits early and the queue in front of it decides.
+private const val SEND_BUFFER_BYTES = 64 * 1024
+
 /** The network thread is the only one that touches the [DeviceBook] and the [Endpoint]. */
 internal class Network(
     val identity: Identity,
     private val book: DeviceBook,
     private val registry: Registry,
     multicast: () -> Closeable? = { null },
+    private val profile: () -> StreamProfile = { StreamProfile.Balanced },
 ) {
 
-    private val worker = HandlerThread("manifold-net").apply { start() }
+    private val worker = HandlerThread("manifold-net", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply { start() }
     private val handler = Handler(worker.looper)
     private val scope = CoroutineScope(SupervisorJob() + handler.asCoroutineDispatcher())
     private val resolver = Executors.newSingleThreadExecutor()
@@ -66,6 +72,7 @@ internal class Network(
             ::onNetworkThread,
             onStats = { snapshots -> flow.update { it.copy(streams = snapshots) } },
             onTitles = { titles -> flow.update { it.copy(feedTitles = titles) } },
+            profile = profile,
             onRefused = { deviceKey, feed, reason ->
                 flow.update { it.copy(refused = it.refused + (deviceKey to (it.refused[deviceKey].orEmpty() + (feed to reason)))) }
             },
@@ -94,7 +101,9 @@ internal class Network(
     private var redialNow = false
     private var polling = false
 
-    private val endpoint: Endpoint = Endpoint(identity, book, SystemClock::elapsedRealtime, ::send, object : Endpoint.Listener {
+    private val sender = PacketSender(::deliver)
+
+    private val endpoint: Endpoint = Endpoint(identity, book, SystemClock::elapsedRealtime, sender::sendControl, object : Endpoint.Listener {
         override fun onPairingCode(address: Address, remoteName: String, code: String) {
             flow.update { it.copy(pairing = PairingUi.Code(remoteName, code)) }
         }
@@ -162,7 +171,7 @@ internal class Network(
         override fun onVideo(device: Device, streamId: Int, fragment: ByteArray) {
             remote.onVideo(device, streamId, fragment)
         }
-    }, log = { Log.i(TAG, it) })
+    }, log = { Log.i(TAG, it) }, transmitMedia = sender::sendMedia)
 
     private val tick = object : Runnable {
         override fun run() {
@@ -211,6 +220,7 @@ internal class Network(
             val opened = try {
                 DatagramSocket(null).apply {
                     reuseAddress = true
+                    sendBufferSize = SEND_BUFFER_BYTES
                     bind(InetSocketAddress(LISTEN_PORT))
                 }
             } catch (e: IOException) {
@@ -359,14 +369,14 @@ internal class Network(
         val feeds = if (current.send) {
             registry.state.value.senders
                 .filter { !it.packageName.startsWith(REMOTE_PREFIX) }
-                .map { FeedInfo(it.name, it.width, it.height, it.fps, it.hasAudio, it.soundOnly) }
+                .map { FeedInfo(it.name, it.width, it.height, it.fps, it.hasAudio, it.soundOnly, it.hasAlpha) }
         } else {
             emptyList()
         }
         endpoint.sendFeeds(current.publicKey, feeds)
     }
 
-    private fun send(to: Address, bytes: ByteArray) {
+    private fun deliver(to: Address, bytes: ByteArray) {
         val open = socket ?: return
         val ip = resolved[to.host] ?: try {
             // Addresses seen on incoming packets are literal, so this does not reach a name server.
@@ -382,6 +392,7 @@ internal class Network(
     }
 
     private fun receiveLoop(open: DatagramSocket) {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
         val buffer = ByteArray(2048)
         while (!open.isClosed) {
             val packet = DatagramPacket(buffer, buffer.size)

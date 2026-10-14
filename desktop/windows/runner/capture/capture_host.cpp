@@ -98,6 +98,11 @@ EncodableList ListCameras() {
   return list;
 }
 
+int FrameRateOf(const EncodableMap& arguments) {
+  const int64_t asked = channel::Int(arguments, "fps");
+  return asked <= 0 ? FramePump::kFrameRate : static_cast<int>(std::min<int64_t>(asked, FramePump::kMaxFrameRate));
+}
+
 EncodableList ListSpouts() {
   EncodableList list;
   for (const auto& sender : SpoutCapturer::List()) {
@@ -235,14 +240,14 @@ std::function<void()> CaptureHost::ClosedCallback(int64_t handle) {
   };
 }
 
-template <typename Capturer, typename Source>
-void CaptureHost::StartPicture(const EncodableMap& arguments, Source source, const char* failure, Result result) {
+template <typename Capturer, typename Source, typename... Extra>
+void CaptureHost::StartPicture(const EncodableMap& arguments, Source source, const char* failure, Result result, Extra... extra) {
   const int64_t handle = channel::Int(arguments, "handle");
   Stop(handle);
   auto capturer = std::make_unique<Capturer>();
   const bool started = capturer->Start(
       std::move(source), static_cast<int>(channel::Int(arguments, "width")), static_cast<int>(channel::Int(arguments, "height")),
-      static_cast<int>(channel::Int(arguments, "bitrateKbps")), NowIn100ns(), VideoSink(handle), ClosedCallback(handle));
+      static_cast<int>(channel::Int(arguments, "bitrateKbps")), NowIn100ns(), VideoSink(handle), ClosedCallback(handle), extra...);
   if (!started) {
     result->Error("capture-failed", failure);
     return;
@@ -270,7 +275,8 @@ void CaptureHost::Start(const EncodableMap& arguments, Result result) {
     return;
   }
   if (channel::IsSpout(handle)) {
-    StartPicture<SpoutCapturer>(arguments, channel::Text(arguments, "device"), "Spout could not open that sender", std::move(result));
+    StartPicture<SpoutCapturer>(arguments, channel::Text(arguments, "device"), "Spout could not open that sender", std::move(result),
+                                channel::Bool(arguments, "alpha"), FrameRateOf(arguments));
     return;
   }
   const bool display = channel::IsMonitor(handle);
@@ -311,7 +317,8 @@ void CaptureHost::Start(const EncodableMap& arguments, Result result) {
     const bool started = capturer->Start(window, monitor, static_cast<int>(channel::Int(arguments, "width")),
                                          static_cast<int>(channel::Int(arguments, "height")),
                                          static_cast<int>(channel::Int(arguments, "bitrateKbps")), epoch,
-                                         channel::BoolOr(arguments, "cursor", true), VideoSink(handle), ClosedCallback(handle));
+                                         channel::BoolOr(arguments, "cursor", true), VideoSink(handle), ClosedCallback(handle),
+                                         FrameRateOf(arguments));
     if (!started) {
       result->Error("capture-failed", display ? "Windows could not capture that display" : "Windows could not capture that window");
       return;

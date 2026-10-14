@@ -2,6 +2,7 @@
 #define RUNNER_NV12_CONVERTER_H_
 
 #include <d3d11.h>
+#include <d3dcompiler.h>
 #include <wrl/client.h>
 
 #include <cstdint>
@@ -10,16 +11,21 @@
 // The device is multithread protected, because capture callbacks and the encoder run on different threads.
 bool CreateCaptureDevice(Microsoft::WRL::ComPtr<ID3D11Device>& device, Microsoft::WRL::ComPtr<ID3D11DeviceContext>& context);
 
-// Scales a picture into a fixed output size with black bars and reads it back as tightly packed NV12.
+// Scales a picture into a fixed output size with black bars and reads it back as tightly packed NV12. With `alpha` the frame is
+// twice as tall: the colour (premultiplied) in the top half and the picture's alpha as grey in the bottom half.
 class Nv12Converter {
  public:
-  bool Open(ID3D11Device* device, ID3D11DeviceContext* context, int out_width, int out_height, int frame_rate);
+  bool Open(ID3D11Device* device, ID3D11DeviceContext* context, int out_width, int out_height, int frame_rate, bool alpha = false);
   void Close();
 
   bool Convert(ID3D11Texture2D* source, int width, int height, std::vector<uint8_t>& packed);
 
  private:
   bool EnsureProcessor(int width, int height);
+  bool OpenAlphaPass();
+  bool SplitAlpha(ID3D11Texture2D* source, int width, int height);
+  bool ScaleInto(ID3D11VideoProcessorInputView* input, int width, int height, int half);
+  bool ViewOf(ID3D11Texture2D* picture, Microsoft::WRL::ComPtr<ID3D11VideoProcessorInputView>& view);
 
   Microsoft::WRL::ComPtr<ID3D11Device> device_;
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
@@ -30,6 +36,18 @@ class Nv12Converter {
   Microsoft::WRL::ComPtr<ID3D11Texture2D> nv12_;
   Microsoft::WRL::ComPtr<ID3D11VideoProcessorOutputView> output_view_;
   Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_;
+  Microsoft::WRL::ComPtr<ID3D11VertexShader> split_vertex_;
+  Microsoft::WRL::ComPtr<ID3D11PixelShader> split_pixel_;
+  Microsoft::WRL::ComPtr<ID3D11SamplerState> sampler_;
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> color_;
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> grey_;
+  Microsoft::WRL::ComPtr<ID3D11RenderTargetView> color_target_;
+  Microsoft::WRL::ComPtr<ID3D11RenderTargetView> grey_target_;
+  Microsoft::WRL::ComPtr<ID3D11VideoProcessorInputView> color_input_;
+  Microsoft::WRL::ComPtr<ID3D11VideoProcessorInputView> grey_input_;
+  int split_width_ = 0;
+  int split_height_ = 0;
+  int frame_height_ = 0;
   int out_width_ = 0;
   int out_height_ = 0;
   int frame_rate_ = 30;

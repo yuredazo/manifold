@@ -10,16 +10,16 @@ import '../core/clock.dart';
 import '../network/protocol/audio.dart';
 import '../network/protocol/control.dart';
 import '../network/protocol/video.dart';
+import '../network/stream/keyframe_requests.dart';
+import '../network/stream/stream_profile.dart';
 import 'native_windows.dart';
 import 'ts_muxer.dart';
 
-const _keyframeRequestEveryMs = 500;
 const _reportEveryNs = 500000000;
 
 const _unknownRttMs = 20.0;
 
 /// Long enough to ride out a radio stall of about 150 ms.
-const _holdLimitNs = 300000000;
 const _minNackIntervalNs = 10000000;
 
 /// An AAC frame is 1024 samples, about 21 ms, so this is roughly a second.
@@ -27,6 +27,26 @@ const _soundTablesEvery = 47;
 
 const _windowMaxWidth = 960;
 const _windowMaxHeight = 720;
+
+// The top half of the picture is the colour, premultiplied, and the bottom half is the alpha as grey. The player's own alpha
+// handling ignores a stream that has no alpha channel, so the shader joins the halves and blends over a checkerboard itself.
+const _alphaShader = r'''
+//!HOOK MAIN
+//!BIND HOOKED
+//!DESC join colour and alpha
+//!WIDTH HOOKED.w
+//!HEIGHT HOOKED.h 2 /
+vec4 hook() {
+    vec2 at = HOOKED_pos;
+    vec3 color = HOOKED_tex(vec2(at.x, at.y * 0.5)).rgb;
+    float alpha = HOOKED_tex(vec2(at.x, 0.5 + at.y * 0.5)).r;
+    vec2 cell = floor(at * vec2(HOOKED_size.x, HOOKED_size.y * 0.5) / 12.0);
+    vec3 backdrop = vec3(mix(0.353, 0.227, mod(cell.x + cell.y, 2.0)));
+    return vec4(color + backdrop * (1.0 - alpha), 1.0);
+}
+''';
+
+final String _alphaShaderPath = (File('${Directory.systemTemp.path}${Platform.pathSeparator}manifold-alpha.glsl')..writeAsStringSync(_alphaShader)).path;
 
 /// A one second head start, so the first timestamps are never negative.
 const _startTimestamp = 90000;
@@ -52,6 +72,7 @@ final class ViewerSession {
     required this.height,
     required this.withAudio,
     this.soundOnly = false,
+    this.hasAlpha = false,
     required this.onClosed,
     required this._subscribe,
     required this._unsubscribe,
@@ -59,6 +80,7 @@ final class ViewerSession {
     required this._requestResend,
     required this._report,
     required this._rttMs,
+    required this._profile,
   }) : streamId = (_lastStreamId = _lastStreamId % 0xFFFF + 1);
 
   final String feedName;
@@ -75,6 +97,8 @@ final class ViewerSession {
   /// There is no picture, so no window and no keyframes, and the audio carries the clock.
   final bool soundOnly;
 
+  final bool hasAlpha;
+
   final void Function() onClosed;
   final int streamId;
   final void Function(int) _subscribe;
@@ -83,6 +107,7 @@ final class ViewerSession {
   final void Function(Nack) _requestResend;
   final void Function(StreamReport) _report;
   final double? Function() _rttMs;
+  final StreamProfile Function() _profile;
 
   // The default output draws into a Flutter texture, which this window does not have.
   final Player player = Player(configuration: const PlayerConfiguration(vo: 'gpu'));
@@ -95,7 +120,7 @@ final class ViewerSession {
   bool _clientNeedsKeyframe = true;
   int? _firstTimestamp;
   int _lastPts = _startTimestamp;
-  int _lastKeyframeRequest = 0;
+  final KeyframeRequests _keyframes = KeyframeRequests();
   int? _firstAudioTimestamp;
   bool _restarting = false;
   int _audioStart = _startTimestamp;
@@ -162,7 +187,9 @@ final class ViewerSession {
   void poll(int now) {
     if (_stopped) return;
     final roundTripNs = ((_rttMs() ?? _unknownRttMs) * 1000000).round();
-    _buffer.maxWait = _holdLimitNs;
+    final profile = _profile();
+    _buffer.maxWait = profile.holdMs * 1000000;
+    _buffer.keyframeMaxWait = profile.keyframeWaitMs * 1000000;
     _buffer.nackInterval = (roundTripNs * 13 ~/ 10).clamp(_minNackIntervalNs, 1 << 40);
     final result = _buffer.poll(now);
     for (final missing in result.missing) {
@@ -239,8 +266,7 @@ final class ViewerSession {
 
   /// The first request may be lost, so it is repeated while the picture waits.
   void tick(int nowMs) {
-    if (_stopped || soundOnly || !_buffer.needsKeyframe || nowMs - _lastKeyframeRequest < _keyframeRequestEveryMs) return;
-    _lastKeyframeRequest = nowMs;
+    if (_stopped || soundOnly || !_keyframes.due(nowMs, needed: _buffer.needsKeyframe, repairing: _buffer.repairingKeyframe)) return;
     _requestKeyframe(streamId);
   }
 
@@ -280,6 +306,7 @@ final class ViewerSession {
       if (window != null) ('wid', '$window'),
       // media_kit keeps video off until a texture controller attaches, and this window has none.
       ('vid', soundOnly ? 'no' : 'auto'),
+      if (hasAlpha) ...[('glsl-shaders', _alphaShaderPath), ('video-aspect-override', '${width / height}')],
       // A window that only shows the picture has no use for the player's own key and mouse bindings, and
       // one of them quits.
       ('input-default-bindings', 'no'),

@@ -59,6 +59,25 @@ void main() {
       expect((ControlCodec.decode(ControlCodec.encode(9, const Bye())) as DecodedMessage).id, 9);
     });
 
+    test('the alpha flag survives encoding without making the feed look like it has sound', () {
+      const avatar = FeedInfo('avatar', 720, 1080, 30, false, hasAlpha: true);
+      const withSound = FeedInfo('radio', 720, 1080, 30, true, hasAlpha: true);
+
+      final decoded = _feedsOf(_roundTrip(const FeedList([avatar, withSound]))!);
+
+      expect(decoded, [avatar, withSound]);
+      expect(decoded.map((feed) => feed.hasAudio), [false, true]);
+    });
+
+    test('an alpha request keeps its rate, and an older request reads as opaque', () {
+      const alpha = Subscribe(1, 'avatar', 720, 1080, 2000, audio: true, fps: 30, alpha: true);
+      const other = Subscribe(1, 'avatar', 720, 1080, 2000, audio: true, fps: 45);
+
+      expect(_roundTrip(alpha), alpha);
+      expect(_roundTrip(other), other);
+      expect((_roundTrip(const Subscribe(1, 'avatar', 720, 1080, 2000)) as Subscribe).alpha, isFalse);
+    });
+
     test('a feed list never overflows a packet', () {
       final many = List.generate(200, (i) => FeedInfo('feed number $i with a long name', 1, 1, 1, false));
       final bytes = ControlCodec.encode(1, FeedList(many));

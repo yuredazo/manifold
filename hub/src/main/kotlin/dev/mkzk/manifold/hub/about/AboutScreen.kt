@@ -28,6 +28,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.mkzk.manifold.hub.R
+import dev.mkzk.manifold.hub.network.StreamPreference
 import dev.mkzk.manifold.hub.ui.Group
 import dev.mkzk.manifold.hub.ui.GroupDivider
 import dev.mkzk.manifold.hub.ui.IconBadge
@@ -39,7 +40,7 @@ import dev.mkzk.manifold.hub.update.Updater
 private const val REPO = "https://github.com/yuredazo/manifold"
 
 @Composable
-internal fun AboutScreen(updater: Updater, modifier: Modifier = Modifier) {
+internal fun AboutScreen(updater: Updater, streaming: StreamPreference, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val version = remember(context) {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: ""
@@ -65,6 +66,9 @@ internal fun AboutScreen(updater: Updater, modifier: Modifier = Modifier) {
             color = secondaryText(),
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
         )
+
+        SectionLabel(R.string.about_streaming)
+        Group { StreamingSection(streaming) }
 
         SectionLabel(R.string.about_updates)
         Group { UpdateSection(updater) }

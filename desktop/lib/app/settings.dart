@@ -1,21 +1,25 @@
 import 'package:flutter/foundation.dart';
 
 import '../core/storage.dart';
+import '../network/stream/stream_profile.dart';
 
 const _checkKey = 'updates.check';
 const _trayKey = 'close.tray';
 const _camerasKey = 'share.cameras';
+const _profileKey = 'stream.profile';
 
 final class Settings extends ChangeNotifier {
   Settings(this._storage)
       : _checkOnLaunch = _storage.read(_checkKey) != 'off',
         _closeToTray = _storage.read(_trayKey) == 'on',
-        _offerCameras = _storage.read(_camerasKey) == 'on';
+        _offerCameras = _storage.read(_camerasKey) == 'on',
+        _streamProfile = StreamProfile.of(_storage.read(_profileKey));
 
   final Storage _storage;
   bool _checkOnLaunch;
   bool _closeToTray;
   bool _offerCameras;
+  StreamProfile _streamProfile;
 
   bool get checkOnLaunch => _checkOnLaunch;
 
@@ -28,6 +32,15 @@ final class Settings extends ChangeNotifier {
     if (value == _offerCameras) return;
     _offerCameras = value;
     _storage.write(_camerasKey, value ? 'on' : 'off');
+    notifyListeners();
+  }
+
+  StreamProfile get streamProfile => _streamProfile;
+
+  set streamProfile(StreamProfile value) {
+    if (value == _streamProfile) return;
+    _streamProfile = value;
+    _storage.write(_profileKey, value.id);
     notifyListeners();
   }
 

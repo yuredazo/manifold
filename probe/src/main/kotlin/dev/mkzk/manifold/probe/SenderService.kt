@@ -48,7 +48,7 @@ class SenderService : Service() {
             return START_NOT_STICKY
         }
         senders.getOrPut(name) {
-            ManifoldSender(this, ManifoldSender.Config(name, width = 320, height = 240, fps = 30, hasAudio = true), listener)
+            ManifoldSender(this, ManifoldSender.Config(name, width = 320, height = 240, fps = 30, hasAudio = true, hasAlpha = transparent), listener)
                 .also { it.start() }
         }
         return START_REDELIVER_INTENT

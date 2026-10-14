@@ -10,4 +10,5 @@ parcelable SenderInfo {
     int fps = 0;
     boolean hasAudio = false;
     boolean soundOnly = false;
+    boolean hasAlpha = false;
 }

@@ -31,10 +31,12 @@ void main() {
   test('control messages match the fixture', () {
     check('control_subscribe', ControlCodec.encode(3, const Subscribe(7, 'alpha', 720, 1080, 2500)));
     check('control_subscribe_audio', ControlCodec.encode(3, const Subscribe(7, 'alpha', 720, 1080, 2500, audio: true)));
+    check('control_subscribe_alpha', ControlCodec.encode(3, const Subscribe(7, 'alpha', 720, 1080, 2500, alpha: true)));
     check(
       'control_feedlist',
       ControlCodec.encode(4, const FeedList([FeedInfo('alpha', 720, 1080, 30, false), FeedInfo('camera', 1280, 720, 30, true)])),
     );
+    check('control_feedlist_alpha', ControlCodec.encode(8, const FeedList([FeedInfo('avatar', 720, 1080, 30, false, hasAlpha: true)])));
     check('control_feedlist_sound', ControlCodec.encode(5, const FeedList([FeedInfo('PC sound', 0, 0, 0, true, soundOnly: true)])));
     check(
       'control_feedlist_titles',

@@ -16,6 +16,8 @@ internal class Endpoint(
     /** Stamps each hello. It has to keep growing across restarts and reboots, which [clock] does not. */
     private val wallClock: () -> Long = System::currentTimeMillis,
     private val log: (String) -> Unit = {},
+    /** Video and audio, which a sender may drop when it falls behind. Everything else goes through [transmit]. */
+    private val transmitMedia: (Address, ByteArray) -> Unit = transmit,
 ) {
     interface Listener {
         fun onPairingCode(address: Address, remoteName: String, code: String) {}
@@ -166,13 +168,13 @@ internal class Endpoint(
      */
     fun sendVideo(publicKey: String, streamId: Int, fragments: List<ByteArray>) {
         val link = links[publicKey] ?: return
-        for (fragment in fragments) transmit(link.address, link.session.seal(Stream.Video, VideoPacket.encode(streamId, fragment)))
+        for (fragment in fragments) transmitMedia(link.address, link.session.seal(Stream.Video, VideoPacket.encode(streamId, fragment)))
     }
 
     /** Like video, audio is not resent: a late frame would only be heard as a glitch. */
     fun sendAudio(publicKey: String, streamId: Int, timestamp: Int, frame: ByteArray) {
         val link = links[publicKey] ?: return
-        transmit(link.address, link.session.seal(Stream.Audio, AudioPacket.encode(streamId, timestamp, frame)))
+        transmitMedia(link.address, link.session.seal(Stream.Audio, AudioPacket.encode(streamId, timestamp, frame)))
     }
 
     fun requestRetransmit(publicKey: String, nack: Control.Nack) {
