@@ -28,29 +28,29 @@ class SharePage extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (sharing.shared.isNotEmpty && !sharing.paused) ...[
-                TextButton.icon(
+                OutlinedButton.icon(
                   onPressed: () => sharing.paused = true,
-                  icon: const Icon(Icons.pause_circle_outline),
+                  icon: const Icon(Icons.pause_circle_outline, size: 18),
                   label: const Text('Stop all sharing'),
                 ),
                 const SizedBox(width: 8),
               ],
               FilledButton.icon(
                 onPressed: () => showDialog<void>(context: context, builder: (_) => _PickWindow(sharing)),
-                icon: const Icon(Icons.add),
+                icon: const Icon(Icons.add, size: 18),
                 label: const Text('Share'),
               ),
             ],
           ),
           children: [
-            if (sharing.paused) ...[_Paused(sharing), const SizedBox(height: 12)],
-            if (sharing.problem != null) ...[_Problem(sharing), const SizedBox(height: 12)],
+            if (sharing.paused) _Paused(sharing),
+            if (sharing.problem != null) _Problem(sharing),
             if (allowed == 0)
               Group(
                 children: [
                   ListRow(
-                    title: 'None of your devices may watch yet',
-                    subtitle: 'Switch on a "Let it watch my ..." option for a device.',
+                    title: 'No device can watch yet',
+                    subtitle: 'Choose what each paired device may watch in Devices.',
                     leading: const IconBadge(Icons.info_outline),
                     trailing: TextButton(onPressed: openDevices, child: const Text('Open Devices')),
                   ),
@@ -59,17 +59,20 @@ class SharePage extends StatelessWidget {
             if (sharing.shared.isEmpty)
               const EmptyState(
                 icon: Icons.present_to_all_outlined,
-                title: 'Nothing is shared',
-                message: 'It is only captured while a device is watching it.',
+                title: 'Nothing shared yet',
+                message: 'Windows, displays and Spout senders you add are captured only while a device is watching.',
               )
-            else ...[
-              SectionLabel(allowed == 1 ? 'Shared, 1 device can watch' : 'Shared, $allowed devices can watch'),
-              Group(children: [for (final window in sharing.shared) _SharedRow(sharing, window)]),
-            ],
-            if (activity.entries.isNotEmpty) ...[
-              const SectionLabel('Recent activity'),
-              Group(indented: false, children: [for (final entry in activity.entries.take(_shownActivity)) _ActivityRow(entry)]),
-            ],
+            else
+              Group(
+                title: 'Shared',
+                meta: allowed == 1 ? '1 device can watch' : '$allowed devices can watch',
+                children: [for (final window in sharing.shared) _SharedRow(sharing, window)],
+              ),
+            if (activity.entries.isNotEmpty)
+              Group(
+                title: 'Recent activity',
+                children: [for (final entry in activity.entries.take(_shownActivity)) _ActivityRow(entry)],
+              ),
           ],
         );
       },
@@ -87,10 +90,10 @@ class _ActivityRow extends StatelessWidget {
     final theme = Theme.of(context);
     final time = '${entry.time.hour.toString().padLeft(2, '0')}:${entry.time.minute.toString().padLeft(2, '0')}';
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Row(
         children: [
-          SizedBox(width: 48, child: Text(time, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant))),
+          SizedBox(width: 52, child: Text(time, style: theme.textTheme.labelMedium?.copyWith(color: secondaryText(context)))),
           Expanded(
             child: Text('${entry.device} ${entry.started ? 'started' : 'stopped'} watching ${entry.feed}', maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
@@ -107,15 +110,12 @@ class _Paused extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Panel(
-      tone: colors.tertiaryContainer,
+    return Notice(
+      icon: Icons.pause_circle_outline,
       child: Row(
         children: [
-          Icon(Icons.pause_circle_outline, size: 20, color: colors.onTertiaryContainer),
-          const SizedBox(width: 12),
-          Expanded(child: Text('Sharing is stopped. Your devices see nothing, and nothing is captured.', style: TextStyle(color: colors.onTertiaryContainer))),
-          TextButton(onPressed: () => sharing.paused = false, child: Text('Resume', style: TextStyle(color: colors.onTertiaryContainer))),
+          const Expanded(child: Text('Sharing is paused. Nothing is captured and paired devices see no feeds.')),
+          TextButton(onPressed: () => sharing.paused = false, child: const Text('Resume')),
         ],
       ),
     );
@@ -129,15 +129,13 @@ class _Problem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Panel(
-      tone: colors.errorContainer,
+    return Notice(
+      icon: Icons.error_outline,
+      error: true,
       child: Row(
         children: [
-          Icon(Icons.error_outline, size: 20, color: colors.onErrorContainer),
-          const SizedBox(width: 12),
-          Expanded(child: Text(sharing.problem!, style: TextStyle(color: colors.onErrorContainer))),
-          TextButton(onPressed: sharing.dismissProblem, child: Text('Dismiss', style: TextStyle(color: colors.onErrorContainer))),
+          Expanded(child: Text(sharing.problem!)),
+          TextButton(onPressed: sharing.dismissProblem, child: const Text('Dismiss')),
         ],
       ),
     );
@@ -162,7 +160,9 @@ class _SharedRow extends StatelessWidget {
           ShareKind.spout => 'Spout',
           ShareKind.window => window.process,
         },
-        if (window.soundOnly) 'sound only' else if (window.withAudio) 'with sound',
+        if (window.soundOnly) 'sound only' else if (window.withAudio) 'sound on',
+        if (!window.soundOnly) '${window.frameRate} fps',
+        if (window.spout && window.withAlpha && !window.soundOnly) 'transparent',
         if (!window.showCursor && !window.soundOnly && !window.pictureOnly) 'no pointer',
         if (!window.present)
           'waiting for the ${window.kind.name}'
@@ -170,8 +170,9 @@ class _SharedRow extends StatelessWidget {
           'nobody watching'
         else
           '$watching watching',
-      ].join(' · '),
-      leading: IconBadge(_kindIcon(window.kind), badge: watching > 0 ? Theme.of(context).colorScheme.primary : null),
+      ].join('  ·  '),
+      subtitleMaxLines: 1,
+      leading: IconBadge(_kindIcon(window.kind), active: watching > 0),
       trailing: TextButton(onPressed: () => sharing.unshare(window), child: const Text('Stop sharing')),
     );
   }
@@ -212,7 +213,7 @@ class _PickWindowState extends State<_PickWindow> {
     return AlertDialog(
       title: Row(
         children: [
-          const Expanded(child: Text('Pick what to share')),
+          const Expanded(child: Text('Choose what to share')),
           IconButton(
             tooltip: 'Look again',
             onPressed: () => setState(() {
@@ -223,9 +224,10 @@ class _PickWindowState extends State<_PickWindow> {
         ],
       ),
       content: SizedBox(
-        width: 460,
-        height: 380,
-        child: Column(
+        width: 760,
+        height: 470,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: FutureBuilder(
@@ -243,11 +245,12 @@ class _PickWindowState extends State<_PickWindow> {
                             ListRow(
                               title: choice.label,
                               subtitle: switch (choice.kind) {
-                                ShareKind.display => '${choice.width}x${choice.height}${choice.primary ? ' · main display' : ''}',
-                                ShareKind.camera => 'camera · ${choice.width}x${choice.height}',
-                                ShareKind.spout => 'Spout · ${choice.width}x${choice.height}',
+                                ShareKind.display => '${choice.width}x${choice.height}${choice.primary ? '  ·  main display' : ''}',
+                                ShareKind.camera => 'camera  ·  ${choice.width}x${choice.height}',
+                                ShareKind.spout => 'Spout  ·  ${choice.width}x${choice.height}',
                                 ShareKind.window => choice.process,
                               },
+                              subtitleMaxLines: 1,
                               leading: IconBadge(_kindIcon(choice.kind)),
                               onTap: () {
                                 widget.sharing.share(choice, audio: _withAudio, soundOnly: !_withPicture, showCursor: _withCursor, alpha: _withAlpha, frameRate: _frameRate);
@@ -261,49 +264,56 @@ class _PickWindowState extends State<_PickWindow> {
                 },
               ),
             ),
-            const Divider(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                FilterChip(
-                  label: const Text('Picture'),
-                  selected: _withPicture,
-                  onSelected: (on) => setState(() => _withPicture = on),
+            const SizedBox(width: 16),
+            SizedBox(
+              width: 290,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Group(
+                      title: 'Options',
+                      children: [
+                        SwitchRow(title: 'Share the picture', icon: Icons.image_outlined, value: _withPicture, onChanged: (on) => setState(() => _withPicture = on)),
+                        if (_withPicture) ...[
+                          SwitchRow(title: 'Share its sound', icon: Icons.volume_up_outlined, value: _withAudio, onChanged: (on) => setState(() => _withAudio = on)),
+                          SwitchRow(title: 'Show the pointer', icon: Icons.mouse_outlined, value: _withCursor, onChanged: (on) => setState(() => _withCursor = on)),
+                          SwitchRow(title: 'Keep transparency', icon: Icons.layers_outlined, value: _withAlpha, onChanged: (on) => setState(() => _withAlpha = on)),
+                          Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Frame rate', style: theme.textTheme.titleSmall),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 6,
+                                  children: [
+                                    for (final rate in shareFrameRates)
+                                      FilterChip(
+                                        label: Text('$rate'),
+                                        visualDensity: VisualDensity.compact,
+                                        selected: _frameRate == rate,
+                                        onSelected: (_) => setState(() => _frameRate = rate),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      [
+                        if (_withPicture) 'A window shares its app’s sound, a display everything but Manifold. Transparency is kept for Spout senders and doubles the picture sent.' else 'Sound only, which a phone can play.',
+                        if (!widget.sharing.offerCameras) 'Cameras are hidden. Turn them on in Settings.',
+                      ].join(' '),
+                      style: theme.textTheme.bodySmall?.copyWith(color: secondaryText(context)),
+                    ),
+                  ],
                 ),
-                FilterChip(
-                  label: const Text('Sound'),
-                  selected: _withAudio || !_withPicture,
-                  onSelected: _withPicture ? (on) => setState(() => _withAudio = on) : null,
-                ),
-                FilterChip(
-                  label: const Text('Pointer'),
-                  selected: _withCursor && _withPicture,
-                  onSelected: _withPicture ? (on) => setState(() => _withCursor = on) : null,
-                ),
-                FilterChip(
-                  label: const Text('Transparency'),
-                  selected: _withAlpha && _withPicture,
-                  onSelected: _withPicture ? (on) => setState(() => _withAlpha = on) : null,
-                ),
-                for (final rate in shareFrameRates)
-                  FilterChip(
-                    label: Text('$rate fps'),
-                    selected: _frameRate == rate && _withPicture,
-                    onSelected: _withPicture ? (_) => setState(() => _frameRate = rate) : null,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                [
-                  if (_withPicture) 'A window brings its app\'s sound, a display all sound except Manifold.' else 'Sound only, which a phone can play.',
-                  if (_withPicture) 'Transparency is kept for Spout senders and doubles the picture sent.',
-                  if (!widget.sharing.offerCameras) 'Cameras are hidden. Switch them on in About.',
-                ].join(' '),
-                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
             ),
           ],

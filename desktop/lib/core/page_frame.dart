@@ -39,34 +39,14 @@ class PageFrame extends StatelessWidget {
                 if (action != null) ...[const SizedBox(width: 16), action!],
               ],
             ),
-            const SizedBox(height: 24),
-            ...children,
+            const SizedBox(height: 20),
+            for (var i = 0; i < children.length; i++) ...[
+              if (i > 0) const SizedBox(height: 14),
+              children[i],
+            ],
           ],
         ),
       ),
-    );
-  }
-}
-
-class Panel extends StatelessWidget {
-  const Panel({required this.child, this.tone, this.padding = const EdgeInsets.all(16), super.key});
-
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-
-  final Color? tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: tone ?? colors.surfaceContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: child,
     );
   }
 }

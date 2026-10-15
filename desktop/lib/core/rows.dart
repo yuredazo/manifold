@@ -1,49 +1,74 @@
 import 'package:flutter/material.dart';
 
-const _iconColumn = 40.0;
-const _rowPadding = 16.0;
+const _iconTile = 34.0;
+const _rowPadding = 14.0;
 const _iconGap = 12.0;
+const _panelRadius = 12.0;
 
-/// The stock grey is too faint on this dark theme, so secondary text is dimmed from the main color instead.
+// The stock grey is too faint on this theme, so secondary text is dimmed from the main color instead.
 Color secondaryText(BuildContext context) => Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.72);
 
-class SectionLabel extends StatelessWidget {
-  const SectionLabel(this.text, {super.key});
+Color _controlLine(BuildContext context) => Theme.of(context).colorScheme.outline.withValues(alpha: 0.5);
 
-  final String text;
+class StatusDot extends StatelessWidget {
+  const StatusDot(this.on, {super.key});
+
+  final bool on;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-      child: Text(text, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: secondaryText(context))),
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: on ? colors.primary : null,
+        border: on ? null : Border.all(color: colors.outline, width: 1.5),
+      ),
     );
   }
 }
 
 class Group extends StatelessWidget {
-  const Group({required this.children, this.indented = true, super.key});
+  const Group({required this.children, this.title, this.meta, this.online, this.action, super.key});
 
   final List<Widget> children;
-
-  final bool indented;
+  final String? title;
+  final String? meta;
+  final bool? online;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final line = theme.colorScheme.outlineVariant;
     return Material(
-      color: colors.surfaceContainer,
-      borderRadius: BorderRadius.circular(16),
+      color: Colors.transparent,
       clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_panelRadius), side: BorderSide(color: line)),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (var i = 0; i < children.length; i++) ...[
-            if (i > 0)
-              Divider(
-                height: 1,
-                indent: indented ? _rowPadding + _iconColumn + _iconGap : _rowPadding,
-                color: colors.outlineVariant.withValues(alpha: 0.6),
+          if (title != null) ...[
+            Container(
+              color: theme.colorScheme.surfaceContainer,
+              padding: EdgeInsets.symmetric(horizontal: _rowPadding, vertical: action == null ? 10 : 6),
+              constraints: const BoxConstraints(minHeight: 40),
+              child: Row(
+                children: [
+                  if (online != null) ...[StatusDot(online!), const SizedBox(width: 8)],
+                  Expanded(child: Text(title!, style: theme.textTheme.labelLarge, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  if (meta != null) Text(meta!, style: theme.textTheme.labelMedium?.copyWith(color: secondaryText(context))),
+                  ?action,
+                ],
               ),
+            ),
+            Divider(height: 1, color: line),
+          ],
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) Divider(height: 1, color: line),
             children[i],
           ],
         ],
@@ -52,38 +77,53 @@ class Group extends StatelessWidget {
   }
 }
 
-class IconBadge extends StatelessWidget {
-  const IconBadge(this.icon, {this.badge, super.key});
+class Notice extends StatelessWidget {
+  const Notice({required this.icon, required this.child, this.error = false, super.key});
 
   final IconData icon;
-  final Color? badge;
+  final Widget child;
+  final bool error;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return SizedBox(
-      width: _iconColumn,
-      height: _iconColumn,
-      child: Stack(
+    final tone = error ? colors.error : colors.tertiary;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.08),
+        border: Border.all(color: tone.withValues(alpha: 0.45)),
+        borderRadius: BorderRadius.circular(_panelRadius),
+      ),
+      child: Row(
         children: [
-          Container(
-            width: _iconColumn,
-            height: _iconColumn,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: colors.surfaceContainerHighest),
-            child: Icon(icon, size: 20, color: colors.onSurfaceVariant),
-          ),
-          if (badge != null)
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: badge, border: Border.all(color: colors.surfaceContainer, width: 2)),
-              ),
-            ),
+          Icon(icon, size: 20, color: tone),
+          const SizedBox(width: 12),
+          Expanded(child: child),
         ],
       ),
+    );
+  }
+}
+
+class IconBadge extends StatelessWidget {
+  const IconBadge(this.icon, {this.active = false, super.key});
+
+  final IconData icon;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: _iconTile,
+      height: _iconTile,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: active ? colors.primary.withValues(alpha: 0.5) : _controlLine(context)),
+      ),
+      child: Icon(icon, size: 18, color: active ? colors.primary : colors.onSurfaceVariant),
     );
   }
 }
@@ -160,7 +200,7 @@ class SwitchRow extends StatelessWidget {
     return ListRow(
       title: title,
       subtitle: subtitle,
-      leading: icon == null ? null : IconBadge(icon!),
+      leading: icon == null ? null : IconBadge(icon!, active: value),
       onTap: () => onChanged(!value),
       trailing: ExcludeFocus(child: IgnorePointer(child: Switch(value: value, onChanged: (_) {}))),
     );
@@ -173,15 +213,13 @@ Future<T?> showDetails<T>(BuildContext context, {required String title, required
     builder: (context) {
       final theme = Theme.of(context);
       return Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480, maxHeight: 640),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 12, 8),
+                padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
                 child: Row(
                   children: [
                     Expanded(child: Text(title, style: theme.textTheme.titleLarge, maxLines: 1, overflow: TextOverflow.ellipsis)),
@@ -190,7 +228,7 @@ Future<T?> showDetails<T>(BuildContext context, {required String title, required
                   ],
                 ),
               ),
-              Flexible(child: SingleChildScrollView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), child: builder(context))),
+              Flexible(child: SingleChildScrollView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 18), child: builder(context))),
             ],
           ),
         ),

@@ -57,13 +57,13 @@ internal fun ScreenShareAction(screenShare: ScreenShare, watchers: Int, start: (
 
     Box {
         IconButton(onClick = { menuOpen = true }) {
-            Icon(Icons.Outlined.ScreenShare, stringResource(R.string.screen_share))
+            Icon(Icons.Outlined.ScreenShare, stringResource(R.string.screen_share), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         DropdownMenu(
             expanded = menuOpen,
             onDismissRequest = { menuOpen = false },
             modifier = Modifier.widthIn(min = 240.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(12.dp),
         ) {
             Text(
                 stringResource(R.string.screen_menu_title),

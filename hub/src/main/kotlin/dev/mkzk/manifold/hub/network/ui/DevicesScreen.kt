@@ -5,13 +5,17 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.SystemClock
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -20,6 +24,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.LinkOff
@@ -59,6 +64,7 @@ import dev.mkzk.manifold.hub.network.Network
 import dev.mkzk.manifold.hub.network.NetworkService
 import dev.mkzk.manifold.hub.network.NetworkState
 import dev.mkzk.manifold.hub.network.PairingUi
+import dev.mkzk.manifold.hub.network.StreamPreference
 import dev.mkzk.manifold.hub.network.fetchPublicAddress
 import dev.mkzk.manifold.hub.network.protocol.Control
 import dev.mkzk.manifold.hub.network.protocol.Device
@@ -66,13 +72,14 @@ import dev.mkzk.manifold.hub.network.protocol.readableFingerprint
 import dev.mkzk.manifold.hub.network.stream.StreamSnapshot
 import dev.mkzk.manifold.hub.network.stream.details
 import dev.mkzk.manifold.hub.network.stream.headline
-import dev.mkzk.manifold.hub.ui.Group
-import dev.mkzk.manifold.hub.ui.GroupDivider
+import dev.mkzk.manifold.hub.ui.Banner
 import dev.mkzk.manifold.hub.ui.IconBadge
 import dev.mkzk.manifold.hub.ui.ListRow
-import dev.mkzk.manifold.hub.ui.SectionLabel
+import dev.mkzk.manifold.hub.ui.Panel
+import dev.mkzk.manifold.hub.ui.PanelDivider
 import dev.mkzk.manifold.hub.ui.Sheet
 import dev.mkzk.manifold.hub.ui.SheetTitle
+import dev.mkzk.manifold.hub.ui.StatusDot
 import dev.mkzk.manifold.hub.ui.SwitchRow
 import dev.mkzk.manifold.hub.ui.secondaryText
 import kotlinx.coroutines.Dispatchers
@@ -82,7 +89,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<Device>, modifier: Modifier = Modifier) {
+internal fun DevicesScreen(network: Network, streaming: StreamPreference, state: NetworkState, devices: List<Device>, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var typingAddress by remember { mutableStateOf(false) }
     var pairSheet by remember { mutableStateOf(false) }
@@ -97,10 +104,13 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
-            item { SectionLabel(R.string.devices_this_phone) }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             item {
-                Group {
+                Panel(title = stringResource(R.string.devices_this_phone)) {
                     SwitchRow(
                         title = stringResource(R.string.devices_accept),
                         checked = state.listening,
@@ -112,7 +122,7 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
                             else -> stringResource(R.string.devices_reachable_at, state.addresses.first())
                         },
                     )
-                    GroupDivider()
+                    PanelDivider()
                     ListRow(
                         title = stringResource(R.string.devices_details),
                         subtitle = readableFingerprint(network.identity.fingerprint),
@@ -120,16 +130,17 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
                         trailing = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                         onClick = { detailsSheet = true },
                     )
+                    PanelDivider()
+                    DelayRow(streaming)
                 }
             }
-            item { SectionLabel(R.string.devices_paired_header) }
             item {
-                Group {
+                Panel(title = stringResource(R.string.devices_paired_header)) {
                     if (devices.isEmpty()) {
                         ListRow(title = stringResource(R.string.devices_none), leading = { IconBadge(Icons.Outlined.Devices) })
                     }
                     devices.forEachIndexed { index, device ->
-                        if (index > 0) GroupDivider()
+                        if (index > 0) PanelDivider()
                         DeviceRow(device, online = device.publicKey in state.online, latency = state.latencyMs[device.publicKey], onClick = { openDevice = device.publicKey })
                     }
                 }
@@ -153,54 +164,59 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
             }
             val nearby by network.nearby.collectAsStateWithLifecycle()
             SheetTitle(stringResource(R.string.devices_pair))
-            if (nearby.isEmpty()) {
-                ListRow(
-                    title = stringResource(R.string.pair_nearby_looking),
-                    subtitle = stringResource(R.string.pair_nearby_hint),
-                    leading = { IconBadge(Icons.Outlined.Search) },
-                )
+            Panel(title = stringResource(R.string.pair_nearby_title), meta = nearby.size.takeIf { it > 0 }?.toString()) {
+                if (nearby.isEmpty()) {
+                    ListRow(
+                        title = stringResource(R.string.pair_nearby_looking),
+                        subtitle = stringResource(R.string.pair_nearby_hint),
+                        leading = { IconBadge(Icons.Outlined.Search) },
+                    )
+                }
+                nearby.forEachIndexed { index, found ->
+                    if (index > 0) PanelDivider()
+                    ListRow(
+                        title = found.name,
+                        subtitle = "${found.host} · ${readableFingerprint(found.id)}",
+                        leading = { IconBadge(Icons.Outlined.Devices) },
+                        trailing = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                        onClick = {
+                            pairSheet = false
+                            NetworkService.start(context)
+                            network.pair("${found.host}:${found.port}")
+                        },
+                    )
+                }
             }
-            nearby.forEach { found ->
+            Panel {
                 ListRow(
-                    title = found.name,
-                    subtitle = "${found.host} · ${readableFingerprint(found.id)}",
-                    leading = { IconBadge(Icons.Outlined.Devices) },
-                    trailing = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                    title = stringResource(R.string.pair_enter_title),
+                    subtitle = stringResource(R.string.pair_enter_body),
+                    leading = { IconBadge(Icons.Outlined.Keyboard) },
                     onClick = {
                         pairSheet = false
-                        NetworkService.start(context)
-                        network.pair("${found.host}:${found.port}")
+                        typingAddress = true
                     },
                 )
-            }
-            GroupDivider(withIcon = false)
-            ListRow(
-                title = stringResource(R.string.pair_enter_title),
-                subtitle = stringResource(R.string.pair_enter_body),
-                leading = { IconBadge(Icons.Outlined.Keyboard) },
-                onClick = {
-                    pairSheet = false
-                    typingAddress = true
-                },
-            )
-            val openFor = state.pairingOpenUntil - now
-            if (openFor > 0) {
-                ListRow(
-                    title = stringResource(R.string.devices_pairing_open, "%d:%02d".format(openFor / 60_000, openFor / 1000 % 60)),
-                    subtitle = stringResource(R.string.pair_open_hint),
-                    leading = { IconBadge(Icons.Outlined.Wifi) },
-                    trailing = { TextButton(onClick = network::closePairing) { Text(stringResource(R.string.common_close)) } },
-                )
-            } else {
-                ListRow(
-                    title = stringResource(R.string.pair_show_title),
-                    subtitle = stringResource(R.string.pair_show_body),
-                    leading = { IconBadge(Icons.Outlined.Wifi) },
-                    onClick = {
-                        NetworkService.start(context)
-                        network.openPairing()
-                    },
-                )
+                PanelDivider()
+                val openFor = state.pairingOpenUntil - now
+                if (openFor > 0) {
+                    ListRow(
+                        title = stringResource(R.string.devices_pairing_open, "%d:%02d".format(openFor / 60_000, openFor / 1000 % 60)),
+                        subtitle = stringResource(R.string.pair_open_hint),
+                        leading = { IconBadge(Icons.Outlined.Wifi, active = true) },
+                        trailing = { TextButton(onClick = network::closePairing) { Text(stringResource(R.string.common_close)) } },
+                    )
+                } else {
+                    ListRow(
+                        title = stringResource(R.string.pair_show_title),
+                        subtitle = stringResource(R.string.pair_show_body),
+                        leading = { IconBadge(Icons.Outlined.Wifi) },
+                        onClick = {
+                            NetworkService.start(context)
+                            network.openPairing()
+                        },
+                    )
+                }
             }
         }
     }
@@ -208,20 +224,27 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
     if (detailsSheet) {
         Sheet(onDismiss = { detailsSheet = false }) {
             SheetTitle(stringResource(R.string.devices_details))
-            ListRow(
-                title = stringResource(R.string.device_fingerprint),
-                subtitle = readableFingerprint(network.identity.fingerprint),
-                leading = { IconBadge(Icons.Outlined.Fingerprint) },
-            )
-            if (state.listening) {
-                state.addresses.forEach { AddressRow(stringResource(R.string.address_local), it) }
-                PublicAddress(state.port)
-            } else {
+            Panel {
+                ListRow(
+                    title = stringResource(R.string.device_fingerprint),
+                    subtitle = readableFingerprint(network.identity.fingerprint),
+                    leading = { IconBadge(Icons.Outlined.Fingerprint) },
+                )
+                if (state.listening) {
+                    state.addresses.forEach {
+                        PanelDivider()
+                        AddressRow(stringResource(R.string.address_local), it)
+                    }
+                    PanelDivider()
+                    PublicAddress(state.port)
+                }
+            }
+            if (!state.listening) {
                 Text(
                     stringResource(R.string.devices_details_off),
                     style = MaterialTheme.typography.bodySmall,
                     color = secondaryText(),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
         }
@@ -256,7 +279,6 @@ internal fun DevicesScreen(network: Network, state: NetworkState, devices: List<
 
 @Composable
 private fun DeviceRow(device: Device, online: Boolean, latency: Int?, onClick: () -> Unit) {
-    val dot = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
     val summary = buildList {
         add(stringResource(if (online) R.string.device_online else R.string.device_offline))
         if (online && latency != null) add(stringResource(R.string.device_latency, latency))
@@ -266,8 +288,14 @@ private fun DeviceRow(device: Device, online: Boolean, latency: Int?, onClick: (
     ListRow(
         title = device.name,
         subtitle = summary,
-        leading = { IconBadge(Icons.Outlined.Devices, badge = dot) },
-        trailing = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+        leading = { IconBadge(Icons.Outlined.Devices, active = online) },
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusDot(online)
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+            }
+        },
         onClick = onClick,
     )
 }
@@ -285,55 +313,62 @@ private fun DeviceSheet(
 ) {
     var confirming by remember { mutableStateOf(false) }
     Sheet(onDismiss) {
-        SheetTitle(
-            device.name,
-            trailing = listOfNotNull(
+        SheetTitle(device.name)
+        Panel(
+            title = listOfNotNull(
                 stringResource(if (online) R.string.device_online else R.string.device_offline),
                 latency?.takeIf { online }?.let { stringResource(R.string.device_latency, it) },
-            ).joinToString(" · "),
-            trailingColor = if (online) MaterialTheme.colorScheme.primary else secondaryText(),
-        )
-        SwitchRow(
-            title = stringResource(R.string.device_receive),
-            checked = device.receive,
-            onChange = { network.setReceive(device.publicKey, it) },
-            subtitle = if (online && device.receive) offersText(offered) else stringResource(R.string.device_receive_hint),
-            icon = Icons.Outlined.Download,
-        )
-        SwitchRow(
-            title = stringResource(R.string.device_send),
-            checked = device.send,
-            onChange = { network.setSend(device.publicKey, it) },
-            subtitle = stringResource(R.string.device_send_hint),
-            icon = Icons.Outlined.Upload,
-        )
-        if (streams.isNotEmpty() || refused.isNotEmpty()) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                streams.forEach { StreamReadout(it) }
-                refused.forEach { (feed, reason) ->
-                    Text(
-                        stringResource(refusalText(reason), feed),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
+            ).joinToString(" · ").replaceFirstChar { it.uppercase() },
+            online = online,
+        ) {
+            ListRow(
+                title = stringResource(R.string.device_fingerprint),
+                subtitle = readableFingerprint(device.fingerprint),
+                leading = { IconBadge(Icons.Outlined.Fingerprint) },
+            )
+            device.address?.let {
+                PanelDivider()
+                ListRow(title = stringResource(R.string.device_address), subtitle = it, leading = { IconBadge(Icons.Outlined.Wifi) })
+            }
+        }
+        Panel {
+            SwitchRow(
+                title = stringResource(R.string.device_receive),
+                checked = device.receive,
+                onChange = { network.setReceive(device.publicKey, it) },
+                subtitle = if (online && device.receive) offersText(offered) else stringResource(R.string.device_receive_hint),
+                icon = Icons.Outlined.Download,
+            )
+            PanelDivider()
+            SwitchRow(
+                title = stringResource(R.string.device_send),
+                checked = device.send,
+                onChange = { network.setSend(device.publicKey, it) },
+                subtitle = stringResource(R.string.device_send_hint),
+                icon = Icons.Outlined.Upload,
+            )
+        }
+        if (streams.isNotEmpty()) {
+            Panel(title = stringResource(R.string.device_streams)) {
+                streams.forEachIndexed { index, stream ->
+                    if (index > 0) PanelDivider()
+                    StreamReadout(stream)
                 }
             }
         }
-        ListRow(
-            title = stringResource(R.string.device_fingerprint),
-            subtitle = readableFingerprint(device.fingerprint),
-            leading = { IconBadge(Icons.Outlined.Fingerprint) },
-        )
-        device.address?.let {
-            ListRow(title = stringResource(R.string.device_address), subtitle = it, leading = { IconBadge(Icons.Outlined.Wifi) })
+        refused.forEach { (feed, reason) ->
+            Banner(Icons.Outlined.ErrorOutline, error = true) {
+                Text(stringResource(refusalText(reason), feed), style = MaterialTheme.typography.bodySmall)
+            }
         }
-        ListRow(
-            title = stringResource(R.string.device_unpair),
-            titleColor = MaterialTheme.colorScheme.error,
-            leading = { IconBadge(Icons.Outlined.LinkOff) },
-            onClick = { confirming = true },
-        )
+        Panel {
+            ListRow(
+                title = stringResource(R.string.device_unpair),
+                titleColor = MaterialTheme.colorScheme.error,
+                leading = { IconBadge(Icons.Outlined.LinkOff) },
+                onClick = { confirming = true },
+            )
+        }
     }
     if (confirming) {
         AlertDialog(
@@ -403,7 +438,7 @@ private fun PublicAddress(port: Int) {
 
 @Composable
 private fun offersText(offered: List<String>) =
-    if (offered.isEmpty()) stringResource(R.string.device_offers_nothing) else stringResource(R.string.device_offers, offered.joinToString(", "))
+    if (offered.isEmpty()) stringResource(R.string.device_offers_nothing) else stringResource(R.string.device_offers, offered.size)
 
 private fun refusalText(reason: Control.Refusal) = when (reason) {
     Control.Refusal.NOT_SHARED -> R.string.device_refused_not_shared
@@ -414,7 +449,7 @@ private fun refusalText(reason: Control.Refusal) = when (reason) {
 
 @Composable
 private fun StreamReadout(stream: StreamSnapshot) {
-    Column(modifier = Modifier.padding(top = 6.dp)) {
+    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
         Text(stream.headline(), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
         Text(stream.details(), style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace, color = secondaryText())
     }

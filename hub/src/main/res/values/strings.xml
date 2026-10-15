@@ -8,19 +8,20 @@
     <string name="tab_live">Live</string>
     <string name="tab_apps">Apps</string>
     <string name="tab_devices">Devices</string>
-    <string name="tab_about">About</string>
+    <string name="tab_settings">Settings</string>
 
     <string name="channel_network">Network connections</string>
     <string name="network_notice_title">Manifold is on the network</string>
     <string name="network_notice_text">Devices you paired can connect to this one.</string>
 
     <string name="devices_fingerprint">Fingerprint %1$s</string>
-    <string name="devices_accept">Accept connections</string>
+    <string name="devices_accept">Allow connections</string>
     <string name="devices_off">Off</string>
     <string name="devices_no_address">No network address found</string>
     <string name="devices_reachable_at">%1$s</string>
     <string name="devices_this_phone">This phone</string>
-    <string name="devices_details">Connection details</string>
+    <string name="devices_details">Address and fingerprint</string>
+    <string name="devices_delay">Delay when watching</string>
     <string name="devices_details_off">Accept connections is off, so there is no address to show.</string>
     <string name="address_local">Local</string>
     <string name="address_public">Public</string>
@@ -46,15 +47,16 @@
     <string name="device_online">online</string>
     <string name="device_latency">%1$d ms</string>
     <string name="device_offline">offline</string>
-    <string name="device_receive">Receive their feeds</string>
+    <string name="device_receive">Show its feeds here</string>
     <string name="device_receive_hint">Their feeds show up in Live.</string>
-    <string name="device_send">Share my feeds</string>
+    <string name="device_send">Let it watch what I share</string>
     <string name="device_send_hint">They can watch the feeds you share.</string>
     <string name="device_receiving">receiving</string>
     <string name="device_sharing">sharing</string>
     <string name="device_fingerprint">Fingerprint</string>
     <string name="device_address">Address</string>
-    <string name="device_offers">Offers %1$s</string>
+    <string name="device_offers">Feeds on offer: %1$d</string>
+    <string name="device_streams">Streams</string>
     <string name="device_offers_nothing">Offers no feeds right now</string>
     <string name="device_options">Device options</string>
     <string name="device_unpair">Unpair</string>
@@ -71,7 +73,7 @@
     <string name="pair_start">Pair</string>
     <string name="pair_connecting">Connecting to %1$s...</string>
     <string name="pair_code_title">Pair with %1$s?</string>
-    <string name="pair_code_body">Check that this code is the same on both devices.</string>
+    <string name="pair_code_body">Check that both screens show this code.</string>
     <string name="pair_match">They match</string>
     <string name="pair_nomatch">They do not match</string>
     <string name="pair_waiting">Waiting for %1$s to confirm.</string>
@@ -91,15 +93,13 @@
     <string name="screen_stop">Stop sharing</string>
     <string name="screen_failed">The screen could not be shared.</string>
 
-    <string name="live_waiting_header">Waiting for you</string>
-    <string name="live_feeds_header">Feeds</string>
-    <string name="live_empty_title">Nothing connected yet</string>
-    <string name="live_empty_body">Apps that send or receive video through Manifold show up here.</string>
-    <string name="live_no_feeds">No feed is announced.</string>
-    <string name="notifications_off">Notifications are off, so you will not be told when an app asks to watch.</string>
+    <string name="live_empty_title">No feeds yet</string>
+    <string name="live_empty_body">Feeds from your other devices and from apps on this phone show up here.</string>
+    <string name="live_waiting_sender">Waiting for a sender</string>
+    <string name="notifications_off">Notifications are off. You will not hear when an app asks to watch.</string>
     <string name="notifications_turn_on">Turn on</string>
 
-    <string name="pending_wants">wants to watch %1$s</string>
+    <string name="pending_wants">Wants to watch %1$s</string>
     <string name="cert_changed_pending">This app is signed with a different certificate than when you last decided.</string>
     <string name="action_allow">Allow</string>
     <string name="action_block">Block</string>
@@ -126,10 +126,9 @@
     <string name="watch_short_pending">pending</string>
     <string name="watch_short_blocked">blocked</string>
 
-    <string name="apps_intro">Apps that asked to watch a feed. An allowed app can watch any feed.</string>
+    <string name="apps_needs_answer">Needs your answer</string>
     <string name="apps_empty">No app has asked to watch a feed yet.</string>
     <string name="access_allowed">Allowed</string>
-    <string name="access_ask">Asks</string>
     <string name="access_blocked">Blocked</string>
     <string name="menu_allow">Allow</string>
     <string name="menu_allow_hint">Can watch any feed.</string>
@@ -140,21 +139,18 @@
     <string name="app_connected">connected</string>
     <string name="cert_changed">Signing certificate changed</string>
 
-    <string name="about_version">Version %1$s</string>
-    <string name="about_body">Manifold sends live video between apps on this phone and to your other devices. This hub asks you which apps may watch, and on this phone the video never passes through it.</string>
+    <string name="about_body">Sends live video between apps on this phone and to your other devices. On this phone the video never passes through the hub.</string>
+    <string name="about_title">Manifold %1$s</string>
     <string name="about_source">Source code</string>
     <string name="about_how">How it works</string>
     <string name="about_report">Report a vulnerability</string>
     <string name="about_license">License: Apache 2.0</string>
-    <string name="about_streaming">Streaming from other devices</string>
-    <string name="stream_low_title">Low latency</string>
-    <string name="stream_low_body">Least delay, may stutter.</string>
+    <string name="stream_low_title">Lowest delay</string>
+    <string name="stream_low_body">About 0.1 s, may stutter on weak Wi-Fi.</string>
     <string name="stream_balanced_title">Balanced</string>
-    <string name="stream_balanced_body">About 0.3 s delay, steady.</string>
-    <string name="stream_smooth_title">Smooth</string>
-    <string name="stream_smooth_body">About 1 s delay, smoothest.</string>
-    <string name="about_updates">Updates</string>
-    <string name="about_project">Project</string>
+    <string name="stream_balanced_body">About 0.3 s, steady.</string>
+    <string name="stream_smooth_title">Smoothest</string>
+    <string name="stream_smooth_body">About 1 s, fewest stutters.</string>
 
     <string name="update_idle">Not checked yet</string>
     <string name="update_check_now">Check now</string>
@@ -174,6 +170,9 @@
     <string name="update_failed">Update failed</string>
     <string name="update_try_again">Try again</string>
     <string name="update_on_launch">Check for updates on launch</string>
+    <string name="settings_notifications">Notify me about requests</string>
+    <string name="settings_notifications_on">When an app asks to watch</string>
+    <string name="settings_notifications_off">Off, requests go unseen</string>
     <string name="update_release_page">Release page</string>
     <string name="problem_offline">Could not reach GitHub.</string>
     <string name="problem_timeout">GitHub did not answer in time.</string>
