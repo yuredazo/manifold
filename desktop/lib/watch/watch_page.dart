@@ -34,8 +34,8 @@ class WatchPage extends StatelessWidget {
         if (receiving.isEmpty) {
           return _Elsewhere(
             icon: Icons.visibility_off_outlined,
-            title: 'Watching is off',
-            message: 'Switch on "Watch its feeds" for a device to see what it shares.',
+            title: 'No device shows its feeds here',
+            message: 'Turn on "Show its feeds here" for a device in Devices.',
             button: 'Open Devices',
             onPressed: openDevices,
           );
@@ -84,21 +84,19 @@ class _DeviceFeeds extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final online = network.online.contains(device.publicKey);
+    final latency = network.latencyMs(device.publicKey);
     final feeds = network.remoteFeeds[device.publicKey] ?? const <FeedInfo>[];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Group(
+      title: device.name,
+      online: online,
+      meta: online ? 'online${latency == null ? '' : '  ·  $latency ms'}' : 'offline',
       children: [
-        SectionLabel(online ? device.name : '${device.name} (offline)'),
-        Group(
-          children: [
-            if (!online)
-              const ListRow(title: 'It is offline', subtitle: 'Its feeds appear here when it is reachable.', leading: IconBadge(Icons.cloud_off_outlined))
-            else if (feeds.isEmpty)
-              const ListRow(title: 'Nothing shared right now', leading: IconBadge(Icons.hourglass_empty))
-            else
-              for (final feed in feeds) _FeedRow(watching, device, feed),
-          ],
-        ),
+        if (!online)
+          const ListRow(title: 'Offline', subtitle: 'Its feeds show up here when it is reachable', leading: IconBadge(Icons.cloud_off_outlined))
+        else if (feeds.isEmpty)
+          const ListRow(title: 'Nothing shared yet', leading: IconBadge(Icons.hourglass_empty))
+        else
+          for (final feed in feeds) _FeedRow(watching, device, feed),
       ],
     );
   }
@@ -113,7 +111,6 @@ class _FeedRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final session = watching.of(device, feed);
     final details = feed.soundOnly
         ? 'sound only'
@@ -121,14 +118,20 @@ class _FeedRow extends StatelessWidget {
             if (feed.width > 0 && feed.height > 0) '${feed.width}x${feed.height}',
             if (feed.fps > 0) '${feed.fps} fps',
             if (feed.hasAudio) 'with sound',
-          ].join(' · ');
+          ].join('  ·  ');
     final icon = feed.soundOnly ? Icons.volume_up_outlined : Icons.videocam_outlined;
+    const compact = VisualDensity.compact;
     if (session == null) {
       return ListRow(
         title: feed.label,
         subtitle: details.isEmpty ? null : details,
         leading: IconBadge(icon),
-        trailing: Icon(feed.soundOnly ? Icons.play_circle_outline : Icons.open_in_new),
+        trailing: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(visualDensity: compact),
+          onPressed: () => watching.watch(device, feed),
+          icon: const Icon(Icons.play_arrow, size: 18),
+          label: Text(feed.soundOnly ? 'Play' : 'Watch'),
+        ),
         onTap: () => watching.watch(device, feed),
       );
     }
@@ -138,12 +141,17 @@ class _FeedRow extends StatelessWidget {
         title: feed.label,
         subtitle: switch ((feed.soundOnly, stats.frames == 0)) {
           (true, true) => 'Waiting for the sound',
-          (true, false) => 'Playing, click to stop',
+          (true, false) => 'Playing',
           (false, true) => 'Waiting for the first picture',
-          (false, false) => 'Playing in its window, click to close',
+          (false, false) => 'Playing in its own window',
         },
-        leading: IconBadge(icon, badge: colors.primary),
-        trailing: const Icon(Icons.close),
+        leading: IconBadge(icon, active: true),
+        trailing: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(visualDensity: compact),
+          onPressed: () => watching.stop(session),
+          icon: const Icon(Icons.close, size: 18),
+          label: Text(feed.soundOnly ? 'Stop' : 'Close'),
+        ),
         onTap: () => watching.stop(session),
       ),
     );

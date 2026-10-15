@@ -42,9 +42,9 @@ The code is in `hub/src/main/kotlin/dev/mkzk/manifold/hub/`, one package per fea
 | `network/codec` | `MediaCodec` wrappers for H.264 and AAC, the audio pacer and the sample clock. |
 | `screen` | Sharing the phone's screen as a feed: capture, OpenGL drawing into each watcher's surface, sound capture, and the foreground service. |
 | `update` | Looking for a release, downloading it and handing it to the system installer. |
-| `about` | The About screen and its update section. |
+| `settings` | The Settings screen and its update card. |
 | `notify` | Notification channel setup shared by the services. |
-| `ui` | The rows, groups, icon badge and switch row that every screen is built from, so type sizes and spacing are defined once. |
+| `ui` | The panel, rows, icon badge, switch row and sheet that every screen is built from, so type sizes and spacing are defined once. |
 
 ### Wiring
 
@@ -75,7 +75,7 @@ The Dart code is in `desktop/lib`, one folder per feature. Tests are under `desk
 | `share` | `Sharing` offers windows, displays, cameras and Spout senders to other devices. The Share page, saved shares and the matching of a saved share to an open window are here. |
 | `watch` | `Watching` and `ViewerSession` play feeds from other devices, each in a native window drawn by libmpv. The Watch page is here. |
 | `update` | The updater. |
-| `app` | The window, navigation, tray, settings and the About page. `Hub` holds the objects `main.dart` builds. |
+| `app` | The window, navigation, tray, and the Settings page. `Hub` holds the objects `main.dart` builds. |
 | `core` | The monotonic clock, the app data folder, Windows data protection and the page frame widget. |
 
 Receive-side buffering for video is in `watch/viewer.dart`, and playout smoothing is left to libmpv. The Android hub has its own versions of both in `network/stream`.

@@ -4,18 +4,52 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/page_frame.dart';
+import '../app/settings.dart';
 import '../core/rows.dart';
 import 'network.dart';
 import 'protocol/control.dart';
 import 'protocol/devices.dart';
 import 'public_address.dart';
+import 'stream/stream_profile.dart';
 
 const _chevron = Icon(Icons.chevron_right);
 
+const _delayText = {
+  StreamProfile.lowLatency: ('Lowest delay', 'Least delay, may stutter on weak Wi-Fi.'),
+  StreamProfile.balanced: ('Balanced', 'About 0.3 s, steady.'),
+  StreamProfile.smooth: ('Smoothest', 'About 1 s, fewest stutters.'),
+};
+
+Future<void> _chooseDelay(BuildContext context, Settings settings) => showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delay when watching'),
+        content: SizedBox(
+          width: 420,
+          child: Group(
+            children: [
+              for (final entry in _delayText.entries)
+                ListRow(
+                  title: entry.value.$1,
+                  subtitle: entry.value.$2,
+                  trailing: Icon(settings.streamProfile == entry.key ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+                  onTap: () {
+                    settings.streamProfile = entry.key;
+                    Navigator.of(context).pop();
+                  },
+                ),
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))],
+      ),
+    );
+
 class DevicesPage extends StatelessWidget {
-  const DevicesPage(this.network, {super.key});
+  const DevicesPage(this.network, this.settings, {super.key});
 
   final Network network;
+  final Settings settings;
 
   void _pair(BuildContext context) {
     showDetails<void>(
@@ -39,7 +73,7 @@ class DevicesPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: network,
+      listenable: Listenable.merge([network, settings]),
       builder: (context, _) {
         final devices = network.book.devices.value;
         final address = !network.listening
@@ -51,31 +85,41 @@ class DevicesPage extends StatelessWidget {
           title: 'Devices',
           action: FilledButton.icon(onPressed: () => _pair(context), icon: const Icon(Icons.add), label: const Text('Pair a device')),
           children: [
-            const SectionLabel('This computer'),
             Group(
+              title: 'This computer',
               children: [
                 SwitchRow(
-                  title: 'Accept connections',
+                  title: 'Allow connections',
                   subtitle: address,
                   icon: Icons.wifi,
                   value: network.listening,
                   onChanged: (on) => on ? network.start() : network.stop(),
                 ),
                 ListRow(
-                  title: 'Connection details',
+                  title: 'Address and fingerprint',
                   subtitle: readableFingerprint(network.identity.fingerprint),
                   leading: const IconBadge(Icons.fingerprint),
                   trailing: _chevron,
-                  onTap: () => showDetails<void>(context, title: 'Connection details', builder: (_) => _ConnectionDetails(network)),
+                  onTap: () => showDetails<void>(context, title: 'Address and fingerprint', builder: (_) => _ConnectionDetails(network)),
+                ),
+                ListRow(
+                  title: 'Delay when watching',
+                  subtitle: _delayText[settings.streamProfile]!.$2,
+                  leading: const IconBadge(Icons.speed),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [Text(_delayText[settings.streamProfile]!.$1, style: TextStyle(color: secondaryText(context))), _chevron],
+                  ),
+                  onTap: () => _chooseDelay(context, settings),
                 ),
               ],
             ),
-            const SectionLabel('Paired devices'),
-            if (devices.isEmpty)
-              const Group(children: [ListRow(title: 'No device is paired yet.', leading: IconBadge(Icons.devices_outlined))])
-            else
-              Group(
-                children: [
+            Group(
+              title: 'Paired devices',
+              children: [
+                if (devices.isEmpty)
+                  const ListRow(title: 'No device is paired yet', leading: IconBadge(Icons.devices_outlined))
+                else
                   for (final device in devices)
                     _DeviceRow(
                       device,
@@ -87,8 +131,8 @@ class DevicesPage extends StatelessWidget {
                         builder: (_) => _DeviceBody(network, device.publicKey),
                       ),
                     ),
-                ],
-              ),
+              ],
+            ),
           ],
         );
       },
@@ -106,7 +150,6 @@ class _DeviceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final summary = [
       online ? 'Online' : 'Offline',
       if (online && latency != null) '$latency ms',
@@ -116,8 +159,8 @@ class _DeviceRow extends StatelessWidget {
     return ListRow(
       title: device.name,
       subtitle: summary,
-      leading: IconBadge(Icons.devices_outlined, badge: online ? colors.primary : colors.outline),
-      trailing: _chevron,
+      leading: IconBadge(Icons.devices_outlined, active: online),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [StatusDot(online), const SizedBox(width: 8), _chevron]),
       onTap: onTap,
     );
   }
@@ -267,45 +310,52 @@ class _DeviceBody extends StatelessWidget {
         final offered = network.remoteFeeds[publicKey]?.map((feed) => feed.label).toList() ?? const <String>[];
         final refused = network.refused[publicKey] ?? const <String, Refusal>{};
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Group(
+              title: online ? (latency == null ? 'Online' : 'Online \u00b7 $latency ms') : 'Offline',
+              online: online,
               children: [
                 ListRow(
-                  title: online ? (latency == null ? 'Online' : 'Online \u00b7 $latency ms') : 'Offline',
-                  subtitle: readableFingerprint(device.fingerprint) + (device.address == null ? '' : '  ·  ${device.address}'),
-                  leading: IconBadge(Icons.devices_outlined, badge: online ? theme.colorScheme.primary : theme.colorScheme.outline),
+                  title: 'Fingerprint',
+                  subtitle: readableFingerprint(device.fingerprint),
+                  leading: const IconBadge(Icons.fingerprint),
                 ),
+                if (device.address != null) ListRow(title: 'Address', subtitle: device.address, leading: const IconBadge(Icons.lan_outlined)),
                 SwitchRow(
-                  title: 'Watch its feeds',
+                  title: 'Show its feeds here',
                   subtitle: !device.receive
                       ? 'What it shares appears on the Watch page.'
                       : !online
                           ? 'It is offline.'
                           : offered.isEmpty
                               ? 'It is not sharing anything right now.'
-                              : 'Sharing: ${offered.join(', ')}',
+                              : 'Feeds on offer: ${offered.length}',
                   icon: Icons.live_tv_outlined,
                   value: device.receive,
                   onChanged: (on) => network.setReceive(publicKey, on),
                 ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Group(
+              title: 'It can watch',
+              children: [
                 SwitchRow(
-                  title: 'Let it watch my windows',
-                  subtitle: 'The windows and displays you share.',
+                  title: 'Windows and displays',
+                  subtitle: 'What you share on the Share page.',
                   icon: Icons.present_to_all_outlined,
                   value: device.send,
                   onChanged: (on) => network.setSend(publicKey, on),
                 ),
                 SwitchRow(
-                  title: 'Let it watch my camera',
-                  subtitle: 'The cameras you share.',
+                  title: 'Cameras',
                   icon: Icons.videocam_outlined,
                   value: device.sendCamera,
                   onChanged: (on) => network.setSendCamera(publicKey, on),
                 ),
                 SwitchRow(
-                  title: 'Let it watch my Spout senders',
-                  subtitle: 'The Spout senders you share.',
+                  title: 'Spout senders',
                   icon: Icons.layers_outlined,
                   value: device.sendSpout,
                   onChanged: (on) => network.setSendSpout(publicKey, on),
@@ -336,7 +386,7 @@ class _DeviceBody extends StatelessWidget {
 }
 
 String _refusalText(String feed, Refusal reason) => switch (reason) {
-      Refusal.notShared => '$feed: that device has not allowed this one to watch. Switch on Share my feeds there.',
+      Refusal.notShared => '$feed: that device has not allowed this one to watch. Turn on "Let it watch what I share" there.',
       Refusal.notFound => '$feed: that device no longer has this feed.',
       Refusal.busy => '$feed: that device is already sending as many streams as it allows.',
       Refusal.failed => '$feed: that device could not start sending it.',

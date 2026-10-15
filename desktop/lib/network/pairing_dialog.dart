@@ -25,7 +25,7 @@ class PairingDialogHost extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Check that this code is the same on both devices.'),
+                  const Text('Check that both screens show this code.'),
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 20),
                     child: Text(

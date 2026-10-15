@@ -115,7 +115,7 @@ While you pair, devices on the same network that are open for pairing show up in
 
 ## Updates
 
-Both hubs can look for a newer release on GitHub. About has a "Check for updates on launch" switch, on by default, and a button to check at any time. A check is one request to `api.github.com/repos/yuredazo/manifold/releases/latest`, and GitHub allows 60 anonymous requests an hour per IP address. Nothing is installed until you press Update.
+Both hubs can look for a newer release on GitHub. Settings has a "Check for updates on launch" switch, on by default, and a button to check at any time. A check is one request to `api.github.com/repos/yuredazo/manifold/releases/latest`, and GitHub allows 60 anonymous requests an hour per IP address. Nothing is installed until you press Update.
 
 The Android hub downloads `manifold-hub-v<version>.apk` into an install session and hands it to Android's installer, which asks you to confirm. The first time, Android also asks you to allow installs from Manifold. Android refuses an update signed with a different key, so a build you made yourself cannot be replaced from a release. The Windows hub downloads `manifold-hub-windows-v<version>.zip`, unpacks it, exits, copies the files over its own folder and starts again, so that folder has to be writable.
 
