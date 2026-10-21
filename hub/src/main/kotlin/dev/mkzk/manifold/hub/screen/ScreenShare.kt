@@ -1,6 +1,7 @@
 package dev.mkzk.manifold.hub.screen
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
@@ -38,11 +39,14 @@ internal fun scaledCapture(widthPixels: Int, heightPixels: Int, dpi: Int): Captu
 }
 
 /** The whole screen as a feed, drawn only while somebody watches. */
-internal class ScreenShare(private val registry: Registry) {
+internal class ScreenShare(private val registry: Registry, savedMuted: Set<String>, private val saveMuted: (Set<String>) -> Unit) {
     data class State(val sharing: Boolean = false, val sound: Boolean = false, val failed: Boolean = false)
 
     private val current = MutableStateFlow(State())
     val state: StateFlow<State> = current
+
+    private val mutedPackages = MutableStateFlow(savedMuted)
+    val muted: StateFlow<Set<String>> = mutedPackages
 
     private var session: Session? = null
     private var onStopped: () -> Unit = {}
@@ -81,6 +85,13 @@ internal class ScreenShare(private val registry: Registry) {
         current.update { it.copy(failed = false) }
     }
 
+    @Synchronized
+    fun setMuted(packages: Set<String>) {
+        mutedPackages.value = packages
+        saveMuted(packages)
+        session?.mute(packages)
+    }
+
     private fun finish() {
         val callback = onStopped
         onStopped = {}
@@ -96,12 +107,13 @@ internal class ScreenShare(private val registry: Registry) {
         override val key = Any()
 
         private val ownUid = Process.myUid()
+        private val packages = context.packageManager
         private val displays = context.getSystemService(DisplayManager::class.java)
         private val main = Handler(Looper.getMainLooper())
         private val watching = HashSet<String>()
         private var size = measure()
         private val frames = ScreenFrames(size.width, size.height, FEED_FPS)
-        private val voice: SoundCapture? = if (sound) openSound(projection) else null
+        private val voice: SoundCapture? = if (sound) openSound(projection, excludedUids(mutedPackages.value), ::soundLost) else null
         private var screen: VirtualDisplay? = null
 
         val hasSound get() = voice != null
@@ -162,6 +174,23 @@ internal class ScreenShare(private val registry: Registry) {
             synchronized(watching) {
                 if (watching.remove(subscriptionId) && watching.isEmpty()) screen?.surface = null
             }
+        }
+
+        fun mute(packageNames: Set<String>) {
+            voice?.exclude(excludedUids(packageNames))
+        }
+
+        // The hub's own preview of a feed would otherwise play back into the share.
+        private fun excludedUids(packageNames: Set<String>): Set<Int> = packageNames.mapNotNullTo(mutableSetOf(ownUid)) {
+            try {
+                packages.getApplicationInfo(it, 0).uid
+            } catch (_: PackageManager.NameNotFoundException) {
+                null
+            }
+        }
+
+        private fun soundLost() {
+            current.update { it.copy(sound = false) }
         }
 
         fun close() {

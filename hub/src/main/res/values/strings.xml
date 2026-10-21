@@ -40,6 +40,7 @@
     <string name="pair_show_body">Then type this phone&#8217;s address there.</string>
     <string name="pair_open_hint">Nearby devices can see this phone</string>
     <string name="common_close">Close</string>
+    <string name="common_back">Back</string>
     <string name="devices_pairing_open">Pairing open, %1$s left</string>
     <string name="devices_paired_header">Paired devices</string>
     <string name="devices_none">No device is paired yet.</string>
@@ -86,10 +87,23 @@
     <string name="screen_notice_title">Sharing this screen</string>
     <string name="screen_notice_text">Devices you allowed can watch what you chose to share.</string>
     <string name="screen_share">Share screen</string>
-    <string name="screen_menu_title">Share your screen</string>
+    <string name="screen_sharing_title">Sharing your screen</string>
+    <string name="screen_sharing">Sharing</string>
+    <string name="screen_watching">%1$d watching</string>
+    <string name="screen_nobody_watching">Nobody is watching yet</string>
     <string name="screen_menu_note">Where Android allows it, you can pick a single app next.</string>
-    <string name="screen_with_sound">With sound</string>
-    <string name="screen_without_sound">Without sound</string>
+    <string name="screen_sound">Sound</string>
+    <string name="screen_sound_hint">What the phone plays</string>
+    <string name="screen_sound_on">Included in the share</string>
+    <string name="screen_sound_off">Not included</string>
+    <string name="screen_muted">Muted apps</string>
+    <string name="screen_mute_app">Mute an app</string>
+    <string name="screen_mute_none">Sound from every app is shared</string>
+    <string name="screen_unmute">Unmute %1$s</string>
+    <string name="screen_search">Search apps</string>
+    <string name="screen_loading_apps">Loading apps</string>
+    <string name="screen_no_match">No app matches “%1$s”</string>
+    <string name="screen_start">Start sharing</string>
     <string name="screen_stop">Stop sharing</string>
     <string name="screen_failed">The screen could not be shared.</string>
 

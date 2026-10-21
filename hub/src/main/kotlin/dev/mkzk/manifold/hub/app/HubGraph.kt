@@ -26,6 +26,7 @@ private const val PRIVATE_KEY = "private"
 private const val DEVICES_KEY = "devices"
 private const val CHECK_KEY = "update_check"
 private const val PROFILE_KEY = "stream_profile"
+private const val MUTED_KEY = "screen_muted"
 
 /** The one place that knows how the features are connected. Services and receivers get theirs through [hubGraph]. */
 internal class HubGraph(app: Application) {
@@ -63,7 +64,9 @@ internal class HubGraph(app: Application) {
             saveCheckOnLaunch = { settings.edit().putBoolean(CHECK_KEY, it).apply() },
         )
 
-        screenShare = ScreenShare(registry)
+        screenShare = ScreenShare(registry, settings.getStringSet(MUTED_KEY, null).orEmpty().toSet()) {
+            settings.edit().putStringSet(MUTED_KEY, it).apply()
+        }
     }
 
     /** Wi-Fi chips often drop broadcast packets to save power, which would hide devices that announce for pairing. */

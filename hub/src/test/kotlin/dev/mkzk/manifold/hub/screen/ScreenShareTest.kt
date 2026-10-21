@@ -1,5 +1,6 @@
 package dev.mkzk.manifold.hub.screen
 
+import dev.mkzk.manifold.hub.broker.Registry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,5 +39,16 @@ class ScreenShareTest {
 
             assertTrue("${size.width}x${size.height} from ${width}x$height", size.width % 2 == 0 && size.height % 2 == 0)
         }
+    }
+
+    @Test
+    fun mutedAppsAreSavedAndKeptWithoutAShare() {
+        var saved: Set<String>? = null
+        val share = ScreenShare(Registry(), setOf("com.example.music")) { saved = it }
+
+        share.setMuted(setOf("com.example.music", "dev.mkzk.parallax"))
+
+        assertEquals(setOf("com.example.music", "dev.mkzk.parallax"), share.muted.value)
+        assertEquals(share.muted.value, saved)
     }
 }

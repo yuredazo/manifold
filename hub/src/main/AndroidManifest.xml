@@ -17,6 +17,14 @@
          permissions. This is the harmless one: the hub does not change network state. -->
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
+    <!-- Android 11 hides other apps. The screen share sheet lists launchable ones so their sound can be muted. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:name=".app.HubApp"
         android:allowBackup="false"
