@@ -1,0 +1,1178 @@
+import { AboutSlint, Palette } from "std-widgets.slint";
+
+global Theme {
+    out property <color> background: #09090B;
+    out property <color> card: #18181B;
+    out property <color> control: #27272A;
+    out property <color> primary: #E4E4E7;
+    out property <color> on-primary: #09090B;
+    out property <color> text: #FAFAFA;
+    out property <color> secondary: #A1A1AA;
+    out property <color> outline: #71717A;
+    out property <color> online: #4ADE80;
+    out property <color> paused: #FBBF24;
+    out property <color> error: #F87171;
+    out property <color> hover: #1F1F23;
+    out property <color> hairline: #FFFFFF12;
+    out property <color> placeholder: #8B8B94;
+}
+
+export struct FeedRow {
+    name: string,
+    label: string,
+    detail: string,
+    sound-only: bool,
+    watching: bool,
+}
+
+export struct WatchGroup {
+    key: string,
+    name: string,
+    meta: string,
+    online: bool,
+    feeds: [FeedRow],
+}
+
+export struct ShareRow {
+    feed: string,
+    label: string,
+    detail: string,
+    kind: int,
+    watching: bool,
+}
+
+export struct PairedRow {
+    key: string,
+    name: string,
+    detail: string,
+    online: bool,
+}
+
+export struct DeviceDetail {
+    key: string,
+    name: string,
+    status: string,
+    online: bool,
+    fingerprint: string,
+    address: string,
+    receive: bool,
+    receive-detail: string,
+    send: bool,
+    send-camera: bool,
+    send-spout: bool,
+    refused: [string],
+}
+
+export struct NearbyRow {
+    name: string,
+    detail: string,
+    address: string,
+}
+
+export struct Choice {
+    label: string,
+    detail: string,
+    kind: int,
+}
+
+export global Ui {
+    in-out property <int> tab: 0;
+    in-out property <int> sheet: 0;
+
+    in property <[WatchGroup]> watch-groups;
+    in property <int> paired-count;
+
+    in property <[ShareRow]> shares;
+    in property <int> can-watch;
+    in property <bool> paused;
+    in property <string> problem;
+    in property <[string]> activity;
+
+    in property <bool> listening;
+    in property <string> listen-detail;
+    in property <string> fingerprint;
+    in property <int> profile: 1;
+    in property <[PairedRow]> paired;
+    in property <bool> any-online;
+    in property <DeviceDetail> device;
+    in property <[NearbyRow]> nearby;
+    in property <string> pairing-open;
+    in property <[string]> addresses;
+    in property <string> public-address;
+    in property <int> public-state;
+
+    in property <int> pairing-state;
+    in property <string> pairing-name;
+    in property <string> pairing-code;
+    in property <string> pairing-text;
+
+    in property <bool> picker-loading;
+    in property <[Choice]> choices;
+    in property <bool> offer-cameras;
+    in-out property <bool> with-picture: true;
+    in-out property <bool> with-audio: true;
+    in-out property <bool> with-cursor: true;
+    in-out property <bool> without-frame: true;
+    in-out property <bool> with-alpha: true;
+    in-out property <int> frame-rate: 30;
+
+    in property <bool> autostart;
+    in property <bool> close-to-tray;
+    in property <bool> check-on-launch;
+    in property <string> version;
+    in property <string> update-title;
+    in property <string> update-detail;
+    in property <string> update-action;
+    in property <bool> update-failed;
+    in property <bool> update-ready;
+    in property <string> update-page;
+    in property <bool> has-notices;
+    callback open-notices();
+
+    callback watch(string, string);
+    callback stop-watching(string, string);
+    callback open-picker();
+    callback pick(int);
+    callback unshare(string);
+    callback set-paused(bool);
+    callback dismiss-problem();
+    callback set-listening(bool);
+    callback open-device(string);
+    callback set-receive(string, bool);
+    callback set-send(string, bool);
+    callback set-send-camera(string, bool);
+    callback set-send-spout(string, bool);
+    callback unpair(string);
+    callback open-pair();
+    callback close-sheet();
+    callback pair-with(string);
+    callback allow-pairing();
+    callback stop-pairing();
+    callback confirm-pairing(bool);
+    callback cancel-pairing();
+    callback dismiss-pairing();
+    callback set-profile(int);
+    callback set-autostart(bool);
+    callback set-close-to-tray(bool);
+    callback set-offer-cameras(bool);
+    callback set-check-on-launch(bool);
+    callback update-pressed();
+    callback open-url(string);
+    callback copy(string);
+    callback look-up-public();
+}
+
+// Fluent's durations for feedback and state. Slides use an ease-out quart: Fluent's (0,0,0,1) covers most of
+// the distance in one frame and then crawls, which read as a jump and a drift.
+global Motion {
+    out property <duration> faster: 83ms;
+    out property <duration> fast: 167ms;
+    out property <duration> normal: 250ms;
+    out property <duration> slide: 300ms;
+}
+
+component Icon inherits Image {
+    in property <color> tint: Theme.secondary;
+    width: 20px;
+    height: 20px;
+    colorize: tint;
+    animate colorize { duration: Motion.fast; }
+}
+
+// Off is an outlined track: a filled one measured 1.2:1 against the card, under the 3:1 a control needs.
+component Switch inherits Rectangle {
+    in property <bool> on;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    width: 44px;
+    height: 24px;
+    border-radius: 12px;
+    background: on ? (touch.pressed ? Theme.primary.darker(0.15) : Theme.primary) : transparent;
+    border-width: on ? 0 : 1px;
+    border-color: Theme.secondary;
+    animate background { duration: Motion.fast; }
+    thumb := Rectangle {
+        property <length> size: touch.pressed ? 16px : touch.has-hover ? 14px : 12px;
+        width: touch.pressed ? self.size + 4px : self.size;
+        height: self.size;
+        border-radius: self.size / 2;
+        y: (root.height - self.height) / 2;
+        x: on ? root.width - self.width - (root.height - self.size) / 2 : (root.height - self.size) / 2;
+        background: on ? Theme.on-primary : Theme.secondary;
+        animate x, width, height, background { duration: Motion.fast; easing: cubic-bezier(0.25, 1, 0.5, 1); }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.toggled(!on); } }
+}
+
+component Chip inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <bool> strong;
+    in property <bool> danger;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    opacity: enabled ? 1 : 0.5;
+    border-radius: self.height / 2;
+    background: danger ? Theme.error.with-alpha(touch.pressed ? 0.28 : touch.has-hover ? 0.22 : 0.16)
+        : strong ? (touch.pressed ? Theme.primary.darker(0.2) : touch.has-hover ? Theme.primary.darker(0.1) : Theme.primary)
+        : (touch.pressed ? Theme.hover.brighter(0.3) : touch.has-hover ? Theme.hover.brighter(0.15) : Theme.control);
+    animate background { duration: Motion.faster; }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 16px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Image { width: 14px; height: 14px; colorize: danger ? Theme.error : strong ? Theme.on-primary : Theme.text; source: icon; }
+        }
+        Text { text: label; color: danger ? Theme.error : strong ? Theme.on-primary : Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+}
+
+component Toggle inherits Rectangle {
+    in property <[string]> options;
+    in property <int> selected;
+    callback chosen(int);
+    property <length> cell: (self.width - 8px) / max(1, options.length);
+    height: 36px;
+    border-radius: 18px;
+    background: Theme.card;
+    border-width: 1px;
+    border-color: Theme.hairline;
+    Rectangle {
+        x: 4px + root.cell * root.selected;
+        y: 4px;
+        width: root.cell;
+        height: root.height - 8px;
+        border-radius: 14px;
+        background: Theme.primary;
+        animate x { duration: Motion.slide; easing: cubic-bezier(0.25, 1, 0.5, 1); }
+    }
+    for option[index] in options: Rectangle {
+        x: 4px + root.cell * index;
+        y: 4px;
+        width: root.cell;
+        height: root.height - 8px;
+        Text {
+            text: option;
+            color: index == root.selected ? Theme.on-primary : option-touch.has-hover ? Theme.text : Theme.secondary;
+            font-size: 12px;
+            font-weight: 600;
+            animate color { duration: Motion.fast; }
+        }
+        option-touch := TouchArea { clicked => { root.chosen(index); } }
+    }
+}
+
+component Dot inherits Rectangle {
+    in property <bool> lit;
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+    background: lit ? Theme.online : Theme.outline;
+    animate background { duration: Motion.normal; }
+}
+
+component Section inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> meta;
+    in property <color> meta-color: Theme.secondary;
+    in property <string> action;
+    in property <int> status;
+    callback acted;
+    height: 24px;
+    padding-left: 4px;
+    padding-right: 4px;
+    spacing: 8px;
+    if status != 0: VerticalLayout { alignment: center; Dot { lit: status == 1; } }
+    Text { text: title; color: Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+    if meta != "": Text { text: meta; color: root.meta-color; font-size: 12px; vertical-alignment: center; }
+    Rectangle { horizontal-stretch: 1; }
+    if action != "": Text {
+        text: action;
+        color: link.has-hover ? Theme.text : Theme.secondary;
+        font-size: 12px;
+        font-weight: 600;
+        vertical-alignment: center;
+        animate color { duration: Motion.faster; }
+        link := TouchArea { clicked => { root.acted(); } }
+    }
+}
+
+component Group inherits VerticalLayout {
+    spacing: 8px;
+}
+
+component Tile inherits Rectangle {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> detail;
+    in property <bool> active;
+    in property <bool> tappable;
+    in property <color> title-color: Theme.text;
+    in property <bool> enabled: true;
+    callback tapped;
+    min-height: max(56px, row.preferred-height);
+    opacity: enabled ? 1 : 0.45;
+    animate opacity { duration: Motion.fast; }
+    border-radius: 12px;
+    background: active ? Theme.primary.with-alpha(0.10)
+        : tappable && touch.pressed ? Theme.hover.brighter(0.2)
+        : tappable && touch.has-hover ? Theme.hover
+        : Theme.card;
+    border-width: 1px;
+    border-color: active ? Theme.outline : Theme.hairline;
+    animate background { duration: Motion.faster; }
+    animate border-color { duration: Motion.fast; }
+    touch := TouchArea { enabled: root.tappable && root.enabled; clicked => { root.tapped(); } }
+    row := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 12px;
+        VerticalLayout { alignment: center; Icon { source: icon; tint: active ? Theme.text : Theme.secondary; } }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 2px;
+            Text { text: title; color: title-color; font-size: 13px; font-weight: active ? 600 : 500; overflow: elide; }
+            if detail != "": Text { text: detail; color: Theme.secondary; font-size: 12px; overflow: elide; }
+        }
+        @children
+    }
+}
+
+component RoundButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> strong;
+    callback clicked;
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    background: strong ? (touch.pressed ? Theme.primary.darker(0.2) : touch.has-hover ? Theme.primary.darker(0.1) : Theme.primary)
+        : (touch.pressed ? Theme.hover.brighter(0.3) : touch.has-hover ? Theme.hover.brighter(0.15) : Theme.control);
+    animate background { duration: Motion.faster; }
+    Image { width: 14px; height: 14px; colorize: strong ? Theme.on-primary : Theme.text; source: icon; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+component Chevron inherits VerticalLayout {
+    alignment: center;
+    Icon { width: 16px; height: 16px; source: @image-url("icons/chevron-right.svg"); }
+}
+
+component SwitchTile inherits Tile {
+    in property <bool> on;
+    callback toggled(bool);
+    tappable: true;
+    tapped => { root.toggled(!root.on); }
+    VerticalLayout { alignment: center; Switch { enabled: root.enabled; on: root.on; toggled(value) => { root.toggled(value); } } }
+}
+
+component Notice inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <color> tint: Theme.paused;
+    in property <string> action;
+    callback acted;
+    min-height: max(48px, row.preferred-height);
+    border-radius: 12px;
+    background: tint.with-alpha(0.10);
+    border-width: 1px;
+    border-color: tint.with-alpha(0.45);
+    row := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 8px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 12px;
+        VerticalLayout { alignment: center; Icon { width: 16px; height: 16px; source: icon; tint: root.tint; } }
+        Text { text: root.text; color: Theme.text; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+        if action != "": VerticalLayout { alignment: center; Chip { label: root.action; icon: @image-url("icons/check.svg"); clicked => { root.acted(); } } }
+    }
+}
+
+component WideButton inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <bool> strong;
+    callback clicked;
+    height: 44px;
+    border-radius: 22px;
+    background: strong ? (touch.pressed ? Theme.primary.darker(0.2) : touch.has-hover ? Theme.primary.darker(0.1) : Theme.primary)
+        : (touch.pressed ? Theme.hover.brighter(0.2) : touch.has-hover ? Theme.hover : transparent);
+    border-width: strong ? 0 : 1px;
+    border-color: Theme.outline;
+    animate background { duration: Motion.faster; }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 8px;
+        VerticalLayout { alignment: center; Image { width: 16px; height: 16px; colorize: strong ? Theme.on-primary : Theme.text; source: icon; } }
+        Text { text: label; color: strong ? Theme.on-primary : Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+component Empty inherits Rectangle {
+    in property <string> text;
+    min-height: max(48px, row.preferred-height);
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.hairline;
+    row := HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        Text { text: root.text; color: Theme.secondary; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+    }
+}
+
+component Field inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    callback accepted(string);
+    height: 44px;
+    border-radius: 12px;
+    background: Theme.card;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.secondary : Theme.hairline;
+    animate border-color { duration: Motion.fast; }
+    if root.text == "": Text { x: 12px; height: parent.height; text: placeholder; color: Theme.placeholder; font-size: 13px; vertical-alignment: center; }
+    input := TextInput {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        single-line: true;
+        vertical-alignment: center;
+        color: Theme.text;
+        selection-background-color: Theme.primary.with-alpha(0.35);
+        selection-foreground-color: Theme.text;
+        font-size: 13px;
+        text <=> root.text;
+        accepted => { root.accepted(self.text); }
+    }
+}
+
+global Kinds {
+    public pure function icon(kind: int) -> image {
+        if (kind == 1) { return @image-url("icons/monitor.svg"); }
+        if (kind == 2) { return @image-url("icons/camera.svg"); }
+        if (kind == 3) { return @image-url("icons/layers.svg"); }
+        return @image-url("icons/app-window.svg");
+    }
+}
+
+component Scroll inherits Rectangle {
+    in property <int> page;
+    vertical-stretch: 1;
+    changed page => {
+        flick.content-y = 0;
+    }
+    flick := Flickable {
+        VerticalLayout {
+            alignment: start;
+            padding-bottom: 8px;
+            @children
+        }
+    }
+    Rectangle {
+        y: 0;
+        height: 16px;
+        background: @linear-gradient(180deg, Theme.background 0%, Theme.background.with-alpha(0) 100%);
+        opacity: flick.content-y < 0 ? 1 : 0;
+        animate opacity { duration: Motion.fast; }
+    }
+    Rectangle {
+        y: parent.height - self.height;
+        height: 24px;
+        background: @linear-gradient(180deg, Theme.background.with-alpha(0) 0%, Theme.background 100%);
+        opacity: flick.content-height + flick.content-y > flick.height + 1px ? 1 : 0;
+        animate opacity { duration: Motion.fast; }
+    }
+}
+
+// Only a fade: text that moves while it appears lands on whole pixels a frame late and looks like it settles.
+component Page inherits Rectangle {
+    min-height: column.min-height;
+    preferred-height: column.preferred-height;
+    opacity: 0;
+    init => {
+        self.opacity = 1;
+    }
+    animate opacity { duration: Motion.fast; }
+    column := VerticalLayout {
+        spacing: 16px;
+        @children
+    }
+}
+
+component WatchPage inherits Page {
+    if Ui.paired-count == 0: Group {
+        Section { title: "Watch"; }
+        Empty { text: "No device is paired yet. Pair a phone or another computer to watch what it shares."; }
+        WideButton { label: "Pair a device"; icon: @image-url("icons/plus.svg"); strong: true; clicked => { Ui.tab = 2; Ui.open-pair(); } }
+    }
+    if Ui.paired-count > 0 && Ui.watch-groups.length == 0: Group {
+        Section { title: "Watch"; }
+        Empty { text: "No device shows its feeds here. Turn on \"Show its feeds here\" for a device in Devices."; }
+        WideButton { label: "Open Devices"; icon: @image-url("icons/smartphone.svg"); clicked => { Ui.tab = 2; } }
+    }
+    for group in Ui.watch-groups: Group {
+        Section { title: group.name; meta: group.meta; status: group.online ? 1 : 2; }
+        if !group.online: Empty { text: "Its feeds show up here when it is reachable"; }
+        if group.online && group.feeds.length == 0: Empty { text: "Nothing shared yet"; }
+        for feed in group.feeds: Tile {
+            icon: feed.sound-only ? @image-url("icons/volume.svg") : @image-url("icons/smartphone.svg");
+            title: feed.label;
+            detail: feed.detail;
+            active: feed.watching;
+            tappable: true;
+            tapped => { if (feed.watching) { Ui.stop-watching(group.key, feed.name); } else { Ui.watch(group.key, feed.name); } }
+            VerticalLayout {
+                alignment: center;
+                RoundButton {
+                    icon: feed.watching ? @image-url("icons/square.svg") : @image-url("icons/play.svg");
+                    strong: !feed.watching;
+                    clicked => { if (feed.watching) { Ui.stop-watching(group.key, feed.name); } else { Ui.watch(group.key, feed.name); } }
+                }
+            }
+        }
+    }
+}
+
+component SharePage inherits Page {
+    if Ui.problem != "": Notice {
+        text: Ui.problem;
+        icon: @image-url("icons/circle-alert.svg");
+        tint: Theme.error;
+        action: "Dismiss";
+        acted => { Ui.dismiss-problem(); }
+    }
+    Group {
+        Section {
+            title: "Shared";
+            meta: Ui.paused ? "paused, devices see nothing" : Ui.shares.length > 0 ? "\{Ui.shares.length}" : "";
+            meta-color: Ui.paused ? Theme.paused : Theme.secondary;
+            action: Ui.paused ? "Resume" : Ui.shares.length > 0 ? "Stop all sharing" : "";
+            acted => { Ui.set-paused(!Ui.paused); }
+        }
+        if Ui.can-watch == 0 && Ui.shares.length > 0: Notice {
+            text: "No paired device may watch yet. Choose what each one can watch in Devices.";
+            icon: @image-url("icons/shield-alert.svg");
+            tint: Theme.secondary;
+        }
+        if Ui.shares.length == 0: Empty { text: "Nothing shared yet. What you add is captured only while a device is watching."; }
+        for share in Ui.shares: Tile {
+            icon: Kinds.icon(share.kind);
+            title: share.label;
+            detail: share.detail;
+            active: share.watching;
+            opacity: Ui.paused ? 0.45 : 1;
+            VerticalLayout { alignment: center; RoundButton { icon: @image-url("icons/x.svg"); clicked => { Ui.unshare(share.feed); } } }
+        }
+        WideButton { label: "Share a window, display or camera"; icon: @image-url("icons/plus.svg"); clicked => { Ui.open-picker(); } }
+    }
+    if Ui.activity.length > 0: Group {
+        Section { title: "Recent"; }
+        for line in Ui.activity: Text { x: 4px; text: line; color: Theme.secondary; font-size: 12px; overflow: elide; }
+    }
+}
+
+component DevicesPage inherits Page {
+    Group {
+        Section { title: "This PC"; status: Ui.listening ? 1 : 2; meta: Ui.listening ? "open to paired devices" : "off"; }
+        SwitchTile {
+            icon: @image-url("icons/wifi.svg");
+            title: "Allow connections";
+            detail: Ui.listen-detail;
+            on: Ui.listening;
+            toggled(on) => { Ui.set-listening(on); }
+        }
+        Tile {
+            icon: @image-url("icons/shield-check.svg");
+            title: "Address and fingerprint";
+            detail: Ui.fingerprint;
+            tappable: true;
+            tapped => { Ui.sheet = 3; }
+            Chevron { }
+        }
+    }
+    Group {
+        Section { title: "Delay when watching"; meta: Ui.profile == 0 ? "least delay, may stutter" : Ui.profile == 1 ? "about 0.3 s, steady" : "about 1 s, fewest stutters"; }
+        Toggle { options: ["Lowest", "Balanced", "Smoothest"]; selected: Ui.profile; chosen(index) => { Ui.set-profile(index); } }
+    }
+    Group {
+        Section { title: "Paired"; meta: Ui.paired.length > 0 ? "\{Ui.paired.length}" : ""; }
+        if Ui.paired.length == 0: Empty { text: "No device is paired yet"; }
+        for device in Ui.paired: Tile {
+            icon: @image-url("icons/smartphone.svg");
+            title: device.name;
+            detail: device.detail;
+            active: device.online;
+            tappable: true;
+            tapped => { Ui.open-device(device.key); }
+            Chevron { }
+        }
+        WideButton { label: "Pair a device"; icon: @image-url("icons/plus.svg"); strong: true; clicked => { Ui.open-pair(); } }
+    }
+}
+
+component SettingsPage inherits Page {
+    Group {
+        Section { title: "Window"; }
+        SwitchTile { icon: @image-url("icons/power.svg"); title: "Start with Windows"; detail: "Opens hidden in the tray"; on: Ui.autostart; toggled(on) => { Ui.set-autostart(on); } }
+        SwitchTile { icon: @image-url("icons/panel-bottom.svg"); title: "Keep running in the tray"; detail: "When the window is closed"; on: Ui.close-to-tray; toggled(on) => { Ui.set-close-to-tray(on); } }
+    }
+    Group {
+        Section { title: "Sharing"; }
+        SwitchTile { icon: @image-url("icons/camera.svg"); title: "Offer cameras"; detail: "In the Share list"; on: Ui.offer-cameras; toggled(on) => { Ui.set-offer-cameras(on); } }
+    }
+    Group {
+        Section { title: "Updates"; meta: "Manifold " + Ui.version; }
+        Tile {
+            icon: @image-url("icons/download.svg");
+            title: Ui.update-title;
+            title-color: Ui.update-failed ? Theme.error : Theme.text;
+            detail: Ui.update-detail;
+            tappable: Ui.update-page != "";
+            tapped => { Ui.open-url(Ui.update-page); }
+            if Ui.update-action != "": VerticalLayout { alignment: center; Chip { label: Ui.update-action; icon: @image-url("icons/refresh-cw.svg"); clicked => { Ui.update-pressed(); } } }
+        }
+        SwitchTile { icon: @image-url("icons/gauge.svg"); title: "Check on launch"; detail: "Looks for a new version"; on: Ui.check-on-launch; toggled(on) => { Ui.set-check-on-launch(on); } }
+    }
+    Group {
+        Section { title: "About"; }
+        Tile {
+            icon: @image-url("icons/code.svg");
+            title: "Source code";
+            detail: "github.com/yuredazo/manifold";
+            tappable: true;
+            tapped => { Ui.open-url("https://github.com/yuredazo/manifold"); }
+            Chevron { }
+        }
+        Tile {
+            icon: @image-url("icons/shield-alert.svg");
+            title: "Report a vulnerability";
+            tappable: true;
+            tapped => { Ui.open-url("https://github.com/yuredazo/manifold/blob/main/SECURITY.md"); }
+            Chevron { }
+        }
+        Tile {
+            icon: @image-url("icons/book-open.svg");
+            title: "Acknowledgements";
+            detail: "Slint and the open source parts inside";
+            tappable: true;
+            tapped => { Ui.sheet = 5; }
+            Chevron { }
+        }
+    }
+}
+
+component PairSheet inherits Page {
+    property <string> typed;
+    Group {
+        Section { title: "Nearby"; meta: Ui.nearby.length == 0 ? "looking" : "\{Ui.nearby.length}"; }
+        if Ui.nearby.length == 0: Empty { text: "Devices that allow pairing on this network show up here."; }
+        for found in Ui.nearby: Tile {
+            icon: @image-url("icons/smartphone.svg");
+            title: found.name;
+            detail: found.detail;
+            tappable: true;
+            tapped => { Ui.pair-with(found.address); }
+            Chevron { }
+        }
+    }
+    Group {
+        Section { title: "Or enter its address"; }
+        HorizontalLayout {
+            spacing: 8px;
+            Field { horizontal-stretch: 1; placeholder: "192.168.1.20"; text <=> root.typed; accepted(text) => { Ui.pair-with(text); } }
+            Chip { height: 44px; label: "Pair"; icon: @image-url("icons/plus.svg"); strong: true; clicked => { Ui.pair-with(root.typed); } }
+        }
+    }
+    Group {
+        Section { title: "Let another device pair with this PC"; }
+        Tile {
+            icon: @image-url("icons/wifi.svg");
+            title: Ui.pairing-open == "" ? "Allow pairing for two minutes" : "Pairing open · " + Ui.pairing-open;
+            detail: Ui.pairing-open == "" ? "Then pick this PC on the other device" : "Nearby devices can see this PC";
+            active: Ui.pairing-open != "";
+            tappable: Ui.pairing-open == "";
+            tapped => { Ui.allow-pairing(); }
+            if Ui.pairing-open == "": Chevron { }
+            if Ui.pairing-open != "": VerticalLayout { alignment: center; Chip { label: "Close"; icon: @image-url("icons/x.svg"); clicked => { Ui.stop-pairing(); } } }
+        }
+    }
+}
+
+component DeviceSheet inherits Page {
+    property <bool> confirming;
+    Group {
+        Section { title: Ui.device.status; status: Ui.device.online ? 1 : 2; }
+        Tile { icon: @image-url("icons/shield-check.svg"); title: "Fingerprint"; detail: Ui.device.fingerprint; }
+        if Ui.device.address != "": Tile { icon: @image-url("icons/globe.svg"); title: "Address"; detail: Ui.device.address; }
+        SwitchTile {
+            icon: @image-url("icons/play.svg");
+            title: "Show its feeds here";
+            detail: Ui.device.receive-detail;
+            on: Ui.device.receive;
+            toggled(on) => { Ui.set-receive(Ui.device.key, on); }
+        }
+    }
+    Group {
+        Section { title: "It can watch"; }
+        SwitchTile { icon: @image-url("icons/monitor.svg"); title: "Windows and displays"; detail: "What you share on the Share page"; on: Ui.device.send; toggled(on) => { Ui.set-send(Ui.device.key, on); } }
+        SwitchTile { icon: @image-url("icons/camera.svg"); title: "Cameras"; on: Ui.device.send-camera; toggled(on) => { Ui.set-send-camera(Ui.device.key, on); } }
+        SwitchTile { icon: @image-url("icons/layers.svg"); title: "Spout senders"; on: Ui.device.send-spout; toggled(on) => { Ui.set-send-spout(Ui.device.key, on); } }
+        for line in Ui.device.refused: Text { x: 4px; text: line; color: Theme.error; font-size: 12px; wrap: word-wrap; }
+    }
+    if !confirming: Tile {
+        icon: @image-url("icons/unlink.svg");
+        title: "Unpair";
+        title-color: Theme.error;
+        tappable: true;
+        tapped => { root.confirming = true; }
+    }
+    if confirming: Rectangle {
+        min-height: confirm.preferred-height;
+        border-radius: 12px;
+        background: Theme.error.with-alpha(0.08);
+        border-width: 1px;
+        border-color: Theme.error.with-alpha(0.45);
+        confirm := VerticalLayout {
+            padding: 12px;
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout { alignment: start; Icon { source: @image-url("icons/unlink.svg"); tint: Theme.error; } }
+                VerticalLayout {
+                    spacing: 2px;
+                    Text { text: "Unpair " + Ui.device.name + "?"; color: Theme.text; font-size: 13px; font-weight: 600; wrap: word-wrap; }
+                    Text { text: "It has to be paired again before it can connect."; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Chip { label: "Cancel"; icon: @image-url("icons/x.svg"); clicked => { root.confirming = false; } }
+                Chip { label: "Unpair"; icon: @image-url("icons/unlink.svg"); danger: true; clicked => { root.confirming = false; Ui.unpair(Ui.device.key); } }
+            }
+        }
+    }
+}
+
+component DetailsSheet inherits Page {
+    Group {
+        Section { title: "This PC"; }
+        Tile { icon: @image-url("icons/shield-check.svg"); title: "Fingerprint"; detail: Ui.fingerprint; }
+    }
+    Group {
+        Section { title: "Addresses"; }
+        if !Ui.listening: Empty { text: "Allow connections is off, so there is no address to show."; }
+        for address in Ui.addresses: Tile {
+            icon: @image-url("icons/wifi.svg");
+            title: "Local";
+            detail: address;
+            VerticalLayout { alignment: center; RoundButton { icon: @image-url("icons/copy.svg"); clicked => { Ui.copy(address); } } }
+        }
+        if Ui.listening: Tile {
+            icon: @image-url("icons/globe.svg");
+            title: "Public";
+            detail: Ui.public-state == 1 ? "Asking api.ipify.org" : Ui.public-state == 2 ? Ui.public-address : Ui.public-state == 3 ? "Could not find it" : "Only looked up when you ask";
+            if Ui.public-state == 2: VerticalLayout { alignment: center; RoundButton { icon: @image-url("icons/copy.svg"); clicked => { Ui.copy(Ui.public-address); } } }
+            if Ui.public-state != 2: VerticalLayout {
+                alignment: center;
+                Chip {
+                    enabled: Ui.public-state != 1;
+                    label: Ui.public-state == 1 ? "Looking" : Ui.public-state == 3 ? "Try again" : "Look up";
+                    icon: @image-url("icons/search.svg");
+                    clicked => { Ui.look-up-public(); }
+                }
+            }
+        }
+    }
+}
+
+component AcknowledgementsSheet inherits Page {
+    Group {
+        Section { title: "Made with Slint"; meta: "royalty-free licence"; }
+        Rectangle {
+            min-height: about.min-height;
+            border-radius: 12px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.hairline;
+            about := AboutSlint { }
+        }
+    }
+    Group {
+        Section { title: "Also built on"; }
+        for part in [
+            { name: "Spout", detail: "Spout senders · BSD 2-Clause, Lynn Jarvis", url: "https://spout.zeal.co" },
+            { name: "snow", detail: "Noise handshakes · Apache 2.0 or MIT", url: "https://github.com/mcginty/snow" },
+            { name: "RustCrypto", detail: "Encryption · Apache 2.0 or MIT", url: "https://github.com/RustCrypto" },
+            { name: "dalek-cryptography", detail: "X25519 keys · BSD 3-Clause", url: "https://github.com/dalek-cryptography/curve25519-dalek" },
+            { name: "windows-rs", detail: "Windows APIs · MIT or Apache 2.0", url: "https://github.com/microsoft/windows-rs" },
+            { name: "winit", detail: "Windows and input · Apache 2.0", url: "https://github.com/rust-windowing/winit" },
+            { name: "Lucide", detail: "Icons · ISC", url: "https://lucide.dev" },
+        ]: Tile {
+            icon: @image-url("icons/code.svg");
+            title: part.name;
+            detail: part.detail;
+            tappable: true;
+            tapped => { Ui.open-url(part.url); }
+            Chevron { }
+        }
+        if Ui.has-notices: Tile {
+            icon: @image-url("icons/book-open.svg");
+            title: "Every licence";
+            detail: "The full texts for each library in this app";
+            tappable: true;
+            tapped => { Ui.open-notices(); }
+            Chevron { }
+        }
+    }
+}
+
+component OptionChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> chosen;
+    callback clicked;
+    height: 32px;
+    min-width: 44px;
+    border-radius: 16px;
+    background: chosen ? Theme.primary : touch.has-hover ? Theme.hover.brighter(0.15) : Theme.control;
+    animate background { duration: Motion.fast; }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        Text { text: label; color: chosen ? Theme.on-primary : Theme.text; font-size: 12px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+component PickerSheet inherits Page {
+    Group {
+        Section { title: "Options"; }
+        SwitchTile {
+            icon: @image-url("icons/image.svg");
+            title: "Share the picture";
+            detail: Ui.with-picture ? "" : "Sound only, which a phone can play";
+            on: Ui.with-picture;
+            toggled(on) => { Ui.with-picture = on; }
+        }
+        SwitchTile { enabled: Ui.with-picture; icon: @image-url("icons/volume.svg"); title: "Share its sound"; detail: "App sound, or the PC's for a display"; on: Ui.with-audio; toggled(on) => { Ui.with-audio = on; } }
+        SwitchTile { enabled: Ui.with-picture; icon: @image-url("icons/app-window.svg"); title: "Hide the title bar"; detail: "Windows only, not apps that draw their own"; on: Ui.without-frame; toggled(on) => { Ui.without-frame = on; } }
+        SwitchTile { enabled: Ui.with-picture; icon: @image-url("icons/mouse-pointer-2.svg"); title: "Show the pointer"; on: Ui.with-cursor; toggled(on) => { Ui.with-cursor = on; } }
+        SwitchTile { enabled: Ui.with-picture; icon: @image-url("icons/eye.svg"); title: "Keep transparency"; detail: "Spout only, doubles the picture sent"; on: Ui.with-alpha; toggled(on) => { Ui.with-alpha = on; } }
+        HorizontalLayout {
+            opacity: Ui.with-picture ? 1 : 0.45;
+            padding-left: 4px;
+            spacing: 8px;
+            Text { text: "Frame rate"; color: Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+            for rate in [24, 30, 45, 60]: OptionChip { label: "\{rate}"; chosen: Ui.frame-rate == rate; clicked => { Ui.frame-rate = rate; } }
+        }
+    }
+    Group {
+        Section { title: "Available"; meta: Ui.offer-cameras ? "" : "cameras off in Settings"; action: "Look again"; acted => { Ui.open-picker(); } }
+        if Ui.picker-loading: Empty { text: "Looking"; }
+        if !Ui.picker-loading && Ui.choices.length == 0: Empty { text: "There is nothing else to share."; }
+        for choice[index] in Ui.choices: Tile {
+            icon: Kinds.icon(choice.kind);
+            title: choice.label;
+            detail: choice.detail;
+            tappable: true;
+            tapped => { Ui.pick(index); }
+            VerticalLayout { alignment: center; RoundButton { icon: @image-url("icons/plus.svg"); strong: true; clicked => { Ui.pick(index); } } }
+        }
+    }
+}
+
+component NavItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> chosen;
+    in property <bool> dot;
+    callback clicked;
+    border-radius: 16px;
+    background: !chosen && touch.has-hover ? Theme.hover : transparent;
+    animate background { duration: Motion.faster; }
+    VerticalLayout {
+        alignment: center;
+        spacing: 4px;
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                Image {
+                    width: 18px;
+                    height: 18px;
+                    colorize: chosen ? Theme.on-primary : touch.has-hover ? Theme.text : Theme.secondary;
+                    source: icon;
+                    animate colorize { duration: Motion.fast; }
+                }
+                Rectangle {
+                    x: 14px;
+                    y: -2px;
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    opacity: dot ? 1 : 0;
+                    background: Theme.online;
+                    border-width: 2px;
+                    border-color: chosen ? Theme.primary : Theme.card;
+                    animate opacity { duration: Motion.normal; }
+                }
+            }
+        }
+        Text {
+            text: label;
+            horizontal-alignment: center;
+            color: chosen ? Theme.on-primary : touch.has-hover ? Theme.text : Theme.secondary;
+            font-size: 11px;
+            font-weight: 600;
+            animate color { duration: Motion.fast; }
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// Windows' own caption buttons are 46 by 32 and fill the bar's height, which keeps them easy to hit.
+component CaptionButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> danger;
+    callback clicked;
+    width: 46px;
+    background: touch.has-hover ? (danger ? #C42B1C : Theme.hover) : transparent;
+    animate background { duration: Motion.faster; }
+    Icon { width: 12px; height: 12px; source: icon; tint: touch.has-hover ? Theme.text : Theme.secondary; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+component TitleBar inherits Rectangle {
+    callback drag();
+    callback minimize();
+    callback close-window();
+    height: 32px;
+    TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) { root.drag(); }
+        }
+    }
+    HorizontalLayout {
+        padding-left: 16px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Image { width: 18px; height: 18px; source: @image-url("logo.svg"); colorize: Theme.text; }
+        }
+        Text { text: "Manifold"; color: Theme.secondary; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+        CaptionButton { icon: @image-url("icons/minus.svg"); clicked => { root.minimize(); } }
+        CaptionButton { icon: @image-url("icons/x.svg"); danger: true; clicked => { root.close-window(); } }
+    }
+}
+
+component SheetHeader inherits HorizontalLayout {
+    in property <string> title;
+    height: 40px;
+    spacing: 8px;
+    Rectangle {
+        width: 32px;
+        height: 32px;
+        y: (parent.height - self.height) / 2;
+        border-radius: 16px;
+        background: back.pressed ? Theme.hover.brighter(0.2) : back.has-hover ? Theme.hover : transparent;
+        animate background { duration: Motion.faster; }
+        Icon { source: @image-url("icons/chevron-left.svg"); tint: Theme.text; }
+        back := TouchArea { clicked => { Ui.close-sheet(); } }
+    }
+    Text { text: title; color: Theme.text; font-size: 16px; font-weight: 600; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+}
+
+component PairingDialog inherits Rectangle {
+    in property <bool> open;
+    property <int> state: Ui.pairing-state;
+    property <int> shown: 1;
+    changed state => {
+        if (self.state != 0) {
+            self.shown = self.state;
+        }
+    }
+    opacity: 0;
+    visible: self.opacity > 0;
+    states [
+        shown when open: {
+            opacity: 1;
+            card.lift: 0;
+            in { animate opacity, card.lift { duration: Motion.normal; easing: cubic-bezier(0.25, 1, 0.5, 1); } }
+            out { animate opacity, card.lift { duration: Motion.fast; easing: cubic-bezier(0.7, 0, 1, 1); } }
+        }
+    ]
+    TouchArea { }
+    Rectangle { background: #000000b8; }
+    card := Rectangle {
+        property <length> lift: 16px;
+        x: 16px;
+        width: parent.width - 32px;
+        height: column.preferred-height;
+        y: (parent.height - self.height) / 2 + self.lift;
+        clip: true;
+        animate height { duration: Motion.normal; easing: cubic-bezier(0.25, 1, 0.5, 1); }
+        border-radius: 20px;
+        background: Theme.card;
+        border-width: 1px;
+        border-color: Theme.control;
+        drop-shadow-offset-y: 8px;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000080;
+        column := VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+            Text {
+                text: root.shown == 1 ? "Pair a device" : root.shown == 4 ? "Pairing failed" : "Pair with " + Ui.pairing-name + "?";
+                color: Theme.text;
+                font-size: 16px;
+                font-weight: 600;
+                wrap: word-wrap;
+            }
+            Text { text: Ui.pairing-text; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+            if root.shown == 2 || root.shown == 3: Rectangle {
+                height: 72px;
+                border-radius: 12px;
+                background: Theme.background;
+                Text { text: Ui.pairing-code; color: Theme.text; font-size: 34px; font-family: "Consolas"; letter-spacing: 2px; }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                padding-top: 4px;
+                if root.shown == 1 || root.shown == 3: Chip { label: "Cancel"; icon: @image-url("icons/x.svg"); clicked => { Ui.cancel-pairing(); } }
+                if root.shown == 2: Chip { label: "They do not match"; icon: @image-url("icons/x.svg"); clicked => { Ui.confirm-pairing(false); } }
+                if root.shown == 2: Chip { label: "They match"; icon: @image-url("icons/check.svg"); strong: true; clicked => { Ui.confirm-pairing(true); } }
+                if root.shown == 4: Chip { label: "OK"; icon: @image-url("icons/check.svg"); strong: true; clicked => { Ui.dismiss-pairing(); } }
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Manifold";
+    width: 380px;
+    height: 600px;
+    no-frame: true;
+    background: Theme.background;
+    callback drag();
+    callback minimize();
+    callback close-window();
+    // The sheet keeps drawing what it showed while it slides away.
+    property <int> sheet: Ui.sheet;
+    property <int> shown-sheet: 1;
+    // The Slint credit draws its dark logo only when the style is told the app is dark.
+    init => {
+        Palette.color-scheme = ColorScheme.dark;
+    }
+    changed sheet => {
+        if (self.sheet != 0) {
+            self.shown-sheet = self.sheet;
+        }
+    }
+
+    VerticalLayout {
+        TitleBar {
+            drag => { root.drag(); }
+            minimize => { root.minimize(); }
+            close-window => { root.close-window(); }
+        }
+        body := Rectangle {
+            vertical-stretch: 1;
+            clip: true;
+            page := Rectangle {
+                x: Ui.sheet != 0 ? -32px : 0;
+                opacity: Ui.sheet != 0 ? 0.4 : 1;
+                animate x, opacity { duration: Motion.normal; easing: cubic-bezier(0.25, 1, 0.5, 1); }
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 8px;
+                    padding-bottom: 16px;
+                    spacing: 12px;
+                    Scroll {
+                        page: Ui.tab;
+                        if Ui.tab == 0: WatchPage { }
+                        if Ui.tab == 1: SharePage { }
+                        if Ui.tab == 2: DevicesPage { }
+                        if Ui.tab == 3: SettingsPage { }
+                    }
+                    nav := Rectangle {
+                        property <length> cell: (self.width - 8px - 3 * 4px) / 4;
+                        height: 56px;
+                        border-radius: 20px;
+                        background: Theme.card;
+                        border-width: 1px;
+                        border-color: Theme.hairline;
+                        Rectangle {
+                            x: 4px + Ui.tab * (nav.cell + 4px);
+                            y: 4px;
+                            width: nav.cell;
+                            height: nav.height - 8px;
+                            border-radius: 16px;
+                            background: Theme.primary;
+                            animate x { duration: Motion.slide; easing: cubic-bezier(0.25, 1, 0.5, 1); }
+                        }
+                        for item[index] in [
+                            { icon: @image-url("icons/play.svg"), label: "Watch" },
+                            { icon: @image-url("icons/monitor.svg"), label: "Share" },
+                            { icon: @image-url("icons/smartphone.svg"), label: "Devices" },
+                            { icon: @image-url("icons/settings.svg"), label: "Settings" },
+                        ]: NavItem {
+                            x: 4px + index * (nav.cell + 4px);
+                            y: 4px;
+                            width: nav.cell;
+                            height: nav.height - 8px;
+                            icon: item.icon;
+                            label: item.label;
+                            chosen: Ui.tab == index;
+                            dot: (index == 2 && Ui.any-online) || (index == 3 && Ui.update-ready);
+                            clicked => { Ui.tab = index; }
+                        }
+                    }
+                }
+            }
+            sheet-layer := Rectangle {
+                x: parent.width;
+                background: Theme.background;
+                visible: self.x < parent.width;
+                states [
+                    open when Ui.sheet != 0: {
+                        x: 0;
+                        in { animate x { duration: Motion.normal; easing: cubic-bezier(0.25, 1, 0.5, 1); } }
+                        out { animate x { duration: Motion.fast; easing: cubic-bezier(0.7, 0, 1, 1); } }
+                    }
+                ]
+                TouchArea { }
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 4px;
+                    padding-bottom: 16px;
+                    spacing: 8px;
+                    SheetHeader { title: root.shown-sheet == 1 ? "Pair a device" : root.shown-sheet == 2 ? Ui.device.name : root.shown-sheet == 3 ? "Address and fingerprint" : root.shown-sheet == 5 ? "Acknowledgements" : "Share"; }
+                    Scroll {
+                        page: root.shown-sheet;
+                        if root.shown-sheet == 1: PairSheet { }
+                        if root.shown-sheet == 2: DeviceSheet { }
+                        if root.shown-sheet == 3: DetailsSheet { }
+                        if root.shown-sheet == 4: PickerSheet { }
+                        if root.shown-sheet == 5: AcknowledgementsSheet { }
+                    }
+                }
+            }
+            PairingDialog { open: Ui.pairing-state != 0; }
+        }
+    }
+}

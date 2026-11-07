@@ -5,10 +5,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The Windows hub is written in Dart and has to speak the same bytes, so both suites read desktop/test/fixtures/compat.txt. */
+/** The Windows hub is written in Rust and has to speak the same bytes, so both suites read fixtures/compat.txt. */
 class CompatFixturesTest {
 
-    private val expected: Map<String, String> = File("../desktop/test/fixtures/compat.txt").readLines()
+    private val expected: Map<String, String> = File("../fixtures/compat.txt").readLines()
         .filter { it.isNotBlank() }
         .associate { line -> line.substringBefore('=') to line.substringAfter('=') }
 

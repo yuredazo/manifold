@@ -24,7 +24,8 @@ sender app -> encoder Surface (hub A) -> UDP -> decoder (hub B) -> receiver app'
 | --- | --- |
 | `sdk` | The Android library: `Manifold`, `ManifoldSender`, `ManifoldReceiver`, an internal `ManifoldConnection` that keeps the hub binding alive, and the AIDL files. Its public API is locked by `sdk/api/sdk.api`. |
 | `hub` | The Android hub app. |
-| `desktop` | The Windows hub: a Flutter app in `lib`, native code in `windows/runner`. |
+| `windows` | The Windows hub: a Cargo workspace with the protocol crate and the app, whose native capture code is C++. |
+| `fixtures` | Bytes the Android hub produces and the official Noise test vectors, read by the Kotlin and the Rust tests. |
 | `probe` | The cross-process test app. It depends only on the SDK. |
 | `docs` | Protocol, network and architecture notes. |
 
@@ -65,49 +66,29 @@ The `Registry` takes one lock for every change and publishes a snapshot of its s
 
 ## Windows hub
 
-The Dart code is in `desktop/lib`, one folder per feature. Tests are under `desktop/test` and mirror it.
+The Windows hub is a Cargo workspace in `windows`. `protocol` (crate `manifold-protocol`) holds the network protocol and has the tests. `hub` (crate `manifold-hub`, executable `manifold_hub.exe`) is the app.
 
-| Folder | What it does |
+| Path | What it does |
 | --- | --- |
-| `network` | `Network` owns the UDP socket, the timers, pairing and the paired devices, and tells features what happens. `Discovery` finds devices that are open for pairing. Also the Devices page and the pairing dialog. |
-| `network/protocol` | A Dart port of `network.protocol` in the Android hub. |
-| `network/stream` | The parts of `network.stream` the Windows hub uses: bitrate control and the store of recent fragments for resends. |
-| `share` | `Sharing` offers windows, displays, cameras and Spout senders to other devices. The Share page, saved shares and the matching of a saved share to an open window are here. |
-| `watch` | `Watching` and `ViewerSession` play feeds from other devices, each in a native window drawn by libmpv. The Watch page is here. |
-| `update` | The updater. |
-| `app` | The window, navigation, tray, and the Settings page. `Hub` holds the objects `main.dart` builds. |
-| `core` | The monotonic clock, the app data folder, Windows data protection and the page frame widget. |
+| `protocol/src` | A Rust port of `network.protocol` and `network.stream` in the Android hub. `Endpoint` holds the handshakes, sessions and links and does no I/O: it is fed datagrams and ticks, and it queues datagrams to send and events to report. |
+| `hub/src/hub.rs` | `Hub`, the network thread. It owns the UDP socket, the `Endpoint`, the paired devices, pairing, `Sharing`, `Watching`, `Discovery` and the settings, and publishes a `Snapshot` for the window. |
+| `hub/src/sharing.rs` | Offers windows, displays, cameras and Spout senders to other devices, saves the shares and matches a saved share to an open window. |
+| `hub/src/capture.rs` | Talks to the C++ capture code through `native/bridge.cpp`, on one worker thread of its own. |
+| `hub/src/watching.rs`, `hub/src/player` | Rebuild frames from fragments and play each feed in a window of its own: Media Foundation decoders, Direct3D 11 drawing and WASAPI sound. |
+| `hub/src/ui.rs`, `hub/ui` | The Slint window. `ui.rs` turns a `Snapshot` into the window's properties and its callbacks into commands for the network thread. |
+| `hub/src/store.rs`, `system.rs`, `tray.rs`, `update.rs`, `discovery.rs` | App data and the identity key, Windows helpers (addresses, HTTPS, clipboard, the Run key), the tray icon, the updater and the pairing beacon. |
+| `hub/native` | C++ for capture and encoding: window, display, camera and Spout capturers, each a `FrameSource` that submits NV12 pictures to a `FramePump`, which encodes the latest one at up to the share's frame rate and repeats it while the source is still. Window and Spout capture scale and convert color on the GPU with `Nv12Converter`. Sound of one application is taken with process loopback. H.264 and AAC are encoded with Media Foundation transforms. |
 
-Receive-side buffering for video is in `watch/viewer.dart`, and playout smoothing is left to libmpv. The Android hub has its own versions of both in `network/stream`.
+### Threads
 
-### Wiring
-
-`main.dart` is the only place that connects `Network`, `Sharing` and `Watching`. `Sharing` and `Watching` mix in `NetworkFeature`, which has an empty method for each thing `Network` can report: a timer tick, a link going down, a subscribe request, a video fragment and so on. `Network` calls every feature it was given. A feature that needs to send something gets a function for it when it is built, for example `Sharing(sendVideo: ...)`. `Network` itself does not import `share` or `watch`.
-
-### Dependency rules
-
-- `core` imports no feature.
-- `network` imports only `core`.
-- `share` and `watch` import `network` and `core`, and never each other.
-- `app` imports every feature and is the only folder that does.
-
-### Native runner
-
-`windows/runner` holds C++ for what Dart cannot do. The files at its root (`main.cpp`, `flutter_window`, `win32_window`, `utils`, `Runner.rc`, the manifest) come from the Flutter template and should stay as they are. Our code is in four folders.
-
-| Folder | Contents |
-| --- | --- |
-| `capture` | `CaptureHost`, the method channel `manifold/capture` that Dart's `Sharing` talks to, and the sources it starts: window, display, camera and Spout capturers. Each is a `FrameSource` that submits finished NV12 pictures to a `FramePump`, which encodes the latest one at up to 30 frames a second and repeats it while the source is still. Window and Spout capture scale and convert color on the GPU with `Nv12Converter`. |
-| `audio` | Capturing one application's sound with process loopback. |
-| `encode` | The H.264 and AAC encoders, on top of Media Foundation transforms. |
-| `viewer` | `WindowHost`, the method channel `manifold/windows` that opens and closes the native player windows. |
+The window runs on the main thread and the network on its own. Everything that reaches the network thread arrives on one channel of `Input`: datagrams from a receive thread, commands from the window, encoded frames from the capture threads, and results from the updater and the address lookups. The network thread is the only code that touches the `Endpoint`, `Sharing` and `Watching`. Each player window has a thread of its own and is sent frames on a channel.
 
 ## The two protocol implementations
 
-The Kotlin and Dart `protocol` packages implement the same packet format, written separately. `desktop/test/fixtures/compat.txt` holds bytes the Kotlin code produced. A Kotlin test and a Dart test both compare their output with it, so the two implementations cannot drift apart without a failing test. `noise_vectors.txt`, in the same folder, holds the official Noise test vectors that both handshake implementations are checked against.
+The Kotlin `protocol` package and the Rust `protocol` crate implement the same packet format, written separately. `fixtures/compat.txt` holds bytes the Kotlin code produced. A Kotlin test and a Rust test both compare their output with it, so the two implementations cannot drift apart without a failing test. `fixtures/noise_vectors.txt` holds the official Noise test vectors that the Rust handshake is checked against.
 
 ## Adding a feature
 
 Android hub: create a package. Take what it needs as constructor parameters instead of reaching for a global. If the system creates part of it (a service, a receiver), declare it in `AndroidManifest.xml` with its full package path and read the graph with `context.hubGraph`. Create the feature in `HubGraph` and pass it to the screens from `HubShell`.
 
-Windows hub: create a folder under `lib`. If the feature needs events from the network, mix in `NetworkFeature` and override what it needs. Build it in `main.dart`, add it to the list given to `Network`, add it to `Hub` if a page needs it, and build the page in `app/app.dart`.
+Windows hub: create a module under `hub/src`. If it needs events from the network, give `Hub` a field for it and call it from `Hub::event`. Put what the window needs to show into `Snapshot`, and turn the window's callbacks into `Command`s in `ui.rs`.

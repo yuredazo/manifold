@@ -14,7 +14,8 @@ Requirements: Android 7.0 (API 24) or later for the SDK and the hub, 64-bit Wind
 | --- | --- |
 | `sdk` | The library apps depend on: `ManifoldSender`, `ManifoldReceiver` and the AIDL interface. |
 | `hub` | The Android hub app (`dev.mkzk.manifold`). It lists what is live, decides which apps may receive, pairs with other devices and can share the phone's screen as a feed. |
-| `desktop` | The Windows hub, a Flutter app with a native capture and encoding runner. It pairs with the Android hub over the network. |
+| `windows` | The Windows hub, a Rust app with a Slint interface and native capture and encoding. It pairs with the Android hub over the network. |
+| `fixtures` | Bytes the Android hub produces and the official Noise test vectors, which the Kotlin and Rust tests both check against. |
 | `probe` | A test app that exercises the SDK across processes. |
 | `docs` | Protocol, network and architecture notes. |
 
@@ -105,13 +106,13 @@ Nothing is delivered until the phone's owner allows the app in the hub. Override
 - Sender names are 1 to 64 characters with no control characters. `Manifold.isValidName` checks one.
 - Bad arguments throw `IllegalArgumentException` instead of failing later.
 
-The public API is recorded in `sdk/api/sdk.api` and checked in CI. The wire protocol and the hub's behavior are described in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+The public API is recorded in `sdk/api/sdk.api` and checked by `./gradlew :sdk:apiCheck`, which every release runs. The wire protocol and the hub's behavior are described in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Between devices
 
 Hubs on different devices pair once, with a six digit code shown on both screens, and then reconnect on their own. Each paired device has switches for what it may receive from you and what you may receive from it. Video is H.264 and audio is AAC. Both travel encrypted over UDP on port 47200, with resends for lost packets and a playout delay that follows the link.
 
-While you pair, devices on the same network that are open for pairing show up in a list, so there is nothing to type. There is no relay and no discovery beyond the local network: to pair across networks you type the other device's address, and to reach a hub from outside its network you forward UDP port 47200 to it. [docs/NETWORK.md](docs/NETWORK.md) describes the protocol, how loss and delay are handled, measurements, and what is not done yet. The Windows hub is described in [desktop/README.md](desktop/README.md).
+While you pair, devices on the same network that are open for pairing show up in a list, so there is nothing to type. There is no relay and no discovery beyond the local network: to pair across networks you type the other device's address, and to reach a hub from outside its network you forward UDP port 47200 to it. [docs/NETWORK.md](docs/NETWORK.md) describes the protocol, how loss and delay are handled, measurements, and what is not done yet. The Windows hub is described in [windows/README.md](windows/README.md).
 
 ## Updates
 
@@ -134,7 +135,7 @@ An allowed app can watch every feed, and a sender cannot refuse one receiver or 
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | The AIDL interface, the hub's behavior and limits, and the security model. |
 | [docs/NETWORK.md](docs/NETWORK.md) | Pairing, packet formats, video and audio delivery, measurements, known gaps. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the source is organized and how the parts are wired together. |
-| [desktop/README.md](desktop/README.md) | Building and using the Windows hub. |
+| [windows/README.md](windows/README.md) | Building and using the Windows hub. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Building, testing, changing the API, signing and releases. |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability. |
 
