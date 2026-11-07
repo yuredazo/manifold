@@ -16,6 +16,7 @@ import dev.mkzk.manifold.hub.network.protocol.Device
 import dev.mkzk.manifold.hub.network.protocol.DeviceBook
 import dev.mkzk.manifold.hub.network.protocol.Endpoint
 import dev.mkzk.manifold.hub.network.protocol.Fragmenter
+import dev.mkzk.manifold.hub.network.protocol.Frame
 import dev.mkzk.manifold.hub.network.stream.RateControl
 import dev.mkzk.manifold.hub.network.stream.RetransmitStore
 import dev.mkzk.manifold.hub.network.stream.SendStats
@@ -33,6 +34,9 @@ private const val MAX_SIZE = 3840
 private const val MIN_BITRATE_KBPS = 200
 private const val MAX_BITRATE_KBPS = 40_000
 private const val KEYFRAME_COALESCE_NS = 400_000_000L
+private const val ENCODER_SIZE_ATTEMPTS = 4
+private const val ENCODER_SHRINK = 0.8f
+private const val ENCODER_ALIGNMENT = 16
 
 internal class NetworkPublisher(
     private val endpoint: Endpoint,
@@ -69,26 +73,46 @@ internal class NetworkPublisher(
         }
 
         val alpha = request.alpha && feed.hasAlpha
-        val width = request.width.coerceIn(1, if (alpha) Control.Subscribe.MAX_ALPHA_WIDTH else MAX_SIZE)
-        val height = request.height.coerceIn(1, if (alpha) Control.Subscribe.MAX_ALPHA_HEIGHT else MAX_SIZE)
+        val rows = if (alpha) 2 else 1
+        var width = request.width.coerceIn(1, if (alpha) Control.Subscribe.MAX_ALPHA_WIDTH else MAX_SIZE)
+        var height = request.height.coerceIn(1, if (alpha) Control.Subscribe.MAX_ALPHA_HEIGHT else MAX_SIZE)
         val stats = SendStats(System.nanoTime())
         val rate = RateControl(MIN_BITRATE_KBPS, request.bitrateKbps.coerceIn(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS))
-        // A feed with no picture has nothing to encode, only its sound to pass on.
-        val encoder = if (feed.soundOnly) null else try {
-            H264Encoder(width, if (alpha) height * 2 else height, rate.kbps, request.fps) { frame ->
-                val producedAt = System.nanoTime()
-                post {
-                    val stream = streams[key] ?: return@post
-                    val fragments = Fragmenter.split(frame)
-                    stream.store.remember(frame.id, fragments, producedAt)
-                    endpoint.sendVideo(current.publicKey, request.streamId, fragments)
-                    stats.frame(frame.encoded.size, frame.captureLagMs)
-                    stats.sent(System.nanoTime() - producedAt)
+        val onFrame = { frame: Frame ->
+            val producedAt = System.nanoTime()
+            post {
+                val stream = streams[key] ?: return@post
+                val fragments = Fragmenter.split(frame)
+                stream.store.remember(frame.id, fragments, producedAt)
+                endpoint.sendVideo(current.publicKey, request.streamId, fragments)
+                stats.frame(frame.encoded.size, frame.captureLagMs)
+                stats.sent(System.nanoTime() - producedAt)
+            }
+        }
+        // A feed with no picture has nothing to encode. Encoders refuse sizes past their own limit (one phone stops at
+        // 2560x1440, and alpha doubles the height), and not always the listed one, so the picture shrinks and retries.
+        val encoder = if (feed.soundOnly) null else {
+            val wanted = width to height
+            var scale = H264Encoder.fittingScale(width, height * rows)
+            var opened: H264Encoder? = null
+            for (attempt in 1..ENCODER_SIZE_ATTEMPTS) {
+                if (scale < 1f) {
+                    width = alignDown(wanted.first * scale)
+                    height = alignDown(wanted.second * scale)
+                }
+                try {
+                    opened = H264Encoder(width, height * rows, rate.kbps, request.fps, onFrame)
+                    break
+                } catch (e: RuntimeException) {
+                    if (attempt == ENCODER_SIZE_ATTEMPTS) {
+                        Log.w(TAG, "cannot encode '${feed.name}' for ${current.name}", e)
+                        return refuse(Control.Refusal.FAILED)
+                    }
+                    scale = minOf(scale, 1f) * ENCODER_SHRINK
                 }
             }
-        } catch (e: RuntimeException) {
-            Log.w(TAG, "cannot encode '${feed.name}' for ${current.name}", e)
-            return refuse(Control.Refusal.FAILED)
+            if (width to height != wanted) Log.i(TAG, "'${feed.name}' for ${current.name} shrunk to ${width}x$height to fit the encoder")
+            opened
         }
 
         val packer = if (alpha && encoder != null) try {
@@ -122,6 +146,8 @@ internal class NetworkPublisher(
         }
         streams[key] = Served(link, encoder, audio, packer, stats, rate)
     }
+
+    private fun alignDown(size: Float): Int = maxOf(ENCODER_ALIGNMENT, size.toInt() / ENCODER_ALIGNMENT * ENCODER_ALIGNMENT)
 
     /** A feed whose sound cannot be encoded is still sent, without it. */
     private fun openAudio(source: ParcelFileDescriptor, device: Device, streamId: Int, key: Pair<String, Int>): AacEncoder? = try {

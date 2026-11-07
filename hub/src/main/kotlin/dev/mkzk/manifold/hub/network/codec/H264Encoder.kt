@@ -2,6 +2,7 @@ package dev.mkzk.manifold.hub.network.codec
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Bundle
@@ -77,6 +78,15 @@ internal class H264Encoder(width: Int, height: Int, bitrateKbps: Int, frameRate:
             }
         }
         error("unreachable")
+    }
+
+    companion object {
+        fun fittingScale(width: Int, height: Int): Float {
+            val caps = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+                .firstOrNull { it.isEncoder && MediaFormat.MIMETYPE_VIDEO_AVC in it.supportedTypes }
+                ?.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)?.videoCapabilities ?: return 1f
+            return minOf(1f, caps.supportedWidths.upper.toFloat() / width, caps.supportedHeights.upper.toFloat() / height)
+        }
     }
 
     private fun format(width: Int, height: Int, bitrateKbps: Int, frameRate: Int, tuned: Boolean) =
