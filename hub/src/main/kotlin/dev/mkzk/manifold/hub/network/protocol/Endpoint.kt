@@ -34,6 +34,8 @@ internal class Endpoint(
 
         fun onFeeds(device: Device, feeds: List<FeedInfo>) {}
 
+        fun onAddresses(device: Device, addresses: List<Address>) {}
+
         fun onSubscribe(device: Device, request: Control.Subscribe) {}
 
         fun onSubscribeRefused(device: Device, refusal: Control.SubscribeRefused) {}
@@ -79,7 +81,7 @@ internal class Endpoint(
         val established get() = link != null
     }
 
-    private class Dialing(val device: Device, val address: Address, val index: Int, var handshake: NoiseHandshake, var sentAt: Long, var attempts: Int)
+    private class Dialing(val device: Device, val addresses: List<Address>, val index: Int, var handshake: NoiseHandshake, var sentAt: Long, var attempts: Int)
 
     private val random = SecureRandom()
     private var pairingOpenUntil = 0L
@@ -122,10 +124,11 @@ internal class Endpoint(
         endPairing("cancelled")
     }
 
-    fun connect(device: Device, address: Address) {
-        if (links.containsKey(device.publicKey) || dialing.containsKey(device.publicKey)) return
+    // The same hello goes to every address at once. The other side answers the first copy that arrives and drops the rest as replays.
+    fun connect(device: Device, addresses: List<Address>) {
+        if (addresses.isEmpty() || links.containsKey(device.publicKey) || dialing.containsKey(device.publicKey)) return
         val key = device.publicKey.fromHex() ?: return
-        val attempt = Dialing(device, address, newIndex(), helloHandshake(key), clock(), 1)
+        val attempt = Dialing(device, addresses, newIndex(), helloHandshake(key), clock(), 1)
         dialing[device.publicKey] = attempt
         sendHello(attempt)
     }
@@ -144,6 +147,10 @@ internal class Endpoint(
 
     fun sendFeeds(publicKey: String, feeds: List<FeedInfo>) {
         links[publicKey]?.control?.send(Control.FeedList(feeds), clock())
+    }
+
+    fun sendAddresses(publicKey: String, addresses: List<Address>) {
+        links[publicKey]?.control?.send(Control.Addresses(addresses), clock())
     }
 
     fun subscribe(publicKey: String, request: Control.Subscribe) {
@@ -376,6 +383,7 @@ internal class Endpoint(
         val device = devices.find(link.publicKey) ?: return
         when (control) {
             is Control.FeedList -> listener.onFeeds(device, control.feeds)
+            is Control.Addresses -> listener.onAddresses(device, control.addresses)
             is Control.Subscribe -> listener.onSubscribe(device, control)
             is Control.SubscribeRefused -> listener.onSubscribeRefused(device, control)
             is Control.Unsubscribe -> listener.onUnsubscribe(device, control.streamId)
@@ -514,7 +522,8 @@ internal class Endpoint(
     private fun sendHello(attempt: Dialing) {
         val payload = ByteBuffer.allocate(8).putLong(wallClock()).array() + nameBytes(identity.name)
         val message = attempt.handshake.writeMessage(payload)
-        transmit(attempt.address, Wire.encode(Wire.Handshake(Wire.TYPE_HELLO, 0, attempt.index, 0, message)))
+        val packet = Wire.encode(Wire.Handshake(Wire.TYPE_HELLO, 0, attempt.index, 0, message))
+        attempt.addresses.forEach { transmit(it, packet) }
     }
 
     private fun newIndex(): Int {

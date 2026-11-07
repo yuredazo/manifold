@@ -24,14 +24,27 @@ internal fun fingerprintOf(publicKey: ByteArray): String = Crypto.sha256(publicK
 
 internal fun readableFingerprint(fingerprint: String): String = fingerprint.take(16).chunked(4).joinToString(" ")
 
+// address is where the device was last reached; others are the rest of the addresses it told us about.
 internal data class Device(
     val publicKey: String,
     val name: String,
     val address: String?,
     val receive: Boolean = false,
     val send: Boolean = false,
+    val others: List<String> = emptyList(),
 ) {
     val fingerprint: String get() = publicKey.fromHex()?.let(::fingerprintOf).orEmpty()
+
+    val addresses: List<String> get() = listOfNotNull(address) + others
+
+    fun reachedAt(where: String) = copy(address = where, others = addresses.filter { it != where }.distinct().take(MAX_OTHER_ADDRESSES))
+
+    // What the device reports comes first, and older entries, such as a public address typed by hand, stay behind it until pushed out.
+    fun alsoAt(told: List<String>) = copy(others = (told + others).filter { it != address }.distinct().take(MAX_OTHER_ADDRESSES))
+
+    companion object {
+        const val MAX_OTHER_ADDRESSES = 8
+    }
 }
 
 internal class DeviceBook(stored: String?, private val save: (String) -> Unit) {
@@ -66,7 +79,8 @@ internal class DeviceBook(stored: String?, private val save: (String) -> Unit) {
 
     private fun changed() {
         flow.value = entries.values.toList()
-        save(entries.values.joinToString("\n") { listOf(it.publicKey, it.name, it.address.orEmpty(), it.receive, it.send).joinToString("\t") })
+        // The other addresses share the address field, comma separated: an older hub keeps the device but waits for it to dial in.
+        save(entries.values.joinToString("\n") { listOf(it.publicKey, it.name, it.addresses.joinToString(","), it.receive, it.send).joinToString("\t") })
     }
 
     private fun parse(line: String) {
@@ -74,7 +88,8 @@ internal class DeviceBook(stored: String?, private val save: (String) -> Unit) {
         if (parts.size != 5) return
         val key = parts[0]
         if (key.length != 2 * Crypto.KEY_LENGTH || key.fromHex() == null) return
-        entries[key] = Device(key, parts[1], parts[2].ifEmpty { null }, parts[3] == "true", parts[4] == "true")
+        val addresses = parts[2].split(',').filter { it.isNotBlank() }
+        entries[key] = Device(key, parts[1], addresses.firstOrNull(), parts[3] == "true", parts[4] == "true", addresses.drop(1))
     }
 
     private fun clean(name: String) = name.replace('\t', ' ').replace('\n', ' ').trim().take(Manifold.MAX_NAME_LENGTH)

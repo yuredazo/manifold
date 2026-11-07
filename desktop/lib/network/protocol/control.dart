@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'session.dart';
+import 'wire.dart';
 
 const maxNameLength = 64;
 const maxDimension = 8192;
@@ -152,6 +153,19 @@ final class Unsubscribe extends Control {
   final int streamId;
 }
 
+// Every address the sender listens on, so the other side can still reach it from another network, such as over a VPN.
+final class Addresses extends Control {
+  const Addresses(this.addresses);
+
+  final List<Address> addresses;
+
+  @override
+  bool operator ==(Object other) => other is Addresses && other.addresses.join(',') == addresses.join(',');
+
+  @override
+  int get hashCode => Object.hashAll(addresses);
+}
+
 final class KeyframeRequest extends Control {
   const KeyframeRequest(this.streamId);
 
@@ -294,6 +308,9 @@ abstract final class ControlCodec {
   static const _nack = 12;
   static const _streamReport = 13;
   static const _subscribeRefused = 14;
+  static const _addresses = 15;
+  static const maxAddresses = 16;
+  static final _octet = RegExp(r'^[0-9]{1,3}$');
   static const _audioBit = 1;
   static const _soundOnlyBit = 2;
   static const _alphaBit = 4;
@@ -324,12 +341,49 @@ abstract final class ControlCodec {
       SenderStats() => (_senderStats, _encodeSenderStats(control)),
       Nack() => (_nack, _encodeNack(control)),
       StreamReport() => (_streamReport, _encodeReport(control)),
+      Addresses() => (_addresses, _encodeAddresses(control.addresses)),
     };
     final out = Uint8List(5 + body.length);
     out[0] = kind;
     ByteData.sublistView(out).setInt32(1, id, Endian.big);
     out.setRange(5, out.length, body);
     return out;
+  }
+
+  // IPv4 only: four address bytes and a port each. Anything else is left out.
+  static Uint8List _encodeAddresses(List<Address> addresses) {
+    final usable = <(List<int>, int)>[];
+    final seen = <String>{};
+    for (final address in addresses) {
+      final octets = _ipv4(address.host);
+      if (octets == null || !seen.add('${octets.join('.')}:${address.port}')) continue;
+      usable.add((octets, address.port));
+      if (usable.length == maxAddresses) break;
+    }
+    return Uint8List.fromList([usable.length, for (final (octets, port) in usable) ...[...octets, ..._short(port)]]);
+  }
+
+  static List<int>? _ipv4(String host) {
+    final parts = host.split('.');
+    if (parts.length != 4) return null;
+    if (parts.any((part) => !_octet.hasMatch(part))) return null;
+    final numbers = [for (final part in parts) int.parse(part)];
+    return numbers.every((value) => value <= 255) ? numbers : null;
+  }
+
+  // Addresses no other device could send to, such as loopback or multicast, are dropped rather than dialed.
+  static Addresses? _readAddresses(_Reader reader) {
+    final count = reader.u8();
+    if (count > maxAddresses) return null;
+    final addresses = <Address>[];
+    for (var i = 0; i < count; i++) {
+      final octets = [reader.u8(), reader.u8(), reader.u8(), reader.u8()];
+      final port = reader.u16();
+      final reachable = port != 0 && octets[0] != 0 && octets[0] != 127 && octets[0] < 224 && !(octets[0] == 169 && octets[1] == 254);
+      final address = Address(octets.join('.'), port);
+      if (reachable && !addresses.contains(address)) addresses.add(address);
+    }
+    return Addresses(addresses);
   }
 
   static Decoded? decode(Uint8List bytes) {
@@ -372,6 +426,7 @@ abstract final class ControlCodec {
               encodeMs10: reader.u16(),
               sendMs10: reader.u16(),
             )),
+        _addresses => _readAddresses(reader)?.let((addresses) => DecodedMessage(id, addresses)),
         _ => null,
       };
       return decoded ?? DecodedUnrecognized(id);

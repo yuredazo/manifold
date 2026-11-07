@@ -133,4 +133,36 @@ void main() {
       expect(readableFingerprint(device.fingerprint).split(' ').length, 4);
     });
   });
+
+  group('device addresses', () {
+    final keyHex = toHex(Crypto.generateKeyPair().public);
+
+    test('other addresses survive a restart and the last used one stays first', () {
+      String? saved;
+      final first = DeviceBook(null, (text) => saved = text);
+      first.put(Device(publicKey: keyHex, name: 'Beta', address: '192.168.0.5:47200'));
+      first.update(keyHex, (device) => device.alsoAt(['192.168.0.5:47200', '100.64.0.9:47200']));
+      first.update(keyHex, (device) => device.reachedAt('100.64.0.9:47200'));
+
+      final device = DeviceBook(saved, (_) {}).find(keyHex)!;
+
+      expect(device.address, '100.64.0.9:47200');
+      expect(device.addresses, ['100.64.0.9:47200', '192.168.0.5:47200']);
+    });
+
+    test('a typed address stays behind the ones the device reports', () {
+      final device = Device(publicKey: keyHex, name: 'Beta', address: '203.0.113.7:47200')
+          .reachedAt('192.168.0.5:47200')
+          .alsoAt(['192.168.0.5:47200', '100.64.0.9:47200']);
+
+      expect(device.addresses, ['192.168.0.5:47200', '100.64.0.9:47200', '203.0.113.7:47200']);
+    });
+
+    test('a line from before other addresses still reads', () {
+      final device = DeviceBook('$keyHex\tBeta\t10.0.0.2:4000\ttrue\tfalse', (_) {}).find(keyHex)!;
+
+      expect(device.address, '10.0.0.2:4000');
+      expect(device.others, isEmpty);
+    });
+  });
 }

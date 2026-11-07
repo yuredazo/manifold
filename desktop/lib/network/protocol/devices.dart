@@ -41,7 +41,10 @@ final class Device {
     this.send = false,
     this.sendCamera = false,
     this.sendSpout = false,
+    this.others = const [],
   });
+
+  static const maxOtherAddresses = 8;
 
   final String publicKey;
   final String name;
@@ -53,12 +56,24 @@ final class Device {
   final bool sendCamera;
   final bool sendSpout;
 
+  // address is where the device was last reached; others are the rest of the addresses it told us about.
+  final List<String> others;
+
+  List<String> get addresses => [?address, ...others];
+
+  Device reachedAt(String where) => copyWith(address: where, others: _unique(addresses.where((known) => known != where)));
+
+  // What the device reports comes first, and older entries, such as a public address typed by hand, stay behind it until pushed out.
+  Device alsoAt(List<String> told) => copyWith(others: _unique([...told, ...others].where((known) => known != address)));
+
+  static List<String> _unique(Iterable<String> addresses) => addresses.toSet().take(maxOtherAddresses).toList();
+
   String get fingerprint {
     final bytes = fromHex(publicKey);
     return bytes == null ? '' : fingerprintOf(bytes);
   }
 
-  Device copyWith({String? name, String? address, bool? receive, bool? send, bool? sendCamera, bool? sendSpout}) => Device(
+  Device copyWith({String? name, String? address, bool? receive, bool? send, bool? sendCamera, bool? sendSpout, List<String>? others}) => Device(
         publicKey: publicKey,
         name: name ?? this.name,
         address: address ?? this.address,
@@ -66,6 +81,7 @@ final class Device {
         send: send ?? this.send,
         sendCamera: sendCamera ?? this.sendCamera,
         sendSpout: sendSpout ?? this.sendSpout,
+        others: others ?? this.others,
       );
 }
 
@@ -105,7 +121,8 @@ final class DeviceBook {
 
   void _changed() {
     devices.value = List.unmodifiable(_entries.values);
-    _save(_entries.values.map((d) => [d.publicKey, d.name, d.address ?? '', d.receive, d.send, d.sendCamera, d.sendSpout].join('\t')).join('\n'));
+    // The other addresses share the address field, comma separated: an older hub keeps the device but waits for it to dial in.
+    _save(_entries.values.map((d) => [d.publicKey, d.name, d.addresses.join(','), d.receive, d.send, d.sendCamera, d.sendSpout].join('\t')).join('\n'));
   }
 
   // A book from before cameras or Spout could be shared has fewer fields, and what is missing stays off. Extra fields are
@@ -115,10 +132,12 @@ final class DeviceBook {
     if (parts.length < 5) return;
     final key = parts[0];
     if (key.length != 2 * Crypto.keyLength || fromHex(key) == null) return;
+    final addresses = parts[2].split(',').where((address) => address.trim().isNotEmpty).toList();
     _entries[key] = Device(
       publicKey: key,
       name: parts[1],
-      address: parts[2].isEmpty ? null : parts[2],
+      address: addresses.firstOrNull,
+      others: addresses.skip(1).toList(),
       receive: parts[3] == 'true',
       send: parts[4] == 'true',
       sendCamera: parts.length > 5 && parts[5] == 'true',

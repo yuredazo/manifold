@@ -271,9 +271,9 @@ final class Network extends ChangeNotifier {
 
   void _connectKnownDevices() {
     for (final device in book.devices.value) {
-      final address = device.address == null ? null : Address.parse(device.address!, listenPort);
-      if (address == null || _endpoint.isLinked(device.publicKey) || _endpoint.isDialing(device.publicKey)) continue;
-      _endpoint.connect(device, address);
+      final addresses = [for (final text in device.addresses) ?Address.parse(text, listenPort)];
+      if (addresses.isEmpty || _endpoint.isLinked(device.publicKey) || _endpoint.isDialing(device.publicKey)) continue;
+      _endpoint.connect(device, addresses);
     }
   }
 
@@ -327,9 +327,20 @@ final class Network extends ChangeNotifier {
 
   void _linkUp(Device device, Address address) {
     online.add(device.publicKey);
-    book.update(device.publicKey, (known) => known.copyWith(address: address.toString()));
+    book.update(device.publicKey, (known) => known.reachedAt(address.toString()));
     _offerFeeds(device);
     notifyListeners();
+    // Listed again here, since a VPN such as Tailscale may have come up after listening started.
+    unawaited(_localAddresses().then((own) {
+      _endpoint.sendAddresses(device.publicKey, [for (final text in own) ?Address.parse(text, listenPort)]);
+      if (own.join(',') == addresses.join(',')) return;
+      addresses = own;
+      notifyListeners();
+    }));
+  }
+
+  void _addresses(Device device, List<Address> told) {
+    book.update(device.publicKey, (known) => known.alsoAt([for (final address in told) address.toString()]));
   }
 
   void _linkDown(Device device) {
@@ -415,6 +426,9 @@ final class _Reports extends EndpointListener {
 
   @override
   void onFeeds(Device device, List<FeedInfo> feeds) => _network._feeds(device, feeds);
+
+  @override
+  void onAddresses(Device device, List<Address> addresses) => _network._addresses(device, addresses);
 
   @override
   void onSubscribe(Device device, Subscribe request) => _each((feature) => feature.onSubscribe(device, request));

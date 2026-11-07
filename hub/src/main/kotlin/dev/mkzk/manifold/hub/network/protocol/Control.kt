@@ -97,6 +97,9 @@ internal sealed interface Control {
      * encoder still shows a number.
      */
     data class SenderStats(val streamId: Int, val bitrateKbps: Int, val fps10: Int, val encodeMs10: Int, val sendMs10: Int) : Control
+
+    // Every address the sender listens on, so the other side can still reach it from another network, such as over a VPN.
+    data class Addresses(val addresses: List<Address>) : Control
 }
 
 internal sealed interface Decoded {
@@ -129,10 +132,12 @@ internal object ControlCodec {
     private const val NACK = 12
     private const val STREAM_REPORT = 13
     private const val SUBSCRIBE_REFUSED = 14
+    private const val ADDRESSES = 15
     private const val AUDIO_BIT = 1
     private const val SOUND_ONLY_BIT = 2
     private const val ALPHA_BIT = 4
     const val MAX_NACK_INDEXES = 200
+    const val MAX_ADDRESSES = 16
 
     /** Pings and measurements are never acknowledged or resent: a late measurement is worth nothing. */
     fun needsAck(control: Control) = when (control) {
@@ -174,8 +179,41 @@ internal object ControlCodec {
                 .putShort(control.encodeMs10.coerceIn(0, 0xFFFF).toShort())
                 .putShort(control.sendMs10.coerceIn(0, 0xFFFF).toShort())
                 .array()
+            is Control.Addresses -> ADDRESSES to encodeAddresses(control.addresses)
         }
         return ByteBuffer.allocate(5 + body.size).put(kind.toByte()).putInt(id).put(body).array()
+    }
+
+    // IPv4 only: four address bytes and a port each. Anything else is left out.
+    private fun encodeAddresses(addresses: List<Address>): ByteArray {
+        val usable = addresses.mapNotNull { address -> ipv4Bytes(address.host)?.let { it to address.port } }.distinct().take(MAX_ADDRESSES)
+        val out = ByteBuffer.allocate(1 + 6 * usable.size).put(usable.size.toByte())
+        usable.forEach { (bytes, port) -> out.put(bytes).putShort(port.toShort()) }
+        return out.array()
+    }
+
+    private fun ipv4Bytes(host: String): ByteArray? {
+        val parts = host.split('.')
+        if (parts.size != 4) return null
+        if (parts.any { part -> part.length !in 1..3 || part.any { it !in '0'..'9' } }) return null
+        val numbers = parts.map { part -> part.toInt().takeIf { it in 0..255 } ?: return null }
+        return ByteArray(4) { numbers[it].toByte() }
+    }
+
+    // Addresses no other device could send to, such as loopback or multicast, are dropped rather than dialed.
+    private fun readAddresses(reader: ByteBuffer): Control.Addresses? {
+        val count = reader.get().toInt() and 0xFF
+        if (count > MAX_ADDRESSES) return null
+        val addresses = List(count) {
+            val octets = IntArray(4) { reader.get().toInt() and 0xFF }
+            val port = reader.getShort().toInt() and 0xFFFF
+            octets to port
+        }
+        return Control.Addresses(
+            addresses.filter { (octets, port) -> port != 0 && octets[0] != 0 && octets[0] != 127 && octets[0] < 224 && !(octets[0] == 169 && octets[1] == 254) }
+                .map { (octets, port) -> Address(octets.joinToString("."), port) }
+                .distinct(),
+        )
     }
 
     /** A request for more pieces than fit is a request for the whole frame. */
@@ -304,6 +342,7 @@ internal object ControlCodec {
                     encodeMs10 = reader.getShort().toInt() and 0xFFFF,
                     sendMs10 = reader.getShort().toInt() and 0xFFFF,
                 ))
+                ADDRESSES -> readAddresses(reader)?.let { Decoded.Message(id, it) }
                 else -> null
             } ?: Decoded.Unrecognized(id)
         } catch (_: BufferUnderflowException) {

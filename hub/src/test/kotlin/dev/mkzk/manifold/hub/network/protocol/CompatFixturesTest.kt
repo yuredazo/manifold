@@ -41,6 +41,7 @@ class CompatFixturesTest {
         check("control_refused", ControlCodec.encode(7, Control.SubscribeRefused(9, Control.Refusal.NOT_SHARED)))
         check("control_ack", ControlCodec.encodeAck(77))
         check("control_confirm", ControlCodec.encode(6, Control.PairConfirm))
+        check("control_addresses", ControlCodec.encode(9, Control.Addresses(listOf(Address("100.77.195.122", 47200), Address("192.168.0.100", 8000)))))
     }
 
     @Test

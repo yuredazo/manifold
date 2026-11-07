@@ -316,4 +316,28 @@ class ControlTest {
         // The audio byte is optional, so a request cut right after the name is still a request.
         for (length in 5 until full.size - 1) assertEquals("length $length", Decoded.Unrecognized(1), ControlCodec.decode(full.copyOf(length)))
     }
+
+    @Test
+    fun addressesSurviveEncodingAndOnlyReachableOnesAreKept() {
+        val tailscale = Address("100.77.195.122", 47200)
+        val lan = Address("192.168.0.100", 47200)
+        assertEquals(Control.Addresses(listOf(tailscale, lan)), roundTrip(Control.Addresses(listOf(tailscale, lan, Address("phone.local", 47200)))))
+
+        val unusable = listOf("127.0.0.1", "0.0.0.0", "224.0.0.1", "255.255.255.255", "169.254.3.4").map { Address(it, 47200) } + Address("10.0.0.2", 0)
+        assertEquals(Control.Addresses(listOf(lan)), roundTrip(Control.Addresses(unusable + lan)))
+    }
+
+    @Test
+    fun moreAddressesThanAllowedAreNotReadAsAList() {
+        val body = byteArrayOf((ControlCodec.MAX_ADDRESSES + 1).toByte()) + ByteArray(6 * (ControlCodec.MAX_ADDRESSES + 1)) { 10 }
+        val bytes = byteArrayOf(15, 0, 0, 0, 9) + body
+        assertEquals(Decoded.Unrecognized(9), ControlCodec.decode(bytes))
+    }
+
+    @Test
+    fun onlyPlainDottedAddressesAreSent() {
+        val plain = Address("10.0.0.2", 47200)
+        val odd = listOf("+10.0.0.2", "10.0.0.256", "10.0.0", "1.2.3.4.5", "0x10.0.0.1").map { Address(it, 47200) }
+        assertEquals(Control.Addresses(listOf(plain)), roundTrip(Control.Addresses(odd + plain)))
+    }
 }

@@ -61,6 +61,7 @@ class EndpointTest {
         val refusals = ArrayList<Control.SubscribeRefused>()
         val keyframeRequests = ArrayList<Int>()
         val senderStats = ArrayList<Control.SenderStats>()
+        val addressLists = ArrayList<List<Address>>()
         val nacks = ArrayList<Control.Nack>()
         val video = ArrayList<kotlin.Pair<Int, ByteArray>>()
         val audio = ArrayList<AudioPacket>()
@@ -101,6 +102,10 @@ class EndpointTest {
 
                 override fun onFeeds(device: Device, feeds: List<FeedInfo>) {
                     this@Node.feeds += feeds
+                }
+
+                override fun onAddresses(device: Device, addresses: List<Address>) {
+                    addressLists += addresses
                 }
 
                 override fun onSubscribe(device: Device, request: Control.Subscribe) {
@@ -287,7 +292,7 @@ class EndpointTest {
         beta.start()
         assertFalse(alpha.endpoint.isLinked(beta.publicKey))
 
-        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, beta.address)
+        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, listOf(beta.address))
         world.pump()
 
         assertTrue(alpha.endpoint.isLinked(beta.publicKey))
@@ -302,7 +307,7 @@ class EndpointTest {
 
         // Only beta restarts, so alpha still holds the link that beta has forgotten.
         beta.start()
-        beta.endpoint.connect(beta.book.find(alpha.identity.keys.public)!!, alpha.address)
+        beta.endpoint.connect(beta.book.find(alpha.identity.keys.public)!!, listOf(alpha.address))
         world.pump()
 
         assertEquals(1, alpha.linksDown.size)
@@ -378,7 +383,7 @@ class EndpointTest {
         val stranger = Node(world, "Stranger", Address("10.0.0.9", 4000))
         val beforeThat = world.log.size
 
-        stranger.endpoint.connect(Device(beta.publicKey, "Beta", null), beta.address)
+        stranger.endpoint.connect(Device(beta.publicKey, "Beta", null), listOf(beta.address))
         world.advance(7_000)
 
         assertFalse(beta.endpoint.isLinked(stranger.publicKey))
@@ -392,7 +397,7 @@ class EndpointTest {
         alpha.start()
         beta.start()
         val mark = world.log.size
-        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, beta.address)
+        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, listOf(beta.address))
         world.pump()
         val hello = world.log.drop(mark).first { it.first == alpha.address && it.third[0] == Wire.TYPE_HELLO }
         val answers = world.log.count { it.first == beta.address && it.third[0] == Wire.TYPE_HELLO }
@@ -474,7 +479,7 @@ class EndpointTest {
 
         beta.endpoint.unpair(alpha.publicKey)
         world.pump()
-        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, beta.address)
+        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, listOf(beta.address))
         world.advance(7_000)
 
         assertTrue(beta.book.devices.value.isEmpty())
@@ -505,8 +510,8 @@ class EndpointTest {
         alpha.start()
         beta.start()
 
-        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, beta.address)
-        beta.endpoint.connect(beta.book.find(alpha.identity.keys.public)!!, alpha.address)
+        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, listOf(beta.address))
+        beta.endpoint.connect(beta.book.find(alpha.identity.keys.public)!!, listOf(alpha.address))
         world.pump()
         world.advance(2_000)
         val offered = listOf(FeedInfo("alpha", 720, 1080, 30, false))
@@ -525,9 +530,9 @@ class EndpointTest {
         alpha.start()
         val device = alpha.book.find(beta.identity.keys.public)!!
 
-        alpha.endpoint.connect(device, beta.address)
+        alpha.endpoint.connect(device, listOf(beta.address))
         val sent = world.log.size
-        alpha.endpoint.connect(device, beta.address)
+        alpha.endpoint.connect(device, listOf(beta.address))
 
         assertEquals(sent, world.log.size)
         assertTrue(alpha.endpoint.isDialing(beta.publicKey))
@@ -624,5 +629,47 @@ class EndpointTest {
         val frames = alpha.video.flatMap { buffer.add(it.second, 0) } + buffer.poll(buffer.maxWait + 1).frames
         assertTrue("the keyframe or the frame after it was lost, and nothing broken came out", frames.size < 3)
         assertTrue(buffer.needsKeyframe || frames.size == 3)
+    }
+
+    @Test
+    fun dialingEveryAddressLinksThroughTheOneThatAnswers() {
+        val (world, alpha, beta) = pairedWorld()
+        alpha.start()
+        beta.start()
+
+        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, listOf(Address("192.168.9.9", 47200), beta.address))
+        world.pump()
+
+        assertTrue(alpha.endpoint.isLinked(beta.publicKey))
+        assertTrue(beta.endpoint.isLinked(alpha.publicKey))
+    }
+
+    @Test
+    fun aHelloThatArrivesTwiceBringsUpOneWorkingLink() {
+        val (world, alpha, beta) = pairedWorld()
+        alpha.start()
+        beta.start()
+        val secondPath = Address("100.64.0.2", 4000)
+        world.nodes[secondPath] = beta
+        val before = beta.linksUp.size
+
+        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, listOf(beta.address, secondPath))
+        world.pump()
+        alpha.endpoint.sendFeeds(beta.publicKey, listOf(FeedInfo("alpha", 720, 1080, 30, false)))
+        world.pump()
+
+        assertEquals(before + 1, beta.linksUp.size)
+        assertEquals("alpha", beta.feeds.last().single().name)
+    }
+
+    @Test
+    fun addressesReachTheLinkedDevice() {
+        val (world, alpha, beta) = pairedWorld()
+        val tailscale = Address("100.77.195.122", 47200)
+
+        alpha.endpoint.sendAddresses(beta.publicKey, listOf(tailscale))
+        world.pump()
+
+        assertEquals(listOf(tailscale), beta.addressLists.last())
     }
 }

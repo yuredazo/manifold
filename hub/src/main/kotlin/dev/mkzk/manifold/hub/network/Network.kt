@@ -118,8 +118,13 @@ internal class Network(
 
         override fun onLinkUp(device: Device, address: Address) {
             flow.update { it.copy(online = it.online + device.publicKey) }
-            book.update(device.publicKey) { it.copy(address = address.toString()) }
+            book.update(device.publicKey) { it.reachedAt(address.toString()) }
+            endpoint.sendAddresses(device.publicKey, localAddresses().mapNotNull { Address.parse(it, LISTEN_PORT) })
             offerFeeds(device)
+        }
+
+        override fun onAddresses(device: Device, addresses: List<Address>) {
+            book.update(device.publicKey) { it.alsoAt(addresses.map(Address::toString)) }
         }
 
         override fun onLinkDown(device: Device) {
@@ -340,9 +345,9 @@ internal class Network(
 
     private fun connectKnownDevices() {
         for (device in book.devices.value) {
-            val address = device.address?.let { Address.parse(it, LISTEN_PORT) } ?: continue
-            if (endpoint.isLinked(device.publicKey) || endpoint.isDialing(device.publicKey)) continue
-            endpoint.connect(device, address)
+            val addresses = device.addresses.mapNotNull { Address.parse(it, LISTEN_PORT) }
+            if (addresses.isEmpty() || endpoint.isLinked(device.publicKey) || endpoint.isDialing(device.publicKey)) continue
+            endpoint.connect(device, addresses)
         }
     }
 

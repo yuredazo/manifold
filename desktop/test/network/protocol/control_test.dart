@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:manifold_hub/network/protocol/control.dart';
 import 'package:manifold_hub/network/protocol/control_channel.dart';
 import 'package:manifold_hub/network/protocol/session.dart';
+import 'package:manifold_hub/network/protocol/wire.dart';
 
 Control? _roundTrip(Control control) => switch (ControlCodec.decode(ControlCodec.encode(7, control))) {
       DecodedMessage(:final control) => control,
@@ -377,5 +378,26 @@ void main() {
       wired.b.receive(Uint8List(50)..fillRange(0, 50, 99));
       expect(wired.received, isEmpty);
     });
+  });
+
+  test('addresses survive encoding and only reachable ones are kept', () {
+    const tailscale = Address('100.77.195.122', 47200);
+    const lan = Address('192.168.0.100', 47200);
+    expect(_roundTrip(const Addresses([tailscale, lan, Address('phone.local', 47200)])), const Addresses([tailscale, lan]));
+
+    final unusable = [for (final host in ['127.0.0.1', '0.0.0.0', '224.0.0.1', '255.255.255.255', '169.254.3.4']) Address(host, 47200), const Address('10.0.0.2', 0)];
+    expect(_roundTrip(Addresses([...unusable, lan])), const Addresses([lan]));
+  });
+
+  test('more addresses than allowed are not read as a list', () {
+    final count = ControlCodec.maxAddresses + 1;
+    final bytes = Uint8List.fromList([15, 0, 0, 0, 9, count, for (var i = 0; i < 6 * count; i++) 10]);
+    expect(ControlCodec.decode(bytes), isA<DecodedUnrecognized>());
+  });
+
+  test('only plain dotted addresses are sent', () {
+    const plain = Address('10.0.0.2', 47200);
+    final odd = [for (final host in ['+10.0.0.2', '10.0.0.256', '10.0.0', '1.2.3.4.5', '0x10.0.0.1', ' 10.0.0.2']) Address(host, 47200)];
+    expect(_roundTrip(Addresses([...odd, plain])), const Addresses([plain]));
   });
 }

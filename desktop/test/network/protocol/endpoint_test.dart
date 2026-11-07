@@ -68,6 +68,7 @@ class _Node extends EndpointListener {
   final logs = <String>[];
   final connectFailed = <Device>[];
   final feeds = <List<FeedInfo>>[];
+  final addressLists = <List<Address>>[];
   final subscribes = <Subscribe>[];
   final unsubscribes = <int>[];
   final refusals = <SubscribeRefused>[];
@@ -115,6 +116,9 @@ class _Node extends EndpointListener {
 
   @override
   void onFeeds(Device device, List<FeedInfo> offered) => feeds.add(offered);
+
+  @override
+  void onAddresses(Device device, List<Address> addresses) => addressLists.add(addresses);
 
   @override
   void onSubscribe(Device device, Subscribe request) => subscribes.add(request);
@@ -268,7 +272,7 @@ void main() {
     beta.start();
     expect(alpha.endpoint.isLinked(beta.publicKey), isFalse);
 
-    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, beta.address);
+    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, [beta.address]);
     world.pump();
 
     expect(alpha.endpoint.isLinked(beta.publicKey), isTrue);
@@ -282,7 +286,7 @@ void main() {
 
     // Only beta restarts, so alpha still holds the link that beta has forgotten.
     beta.start();
-    beta.endpoint.connect(beta.book.findKey(alpha.identity.keys.public)!, alpha.address);
+    beta.endpoint.connect(beta.book.findKey(alpha.identity.keys.public)!, [alpha.address]);
     world.pump();
 
     expect(alpha.linksDown, hasLength(1));
@@ -352,7 +356,7 @@ void main() {
     final stranger = _Node(world, 'Stranger', const Address('10.0.0.9', 4000));
     final before = world.log.length;
 
-    stranger.endpoint.connect(Device(publicKey: beta.publicKey, name: 'Beta'), beta.address);
+    stranger.endpoint.connect(Device(publicKey: beta.publicKey, name: 'Beta'), [beta.address]);
     world.advance(7000);
 
     expect(beta.endpoint.isLinked(stranger.publicKey), isFalse);
@@ -365,7 +369,7 @@ void main() {
     alpha.start();
     beta.start();
     final mark = world.log.length;
-    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, beta.address);
+    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, [beta.address]);
     world.pump();
     final hello = world.log.skip(mark).firstWhere((entry) => entry.from == alpha.address && entry.bytes[0] == Wire.typeHello);
     int answers() => world.log.where((entry) => entry.from == beta.address && entry.bytes[0] == Wire.typeHello).length;
@@ -457,7 +461,7 @@ void main() {
 
     beta.endpoint.unpair(alpha.publicKey);
     world.pump();
-    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, beta.address);
+    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, [beta.address]);
     world.advance(7000);
 
     expect(beta.book.devices.value, isEmpty);
@@ -486,8 +490,8 @@ void main() {
     alpha.start();
     beta.start();
 
-    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, beta.address);
-    beta.endpoint.connect(beta.book.findKey(alpha.identity.keys.public)!, alpha.address);
+    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, [beta.address]);
+    beta.endpoint.connect(beta.book.findKey(alpha.identity.keys.public)!, [alpha.address]);
     world.pump();
     world.advance(2000);
     const offered = [FeedInfo('alpha', 720, 1080, 30, false)];
@@ -505,9 +509,9 @@ void main() {
     alpha.start();
     final device = alpha.book.findKey(beta.identity.keys.public)!;
 
-    alpha.endpoint.connect(device, beta.address);
+    alpha.endpoint.connect(device, [beta.address]);
     final sent = world.log.length;
-    alpha.endpoint.connect(device, beta.address);
+    alpha.endpoint.connect(device, [beta.address]);
 
     expect(world.log.length, sent);
     expect(alpha.endpoint.isDialing(beta.publicKey), isTrue);
@@ -580,5 +584,44 @@ void main() {
     beta.endpoint.sendVideo('00' * 32, 1, [Uint8List(100)]);
 
     expect(world.log.length, before);
+  });
+
+  test('dialing every address links through the one that answers', () {
+    final (:world, :alpha, :beta) = _pairedWorld();
+    alpha.start();
+    beta.start();
+
+    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, [const Address('192.168.9.9', 47200), beta.address]);
+    world.pump();
+
+    expect(alpha.endpoint.isLinked(beta.publicKey), isTrue);
+    expect(beta.endpoint.isLinked(alpha.publicKey), isTrue);
+  });
+
+  test('a hello that arrives twice brings up one working link', () {
+    final (:world, :alpha, :beta) = _pairedWorld();
+    alpha.start();
+    beta.start();
+    const secondPath = Address('100.64.0.2', 4000);
+    world.nodes[secondPath] = beta;
+    final before = beta.linksUp.length;
+
+    alpha.endpoint.connect(alpha.book.findKey(beta.identity.keys.public)!, [beta.address, secondPath]);
+    world.pump();
+    alpha.endpoint.sendFeeds(beta.publicKey, const [FeedInfo('alpha', 720, 1080, 30, false)]);
+    world.pump();
+
+    expect(beta.linksUp.length, before + 1);
+    expect(beta.feeds.last.single.name, 'alpha');
+  });
+
+  test('addresses reach the linked device', () {
+    final (:world, :alpha, :beta) = _pairedWorld();
+    const tailscale = Address('100.77.195.122', 47200);
+
+    alpha.endpoint.sendAddresses(beta.publicKey, const [tailscale]);
+    world.pump();
+
+    expect(beta.addressLists.last, [tailscale]);
   });
 }

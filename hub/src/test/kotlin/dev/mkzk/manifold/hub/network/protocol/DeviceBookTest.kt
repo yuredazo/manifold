@@ -79,4 +79,35 @@ class DeviceBookTest {
         assertEquals(fingerprintOf(key), device.fingerprint)
         assertEquals(4, readableFingerprint(device.fingerprint).split(" ").size)
     }
+
+    @Test
+    fun otherAddressesSurviveARestartAndTheLastUsedOneStaysFirst() {
+        val saved = mutableListOf<String>()
+        val first = book(saved = saved)
+        first.put(Device(keyHex, "Beta", "192.168.0.5:47200"))
+        first.update(keyHex) { it.alsoAt(listOf("192.168.0.5:47200", "100.64.0.9:47200")) }
+        first.update(keyHex) { it.reachedAt("100.64.0.9:47200") }
+
+        val device = book(stored = saved.last()).find(key)!!
+
+        assertEquals("100.64.0.9:47200", device.address)
+        assertEquals(listOf("100.64.0.9:47200", "192.168.0.5:47200"), device.addresses)
+    }
+
+    @Test
+    fun aLineFromBeforeOtherAddressesStillReads() {
+        val device = book(stored = "$keyHex\tBeta\t10.0.0.2:4000\ttrue\tfalse").find(key)!!
+
+        assertEquals("10.0.0.2:4000", device.address)
+        assertEquals(emptyList<String>(), device.others)
+    }
+
+    @Test
+    fun aTypedAddressStaysBehindTheOnesTheDeviceReports() {
+        val device = Device(keyHex, "Beta", "203.0.113.7:47200")
+            .reachedAt("192.168.0.5:47200")
+            .alsoAt(listOf("192.168.0.5:47200", "100.64.0.9:47200"))
+
+        assertEquals(listOf("192.168.0.5:47200", "100.64.0.9:47200", "203.0.113.7:47200"), device.addresses)
+    }
 }

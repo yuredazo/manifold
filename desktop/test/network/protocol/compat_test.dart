@@ -46,6 +46,7 @@ void main() {
     check('control_refused', ControlCodec.encode(7, const SubscribeRefused(9, Refusal.notShared)));
     check('control_ack', ControlCodec.encodeAck(77));
     check('control_confirm', ControlCodec.encode(6, const PairConfirm()));
+    check('control_addresses', ControlCodec.encode(9, const Addresses([Address('100.77.195.122', 47200), Address('192.168.0.100', 8000)])));
   });
 
   test('audio packets match the fixture', () {

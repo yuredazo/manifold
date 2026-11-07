@@ -30,6 +30,8 @@ abstract class EndpointListener {
 
   void onFeeds(Device device, List<FeedInfo> feeds) {}
 
+  void onAddresses(Device device, List<Address> addresses) {}
+
   void onSubscribe(Device device, Subscribe request) {}
 
   void onSubscribeRefused(Device device, SubscribeRefused refusal) {}
@@ -90,10 +92,10 @@ final class _Pairing {
 }
 
 final class _Dialing {
-  _Dialing(this.device, this.address, this.index, this.handshake, this.sentAt);
+  _Dialing(this.device, this.addresses, this.index, this.handshake, this.sentAt);
 
   final Device device;
-  final Address address;
+  final List<Address> addresses;
   final int index;
   NoiseHandshake handshake;
   int sentAt;
@@ -184,11 +186,12 @@ final class Endpoint {
 
   void cancelPairing() => _endPairing('cancelled');
 
-  void connect(Device device, Address address) {
-    if (_links.containsKey(device.publicKey) || _dialing.containsKey(device.publicKey)) return;
+  // The same hello goes to every address at once. The other side answers the first copy that arrives and drops the rest as replays.
+  void connect(Device device, List<Address> addresses) {
+    if (addresses.isEmpty || _links.containsKey(device.publicKey) || _dialing.containsKey(device.publicKey)) return;
     final key = fromHex(device.publicKey);
     if (key == null) return;
-    final attempt = _Dialing(device, address, _newIndex(), _helloHandshake(key), clock());
+    final attempt = _Dialing(device, addresses, _newIndex(), _helloHandshake(key), clock());
     _dialing[device.publicKey] = attempt;
     _sendHello(attempt);
   }
@@ -207,6 +210,8 @@ final class Endpoint {
   }
 
   void sendFeeds(String publicKey, List<FeedInfo> feeds) => _links[publicKey]?.control.send(FeedList(feeds), clock());
+
+  void sendAddresses(String publicKey, List<Address> addresses) => _links[publicKey]?.control.send(Addresses(addresses), clock());
 
   void subscribe(String publicKey, Subscribe request) => _links[publicKey]?.control.send(request, clock());
 
@@ -475,6 +480,8 @@ final class Endpoint {
     switch (control) {
       case FeedList():
         listener.onFeeds(device, control.feeds);
+      case Addresses():
+        listener.onAddresses(device, control.addresses);
       case Subscribe():
         listener.onSubscribe(device, control);
       case SubscribeRefused():
@@ -642,7 +649,10 @@ final class Endpoint {
     final stamp = Uint8List(8);
     ByteData.sublistView(stamp).setInt64(0, _wallClock(), Endian.big);
     final message = attempt.handshake.writeMessage(Uint8List.fromList([...stamp, ..._nameBytes(identity.name)]));
-    transmit(attempt.address, Wire.encode(HandshakePacket(Wire.typeHello, 0, attempt.index, 0, message)));
+    final packet = Wire.encode(HandshakePacket(Wire.typeHello, 0, attempt.index, 0, message));
+    for (final address in attempt.addresses) {
+      transmit(address, packet);
+    }
   }
 
   int _newIndex() {
