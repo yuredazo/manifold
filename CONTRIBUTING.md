@@ -22,18 +22,18 @@ You need JDK 17 and the Android SDK (compile SDK 36).
 
 ### Windows hub
 
-You need Flutter (CI uses 3.44 stable) and Visual Studio with the "Desktop development with C++" workload.
+You need Rust stable, Visual Studio with the "Desktop development with C++" workload, and Python 3 for packaging.
 
 ```
-cd desktop
-flutter pub get
-flutter analyze
-flutter test
-flutter run -d windows
-flutter build windows --release
+cd windows
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test -p manifold-protocol
+cargo run -p manifold-hub
+cargo build --release -p manifold-hub
+./package.ps1 -Out manifold-hub-windows.zip
 ```
 
-The first configure downloads the Spout 2.007.017 sources from GitHub (a pinned archive, checked by SHA-256), so it needs internet access. The release build is in `desktop/build/windows/x64/runner/Release`.
+The first build downloads the Spout 2.007.017 sources from GitHub (a pinned archive, checked by SHA-256), so it needs internet access. The release build is `windows/target/release/manifold_hub.exe`, and `package.ps1` zips it with its licence files. More in [windows/README.md](windows/README.md).
 
 ### Across processes
 
@@ -59,7 +59,7 @@ The phases are `basic`, `hubkill`, `senderkill`, `consumerlost`, `misuse` and `a
 There are two protocols: the AIDL interface between apps and the hub on one phone, and the packets between hubs. Both have installed clients that you cannot update.
 
 - AIDL: add methods and `SenderInfo` fields at the end, and raise `Manifold.PROTOCOL_VERSION` for any change an older client cannot handle. The rules are in [docs/PROTOCOL.md](docs/PROTOCOL.md#versioning).
-- Network packets: the Kotlin code in `hub/.../network/protocol` and the Dart code in `desktop/lib/network/protocol` implement the same format and must change together. `desktop/test/fixtures/compat.txt` holds bytes the Kotlin code produces. `CompatFixturesTest` (Kotlin) and `compat_test.dart` (Dart) both compare their output with that file, so a format change shows up as a failure in both suites until the fixture and both implementations agree.
+- Network packets: the Kotlin code in `hub/.../network/protocol` and the Rust crate in `windows/protocol` implement the same format and must change together. `fixtures/compat.txt` holds bytes the Kotlin code produces. `CompatFixturesTest` (Kotlin) and `windows/protocol/tests/compat.rs` (Rust) both compare their output with that file, so a format change shows up as a failure in both suites until the fixture and both implementations agree.
 - A device must ignore control messages it does not understand and acknowledge them, so a newer device cannot make an older one drop the link. Keep that property when adding messages.
 
 ## Signing
@@ -75,13 +75,22 @@ keyPassword=...
 
 Without that file the release build is signed with the debug key so that you can still install it. Do not publish such a build or hand it to other people. An app signed with a different key cannot update one signed with another, so the release key has to stay the same for the life of the hub.
 
-## Continuous integration and releases
+## Releases
 
-Every push to `main` and every pull request runs two jobs. The Android job runs the unit tests and the API check and builds the hub and the probe. The Windows job runs the Dart analyzer and tests and builds the Windows hub. The debug APKs and the Windows zip are kept as workflow artifacts for 14 days.
+Releases are built and published from a PC with `release.ps1` in the repository root. There is no CI.
 
-Pushing a tag such as `v1.0.0` runs the release workflow. It builds the Android hub signed with the release key and attaches the APK to a GitHub release, then builds the Windows hub and attaches `manifold-hub-windows-v1.0.0.zip` to the same release. The tag has to match `versionName` in `hub/build.gradle.kts` and `version` in `desktop/pubspec.yaml`, and the workflow stops before publishing anything if either differs. Raise `versionCode` in the same commit, since Android refuses an update with a lower one.
+```
+./release.ps1            # build and check everything, publish nothing
+./release.ps1 -Publish   # the same, then create the GitHub release
+```
 
-The Android signing needs four repository secrets: `KEYSTORE_BASE64` (the keystore file, base64 encoded), `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`.
+The script needs a clean working tree whose commit is already pushed, `keystore.properties` with the release key (see "Signing"), the Android SDK, and the tools for the Windows hub. It reads `versionName` in `hub/build.gradle.kts` and `version` in `windows/hub/Cargo.toml`, stops if they differ or if their tag already exists on GitHub, and then:
+
+1. runs the Android unit tests and the API check and builds the release APK, and checks that it carries the release signature;
+2. runs Clippy and the protocol tests and builds the Windows hub, and zips it with its licence files;
+3. with `-Publish`, creates a draft release `v<version>` on the current commit, uploads `manifold-hub-v<version>.apk` and `manifold-hub-windows-v<version>.zip`, checks that GitHub lists the same SHA-256 for each as the local file, and only then publishes it. If any step fails, the draft is deleted again.
+
+The GitHub token is the login Git Credential Manager holds for github.com, the one `git push` uses, and the script never prints it. Release notes are empty unless you pass `-Notes`. Raise `versionCode` together with the version, since Android refuses an update with a lower one. The files stay in `build/release`.
 
 ## Style
 
