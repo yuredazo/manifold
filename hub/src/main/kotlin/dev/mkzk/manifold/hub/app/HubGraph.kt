@@ -2,6 +2,7 @@ package dev.mkzk.manifold.hub.app
 
 import android.app.Application
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.SharedPreferences
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -46,7 +47,9 @@ internal class HubGraph(app: Application) {
         )
 
         val net = app.getSharedPreferences("network", Context.MODE_PRIVATE)
-        val name = Settings.Global.getString(app.contentResolver, "device_name")?.takeIf { it.isNotBlank() } ?: Build.MODEL
+        val phone = Settings.Global.getString(app.contentResolver, "device_name")?.takeIf { it.isNotBlank() } ?: Build.MODEL
+        // A test build pairs as a device of its own, so its name has to tell it apart from the release app on the same phone.
+        val name = if (app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) "$phone Dev" else phone
         val wifi = app.getSystemService(WifiManager::class.java)
         val settings = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
         streamPreference = StreamPreference(settings.getString(PROFILE_KEY, null)) { settings.edit().putString(PROFILE_KEY, it).apply() }
