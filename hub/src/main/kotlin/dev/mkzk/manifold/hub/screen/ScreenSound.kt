@@ -5,14 +5,13 @@ import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.projection.MediaProjection
-import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.system.ErrnoException
-import android.system.Os
 import android.system.OsConstants
 import android.util.Log
-import androidx.annotation.RequiresApi
 import dev.mkzk.manifold.Manifold
+import dev.mkzk.manifold.hub.network.codec.makeNonBlocking
+import dev.mkzk.manifold.hub.network.codec.writeNow
 import java.io.FileDescriptor
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -46,7 +45,7 @@ internal class SoundCapture(
         // Not owned: the registry closes the pipe when the subscription ends.
         val descriptor = sink.fileDescriptor
         try {
-            Os.fcntlInt(descriptor, OsConstants.F_SETFL, Os.fcntlInt(descriptor, OsConstants.F_GETFL, 0) or OsConstants.O_NONBLOCK)
+            descriptor.makeNonBlocking()
         } catch (e: ErrnoException) {
             Log.w(TAG, "cannot make the sound pipe non-blocking: ${e.message}")
         }
@@ -105,7 +104,7 @@ internal class SoundCapture(
                 try {
                     // A chunk is no bigger than PIPE_BUF, so it goes in whole or not at all. A watcher that has stopped
                     // reading loses that chunk and no one else waits for it.
-                    Os.write(descriptor, chunk, 0, read)
+                    descriptor.writeNow(chunk, 0, read)
                 } catch (e: ErrnoException) {
                     if (e.errno != OsConstants.EAGAIN) sinks.remove(id)
                 }
@@ -128,13 +127,11 @@ internal class SoundCapture(
     }
 }
 
-/** Null where Android cannot capture playback or the sound permission was refused: the screen is then shared without it. */
+// Null when the sound permission was refused: the screen is then shared without it.
 internal fun openSound(projection: MediaProjection, excludedUids: Set<Int>, onLost: () -> Unit): SoundCapture? {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
     return playbackRecord(projection, excludedUids)?.let { SoundCapture(it, { uids -> playbackRecord(projection, uids) }, onLost) }
 }
 
-@RequiresApi(Build.VERSION_CODES.Q)
 private fun playbackRecord(projection: MediaProjection, excludedUids: Set<Int>): AudioRecord? {
     return try {
         val capture = AudioPlaybackCaptureConfiguration.Builder(projection)

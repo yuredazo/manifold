@@ -6,7 +6,7 @@ A small hub app introduces the two sides and lets the phone's owner decide which
 
 Hubs on different devices, Android phones and a Windows PC, can also pair and share feeds over an encrypted network link. A feed from another device shows up to local apps as an ordinary sender.
 
-Requirements: Android 7.0 (API 24) or later for the SDK and the hub, 64-bit Windows for the PC hub. Tested on two Android 14 phones and on Windows 11.
+Requirements: Android 7.0 (API 24) or later for the SDK, Android 10 (API 29) or later for the hub, 64-bit Windows for the PC hub. Tested on two Android 14 phones and on Windows 11.
 
 ## What is in this repository
 

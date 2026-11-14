@@ -4,8 +4,6 @@ import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.ParcelFileDescriptor
 import android.system.ErrnoException
-import android.system.Os
-import android.system.OsConstants
 import android.util.Log
 import dev.mkzk.manifold.Manifold
 import java.io.FileDescriptor
@@ -24,9 +22,6 @@ private const val MAX_QUEUED_FRAMES = 64
 /** Decoding takes a few milliseconds, and a frame is handed to the decoder this long before it is due. */
 private const val DECODE_LEAD_NS = 30_000_000L
 
-/** Linux asks for F_SETPIPE_SZ by number; Android's constants do not list it. */
-private const val F_SETPIPE_SZ = 1031
-
 /** Two chunks of sound. What the player has not played yet is what the sound lags the picture by, so the pipe is kept small. */
 private const val PIPE_BYTES = 8_192
 
@@ -40,8 +35,7 @@ private val CONFIG = byteArrayOf(0x11, 0x90.toByte())
 private class PipeSink(private val descriptor: FileDescriptor) : PcmSink {
     init {
         try {
-            Os.fcntlInt(descriptor, OsConstants.F_SETFL, Os.fcntlInt(descriptor, OsConstants.F_GETFL, 0) or OsConstants.O_NONBLOCK)
-            Os.fcntlInt(descriptor, F_SETPIPE_SZ, PIPE_BYTES)
+            descriptor.makeNonBlocking(PIPE_BYTES)
         } catch (e: ErrnoException) {
             Log.w(TAG, "cannot size the sound pipe: ${e.message}")
         }
@@ -49,9 +43,9 @@ private class PipeSink(private val descriptor: FileDescriptor) : PcmSink {
 
     override fun write(bytes: ByteArray, offset: Int, length: Int): Int =
         try {
-            Os.write(descriptor, bytes, offset, length)
+            descriptor.writeNow(bytes, offset, length)
         } catch (e: ErrnoException) {
-            if (e.errno == OsConstants.EAGAIN) 0 else throw IOException(e)
+            throw IOException(e)
         }
 }
 

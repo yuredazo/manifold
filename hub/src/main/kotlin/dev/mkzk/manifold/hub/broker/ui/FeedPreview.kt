@@ -336,7 +336,7 @@ private fun Checkerboard() {
 @Composable
 private fun rememberPictureInPicture(ratio: Float, enabled: Boolean, onModeChanged: (Boolean) -> Unit): (() -> Unit)? {
     val activity = LocalContext.current.componentActivity()
-    val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null && enabled
+    val supported = activity != null && enabled
     val latestModeChanged by rememberUpdatedState(onModeChanged)
     // Android refuses shapes wider than about 2.39 to 1 or taller than 1 to 2.39.
     val shape = Rational((ratio.coerceIn(0.42f, 2.39f) * 1000).toInt(), 1000)
@@ -377,10 +377,8 @@ private fun FullScreenWindow() {
         if (window != null) {
             window.setDimAmount(0f)
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                window.attributes = window.attributes.also {
-                    it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
+            window.attributes = window.attributes.also {
+                it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
             WindowCompat.setDecorFitsSystemWindows(window, false)
             WindowCompat.getInsetsController(window, view).apply {

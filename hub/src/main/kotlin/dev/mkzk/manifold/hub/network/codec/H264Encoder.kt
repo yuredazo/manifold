@@ -95,7 +95,7 @@ internal class H264Encoder(width: Int, height: Int, bitrateKbps: Int, frameRate:
             setInteger(MediaFormat.KEY_BIT_RATE, bitrateKbps * 1000)
             setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
             // A feed that draws faster than was asked for would otherwise be encoded at its own speed.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setInteger(MediaFormat.KEY_MAX_FPS_TO_ENCODER, frameRate)
+            setInteger(MediaFormat.KEY_MAX_FPS_TO_ENCODER, frameRate)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_SECONDS)
             if (tuned) {
                 setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)

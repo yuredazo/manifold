@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
-import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -65,11 +64,9 @@ class NetworkService : Service() {
      * Power saving can hold a packet for a hundred milliseconds while the radio wakes. Low latency mode prevents that, but only
      * while the app is in the foreground with the screen on; older versions only have high performance mode.
      */
-    @Suppress("DEPRECATION")
     private fun holdWifiAwake() {
-        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
         wifiLock = applicationContext.getSystemService(WifiManager::class.java)
-            ?.createWifiLock(mode, "manifold:network")
+            ?.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "manifold:network")
             ?.apply { setReferenceCounted(false) }
             ?.also { it.acquire() }
     }

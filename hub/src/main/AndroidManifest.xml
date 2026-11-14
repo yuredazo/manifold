@@ -29,7 +29,7 @@
         android:name=".app.HubApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="Manifold"
+        android:label="@string/app_name"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
         <!-- No permission on purpose. A custom permission is only granted to apps installed

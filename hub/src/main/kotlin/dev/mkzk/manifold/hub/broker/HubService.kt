@@ -4,7 +4,6 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Binder
-import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
@@ -151,14 +150,9 @@ class HubService : Service() {
         return Owner(uid, packageName, label, signingCertificate(packageName))
     }
 
-    @Suppress("DEPRECATION")
     private fun signingCertificate(packageName: String): String = try {
-        val signature = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-                .signingInfo?.apkContentsSigners?.firstOrNull()
-        } else {
-            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures?.firstOrNull()
-        }
+        val signature = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            .signingInfo?.apkContentsSigners?.firstOrNull()
         signature?.let { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } } ?: ""
     } catch (_: PackageManager.NameNotFoundException) {
         ""

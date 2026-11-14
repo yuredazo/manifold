@@ -3,19 +3,19 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.mikepenz.aboutlibraries.plugin.android")
 }
 
 val keystoreProperties = rootProject.file("keystore.properties")
 
 android {
     namespace = "dev.mkzk.manifold.hub"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
-        applicationId = "dev.mkzk.manifold"
-        minSdk = 24
+        applicationId = "dev.mkzk.manifold" + (findProperty("idSuffix") ?: "")
+        minSdk = 29
         targetSdk = 36
         versionCode = 9
         versionName = "1.5.0"
@@ -87,6 +87,7 @@ dependencies {
 
     // Lightweight API only (X25519 and ChaCha20-Poly1305), so it works on every supported Android version.
     implementation("org.bouncycastle:bcprov-jdk18on:1.86")
+    implementation("com.mikepenz:aboutlibraries-core:15.2.0")
 
     testImplementation("junit:junit:4.13.2")
     // The android.jar used by unit tests only has stubs for org.json.
