@@ -2,14 +2,12 @@ package dev.mkzk.manifold.hub.screen
 
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -19,15 +17,11 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,15 +40,16 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mkzk.manifold.hub.R
-import dev.mkzk.manifold.hub.ui.ControlShape
-import dev.mkzk.manifold.hub.ui.IconBadge
-import dev.mkzk.manifold.hub.ui.ListRow
-import dev.mkzk.manifold.hub.ui.Panel
-import dev.mkzk.manifold.hub.ui.PanelDivider
+import dev.mkzk.manifold.hub.ui.ButtonKind
+import dev.mkzk.manifold.hub.ui.ModalButton
+import dev.mkzk.manifold.hub.ui.ModalField
 import dev.mkzk.manifold.hub.ui.Sheet
+import dev.mkzk.manifold.hub.ui.SheetList
+import dev.mkzk.manifold.hub.ui.SheetListDivider
+import dev.mkzk.manifold.hub.ui.SheetListRow
+import dev.mkzk.manifold.hub.ui.SheetNote
 import dev.mkzk.manifold.hub.ui.SheetTitle
-import dev.mkzk.manifold.hub.ui.SwitchRow
-import dev.mkzk.manifold.hub.ui.secondaryText
+import dev.mkzk.manifold.hub.ui.SquareIcon
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -74,73 +69,61 @@ internal fun ScreenShareSheet(
     val muted by screenShare.muted.collectAsStateWithLifecycle()
     var withSound by rememberSaveable { mutableStateOf(true) }
     var picking by rememberSaveable { mutableStateOf(false) }
-    val soundPossible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
     val iconPx = with(LocalDensity.current) { AppIconSize.roundToPx() }
     val apps by produceState<List<LaunchableApp>?>(null) {
-        value = if (soundPossible) withContext(Dispatchers.IO) { launchableApps(context, iconPx) } else emptyList()
+        value = withContext(Dispatchers.IO) { launchableApps(context, iconPx) }
     }
     fun toggle(packageName: String) = screenShare.setMuted(if (packageName in muted) muted - packageName else muted + packageName)
 
-    Sheet(onDismiss = onDismiss) {
+    Sheet(onDismiss = onDismiss) { modal ->
         if (picking) {
             BackHandler { picking = false }
             AppPicker(apps, muted, ::toggle, onBack = { picking = false })
         } else {
             SheetTitle(stringResource(if (state.sharing) R.string.screen_sharing_title else R.string.screen_share))
             if (state.sharing) {
-                Panel {
-                    ListRow(
+                SheetList {
+                    SheetListRow(
                         title = if (watchers > 0) stringResource(R.string.screen_watching, watchers) else stringResource(R.string.screen_nobody_watching),
-                        leading = { IconBadge(Icons.Outlined.Visibility, active = watchers > 0) },
+                        onClick = null,
+                        leading = { SquareIcon(Icons.Outlined.Visibility, active = watchers > 0) },
                     )
-                    if (soundPossible) {
-                        PanelDivider()
-                        ListRow(
-                            title = stringResource(R.string.screen_sound),
-                            subtitle = stringResource(if (state.sound) R.string.screen_sound_on else R.string.screen_sound_off),
-                            leading = {
-                                IconBadge(if (state.sound) Icons.AutoMirrored.Outlined.VolumeUp else Icons.AutoMirrored.Outlined.VolumeOff, active = state.sound)
-                            },
-                        )
-                    }
-                }
-            } else if (soundPossible) {
-                Panel {
-                    SwitchRow(
+                    SheetListDivider()
+                    SheetListRow(
                         title = stringResource(R.string.screen_sound),
-                        checked = withSound,
-                        onChange = { withSound = it },
+                        subtitle = stringResource(if (state.sound) R.string.screen_sound_on else R.string.screen_sound_off),
+                        onClick = null,
+                        leading = {
+                            SquareIcon(if (state.sound) Icons.AutoMirrored.Outlined.VolumeUp else Icons.AutoMirrored.Outlined.VolumeOff, active = state.sound)
+                        },
+                    )
+                }
+            } else {
+                SheetList {
+                    SheetListRow(
+                        title = stringResource(R.string.screen_sound),
                         subtitle = stringResource(R.string.screen_sound_hint),
-                        icon = Icons.AutoMirrored.Outlined.VolumeUp,
+                        role = Role.Switch,
+                        leading = { SquareIcon(Icons.AutoMirrored.Outlined.VolumeUp, active = withSound) },
+                        trailing = { Switch(checked = withSound, onCheckedChange = null) },
+                        onClick = { withSound = !withSound },
                     )
                 }
             }
 
-            val soundOn = if (state.sharing) state.sound else soundPossible && withSound
+            val soundOn = if (state.sharing) state.sound else withSound
             if (soundOn) MutedApps(apps, muted, onUnmute = ::toggle, onAdd = { picking = true })
 
             if (state.sharing) {
-                Button(
-                    onClick = {
+                ModalButton(stringResource(R.string.screen_stop), ButtonKind.Danger, Modifier.fillMaxWidth()) {
+                    modal.close {
                         screenShare.stop()
                         onDismiss()
-                    },
-                    shape = ControlShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.screen_stop))
+                    }
                 }
             } else {
-                Text(
-                    stringResource(R.string.screen_menu_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = secondaryText(),
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-                Button(onClick = { start(soundPossible && withSound) }, shape = ControlShape, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.screen_start))
-                }
+                SheetNote(stringResource(R.string.screen_menu_note))
+                ModalButton(stringResource(R.string.screen_start), ButtonKind.Main, Modifier.fillMaxWidth()) { start(withSound) }
             }
         }
     }
@@ -149,12 +132,12 @@ internal fun ScreenShareSheet(
 @Composable
 private fun MutedApps(apps: List<LaunchableApp>?, muted: Set<String>, onUnmute: (String) -> Unit, onAdd: () -> Unit) {
     val shown = apps.orEmpty().filter { it.packageName in muted }
-    Panel(title = stringResource(R.string.screen_muted), meta = shown.size.takeIf { it > 0 }?.toString()) {
+    SheetList(label = stringResource(R.string.screen_muted), meta = shown.size.takeIf { it > 0 }?.toString()) {
         shown.forEach { app ->
-            ListRow(
+            SheetListRow(
                 title = app.label,
-                titleMaxLines = 1,
                 subtitle = app.packageName.takeIf { app.sharesLabel },
+                onClick = null,
                 leading = { AppIcon(app) },
                 trailing = {
                     IconButton(onClick = { onUnmute(app.packageName) }) {
@@ -162,12 +145,12 @@ private fun MutedApps(apps: List<LaunchableApp>?, muted: Set<String>, onUnmute: 
                     }
                 },
             )
-            PanelDivider()
+            SheetListDivider()
         }
-        ListRow(
+        SheetListRow(
             title = stringResource(R.string.screen_mute_app),
             subtitle = if (apps != null && shown.isEmpty()) stringResource(R.string.screen_mute_none) else null,
-            leading = { IconBadge(Icons.Outlined.Add) },
+            leading = { SquareIcon(Icons.Outlined.Add) },
             trailing = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
             onClick = onAdd,
         )
@@ -177,40 +160,33 @@ private fun MutedApps(apps: List<LaunchableApp>?, muted: Set<String>, onUnmute: 
 @Composable
 private fun AppPicker(apps: List<LaunchableApp>?, muted: Set<String>, onToggle: (String) -> Unit, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
             Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.common_back))
         }
-        Text(stringResource(R.string.screen_mute_app), style = MaterialTheme.typography.titleLarge)
+        SheetTitle(stringResource(R.string.screen_mute_app), Modifier.padding(horizontal = 40.dp))
     }
-    OutlinedTextField(
-        value = query,
-        onValueChange = { query = it },
-        placeholder = { Text(stringResource(R.string.screen_search)) },
-        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-        singleLine = true,
-        shape = ControlShape,
-        modifier = Modifier.fillMaxWidth(),
-    )
+    ModalField(query, { query = it }, stringResource(R.string.screen_search), leading = Icons.Outlined.Search)
     val needle = query.trim()
     val matching = apps?.filter { it.label.contains(needle, ignoreCase = true) }
-    Panel {
+    SheetList {
         when {
-            matching == null -> ListRow(
+            matching == null -> SheetListRow(
                 title = stringResource(R.string.screen_loading_apps),
-                leading = { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp) },
+                onClick = null,
+                leading = { Box(Modifier.size(AppIconSize), contentAlignment = Alignment.Center) { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp) } },
             )
-            matching.isEmpty() -> ListRow(title = stringResource(R.string.screen_no_match, needle))
+            matching.isEmpty() -> SheetListRow(title = stringResource(R.string.screen_no_match, needle), onClick = null)
             else -> matching.forEachIndexed { index, app ->
-                if (index > 0) PanelDivider()
+                if (index > 0) SheetListDivider()
                 val checked = app.packageName in muted
-                ListRow(
+                SheetListRow(
                     title = app.label,
-                    titleMaxLines = 1,
                     subtitle = app.packageName.takeIf { app.sharesLabel },
-                    modifier = Modifier.toggleable(value = checked, role = Role.Checkbox, onValueChange = { onToggle(app.packageName) }),
+                    role = Role.Checkbox,
                     leading = { AppIcon(app) },
                     trailing = { Checkbox(checked = checked, onCheckedChange = null) },
+                    onClick = { onToggle(app.packageName) },
                 )
             }
         }

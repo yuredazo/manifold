@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -29,6 +30,7 @@ class HubActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        useFastestRefreshRate()
         val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         if (needsPermission && savedInstanceState == null) askForNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -38,8 +40,18 @@ class HubActivity : ComponentActivity() {
         NetworkService.restore(this)
 
         setContent {
-            HubTheme { HubShell(graph, notificationsOn, ::openNotificationSettings, screenShareRequest::begin) }
+            val wallpaperColors by graph.theme.wallpaperColors.collectAsState()
+            HubTheme(wallpaperColors) { HubShell(graph, notificationsOn, ::openNotificationSettings, screenShareRequest::begin) }
         }
+    }
+
+    private fun useFastestRefreshRate() {
+        val display = windowManager.defaultDisplay
+        val current = display.mode
+        val fastest = display.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+            .maxByOrNull { it.refreshRate } ?: return
+        window.attributes = window.attributes.apply { preferredDisplayModeId = fastest.modeId }
     }
 
     override fun onResume() {

@@ -27,6 +27,7 @@ private const val DEVICES_KEY = "devices"
 private const val CHECK_KEY = "update_check"
 private const val PROFILE_KEY = "stream_profile"
 private const val MUTED_KEY = "screen_muted"
+private const val WALLPAPER_KEY = "wallpaper_colors"
 
 /** The one place that knows how the features are connected. Services and receivers get theirs through [hubGraph]. */
 internal class HubGraph(app: Application) {
@@ -35,6 +36,7 @@ internal class HubGraph(app: Application) {
     val updater: Updater
     val streamPreference: StreamPreference
     val screenShare: ScreenShare
+    val theme: ThemePreference
 
     init {
         val access = app.getSharedPreferences("access", Context.MODE_PRIVATE)
@@ -63,6 +65,8 @@ internal class HubGraph(app: Application) {
             checkOnLaunch = settings.getBoolean(CHECK_KEY, true),
             saveCheckOnLaunch = { settings.edit().putBoolean(CHECK_KEY, it).apply() },
         )
+
+        theme = ThemePreference(settings.getBoolean(WALLPAPER_KEY, true)) { settings.edit().putBoolean(WALLPAPER_KEY, it).apply() }
 
         screenShare = ScreenShare(registry, settings.getStringSet(MUTED_KEY, null).orEmpty().toSet()) {
             settings.edit().putStringSet(MUTED_KEY, it).apply()

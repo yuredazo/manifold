@@ -22,7 +22,7 @@
     <string name="devices_this_phone">This phone</string>
     <string name="devices_details">Address and fingerprint</string>
     <string name="devices_delay">Delay when watching</string>
-    <string name="devices_details_off">Accept connections is off, so there is no address to show.</string>
+    <string name="devices_details_off">Turn on Allow connections to get an address.</string>
     <string name="address_local">Local</string>
     <string name="address_public">Public</string>
     <string name="address_lookup">Look up</string>
@@ -33,17 +33,18 @@
     <string name="devices_pair">Pair a device</string>
     <string name="pair_nearby_title">Nearby</string>
     <string name="pair_nearby_looking">Looking for devices</string>
-    <string name="pair_nearby_hint">Devices that allow pairing show up here.</string>
+    <string name="pair_nearby_hint">Devices open to pairing appear here.</string>
     <string name="pair_enter_title">Enter its address</string>
-    <string name="pair_enter_body">Type the address the other device shows.</string>
-    <string name="pair_show_title">Let another device pair with this one</string>
-    <string name="pair_show_body">Then type this phone&#8217;s address there.</string>
+    <string name="pair_enter_body">Type the other device’s address.</string>
+    <string name="pair_show_title">Let another device pair</string>
+    <string name="pair_show_body">Then type this phone’s address on it.</string>
     <string name="pair_open_hint">Nearby devices can see this phone</string>
     <string name="common_close">Close</string>
     <string name="common_back">Back</string>
     <string name="devices_pairing_open">Pairing open, %1$s left</string>
     <string name="devices_paired_header">Paired devices</string>
-    <string name="devices_none">No device is paired yet.</string>
+    <string name="devices_none_title">No paired devices</string>
+    <string name="devices_none_body">Pair one to swap feeds with it.</string>
 
     <string name="device_online">online</string>
     <string name="device_latency">%1$d ms</string>
@@ -61,15 +62,15 @@
     <string name="device_offers_nothing">Offers no feeds right now</string>
     <string name="device_options">Device options</string>
     <string name="device_unpair">Unpair</string>
-    <string name="device_refused_not_shared">%1$s: that device has not allowed this one to watch. Switch on Share my feeds there.</string>
+    <string name="device_refused_not_shared">%1$s: turn on Let it watch what I share on that device.</string>
     <string name="device_refused_not_found">%1$s: that device no longer has this feed.</string>
-    <string name="device_refused_busy">%1$s: that device is already sending as many streams as it allows.</string>
-    <string name="device_refused_failed">%1$s: that device could not start sending it.</string>
+    <string name="device_refused_busy">%1$s: that device is sending all the streams it can.</string>
+    <string name="device_refused_failed">%1$s: that device couldn’t start it.</string>
     <string name="device_unpair_title">Unpair %1$s?</string>
-    <string name="device_unpair_body">It has to be paired again before it can connect.</string>
+    <string name="device_unpair_body">You’ll need to pair it again to connect.</string>
 
     <string name="pair_address_title">Pair a device</string>
-    <string name="pair_address_help">On the other device, open Devices, switch on Accept connections, tap Pair a device and choose to let another device pair with it. It shows its address.</string>
+    <string name="pair_address_help">On the other device, turn on Allow connections, then pick Let another device pair.</string>
     <string name="pair_address_hint">Address of the other device</string>
     <string name="pair_start">Pair</string>
     <string name="pair_connecting">Connecting to %1$s...</string>
@@ -85,13 +86,13 @@
 
     <string name="channel_screen">Screen sharing</string>
     <string name="screen_notice_title">Sharing this screen</string>
-    <string name="screen_notice_text">Devices you allowed can watch what you chose to share.</string>
+    <string name="screen_notice_text">Devices you allowed can watch what you share.</string>
     <string name="screen_share">Share screen</string>
     <string name="screen_sharing_title">Sharing your screen</string>
     <string name="screen_sharing">Sharing</string>
     <string name="screen_watching">%1$d watching</string>
     <string name="screen_nobody_watching">Nobody is watching yet</string>
-    <string name="screen_menu_note">Where Android allows it, you can pick a single app next.</string>
+    <string name="screen_menu_note">You may get to pick a single app next.</string>
     <string name="screen_sound">Sound</string>
     <string name="screen_sound_hint">What the phone plays</string>
     <string name="screen_sound_on">Included in the share</string>
@@ -108,13 +109,13 @@
     <string name="screen_failed">The screen could not be shared.</string>
 
     <string name="live_empty_title">No feeds yet</string>
-    <string name="live_empty_body">Feeds from your other devices and from apps on this phone show up here.</string>
+    <string name="live_empty_body">Feeds from your apps and devices show up here.</string>
     <string name="live_waiting_sender">Waiting for a sender</string>
-    <string name="notifications_off">Notifications are off. You will not hear when an app asks to watch.</string>
+    <string name="notifications_off">Notifications are off. You won’t see watch requests.</string>
     <string name="notifications_turn_on">Turn on</string>
 
     <string name="pending_wants">Wants to watch %1$s</string>
-    <string name="cert_changed_pending">This app is signed with a different certificate than when you last decided.</string>
+    <string name="cert_changed_pending">This app’s signature changed since you last decided.</string>
     <string name="action_allow">Allow</string>
     <string name="action_block">Block</string>
 
@@ -133,7 +134,7 @@
     <string name="preview_fill">Fill the screen</string>
     <string name="preview_fit">Fit the screen</string>
     <string name="preview_unmute">Unmute</string>
-    <string name="preview_refused">The preview could not start. Close it and try again.</string>
+    <string name="preview_refused">The preview couldn’t start. Close it and try again.</string>
     <string name="feed_more_watchers">+%1$d more</string>
 
     <string name="watch_short_waiting">waiting</string>
@@ -141,7 +142,8 @@
     <string name="watch_short_blocked">blocked</string>
 
     <string name="apps_needs_answer">Needs your answer</string>
-    <string name="apps_empty">No app has asked to watch a feed yet.</string>
+    <string name="apps_empty_title">No apps yet</string>
+    <string name="apps_empty_body">Apps that ask to watch a feed show up here.</string>
     <string name="access_allowed">Allowed</string>
     <string name="access_blocked">Blocked</string>
     <string name="menu_allow">Allow</string>
@@ -149,16 +151,40 @@
     <string name="menu_ask">Ask each time</string>
     <string name="menu_ask_hint">Waits until you allow or block it.</string>
     <string name="menu_block">Block</string>
-    <string name="menu_block_hint">Gets no feeds and not even their names.</string>
+    <string name="menu_block_hint">Gets no feeds, not even their names.</string>
     <string name="app_connected">connected</string>
     <string name="cert_changed">Signing certificate changed</string>
 
-    <string name="about_body">Sends live video between apps on this phone and to your other devices. On this phone the video never passes through the hub.</string>
-    <string name="about_title">Manifold %1$s</string>
     <string name="about_source">Source code</string>
     <string name="about_how">How it works</string>
     <string name="about_report">Report a vulnerability</string>
-    <string name="about_license">License: Apache 2.0</string>
+    <string name="about_license">License</string>
+    <string name="settings_wallpaper_colors">Wallpaper colors</string>
+    <string name="settings_footer">Manifold %1$s by MKZK</string>
+    <string name="app_name_plain">Manifold</string>
+    <string name="about_tagline">Live video between your apps and devices.</string>
+    <string name="about_version">Version %1$s by MKZK</string>
+    <string name="about_tile_note">Version %1$s</string>
+    <string name="about_local_title">Between apps</string>
+    <string name="about_local_body">Apps hand video straight to each other.</string>
+    <string name="about_remote_title">To your other devices</string>
+    <string name="about_remote_body">Paired over your network and encrypted.</string>
+    <string name="about_open_title">Open source</string>
+    <string name="about_open_body">Apache 2.0, with the code on GitHub.</string>
+    <string name="ack_title">Acknowledgements</string>
+    <string name="ack_subtitle">%1$d open source projects. Tap one to read its license.</string>
+    <string name="ack_all">All libraries</string>
+    <string name="ack_all_note">Every other library in the app</string>
+    <string name="ack_all_subtitle">%1$d libraries. Tap one to read its license.</string>
+    <string name="ack_website">Website</string>
+    <string name="ack_group_encryption">Encryption</string>
+    <string name="ack_group_interface">Interface</string>
+    <string name="ack_group_language">Language</string>
+    <string name="ack_bouncy_castle">Encrypts video to your other devices.</string>
+    <string name="ack_compose">The UI toolkit, with Material 3.</string>
+    <string name="ack_icons">The icons.</string>
+    <string name="ack_kotlin">The language Manifold is written in.</string>
+    <string name="ack_coroutines">Runs background work in the hub.</string>
     <string name="stream_low_title">Lowest delay</string>
     <string name="stream_low_body">About 0.1 s, may stutter on weak Wi-Fi.</string>
     <string name="stream_balanced_title">Balanced</string>
@@ -179,10 +205,17 @@
     <string name="update_announce_title">Version %1$s is available</string>
     <string name="update_downloading">Downloading %1$s</string>
     <string name="update_confirming">Waiting for Android</string>
-    <string name="update_confirming_detail">Confirm the install in the system prompt</string>
+    <string name="update_confirming_detail">Confirm it in the system prompt.</string>
     <string name="update_check_failed">Update check failed</string>
     <string name="update_failed">Update failed</string>
     <string name="update_try_again">Try again</string>
+    <string name="update_title">Updates</string>
+    <string name="update_value_idle">Not checked</string>
+    <string name="update_value_available">%1$s available</string>
+    <string name="update_value_failed">Check failed</string>
+    <string name="update_all_releases">All releases</string>
+    <string name="update_busy_checking">Checking</string>
+    <string name="update_busy_downloading">Downloading</string>
     <string name="update_on_launch">Check for updates on launch</string>
     <string name="settings_notifications">Notify me about requests</string>
     <string name="settings_notifications_on">When an app asks to watch</string>
@@ -190,15 +223,15 @@
     <string name="update_release_page">Release page</string>
     <string name="problem_offline">Could not reach GitHub.</string>
     <string name="problem_timeout">GitHub did not answer in time.</string>
-    <string name="problem_rate_limited">GitHub is limiting requests from this network. Try again later.</string>
-    <string name="problem_rate_limited_at">GitHub is limiting requests from this network. Try again after %1$s.</string>
+    <string name="problem_rate_limited">GitHub is rate limiting this network. Try later.</string>
+    <string name="problem_rate_limited_at">GitHub is rate limiting this network. Try after %1$s.</string>
     <string name="problem_status">GitHub answered %1$s.</string>
-    <string name="problem_bad_answer">GitHub sent an answer this version does not understand.</string>
-    <string name="problem_no_download">Version %1$s is out, but it has no Android download that can be checked yet.</string>
+    <string name="problem_bad_answer">GitHub sent an answer this version can’t read.</string>
+    <string name="problem_no_download">Version %1$s has no Android download to check yet.</string>
     <string name="problem_download_failed">The download failed or was interrupted.</string>
     <string name="problem_too_large">The download is larger than expected.</string>
-    <string name="problem_bad_checksum">The download does not match the checksum GitHub lists for it, so it was thrown away.</string>
-    <string name="problem_signature">Android refused it because it is signed with a different key than the installed app. A build made from source cannot be updated this way.</string>
+    <string name="problem_bad_checksum">The download didn’t match its checksum, so it was discarded.</string>
+    <string name="problem_signature">It’s signed with a different key than this app. Builds made from source can’t update this way.</string>
     <string name="problem_install_failed">Android could not install it.</string>
     <string name="problem_install_failed_detail">Android could not install it: %1$s</string>
 </resources>

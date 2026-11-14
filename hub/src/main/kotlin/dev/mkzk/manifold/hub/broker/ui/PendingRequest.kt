@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,7 +18,8 @@ import dev.mkzk.manifold.hub.broker.Access
 import dev.mkzk.manifold.hub.broker.PendingRow
 import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.ui.Banner
-import dev.mkzk.manifold.hub.ui.ControlShape
+import dev.mkzk.manifold.hub.ui.ButtonKind
+import dev.mkzk.manifold.hub.ui.ModalButton
 import dev.mkzk.manifold.hub.ui.secondaryText
 
 @Composable
@@ -39,7 +38,7 @@ internal fun PendingBanner(row: PendingRow, registry: Registry) {
 @Composable
 internal fun AnswerButtons(packageName: String, registry: Registry, modifier: Modifier = Modifier) {
     Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-        OutlinedButton(onClick = { registry.setAccess(packageName, Access.BLOCKED) }, shape = ControlShape) { Text(stringResource(R.string.action_block)) }
-        Button(onClick = { registry.setAccess(packageName, Access.ALLOWED) }, shape = ControlShape) { Text(stringResource(R.string.action_allow)) }
+        ModalButton(stringResource(R.string.action_block), ButtonKind.Quiet, Modifier) { registry.setAccess(packageName, Access.BLOCKED) }
+        ModalButton(stringResource(R.string.action_allow), ButtonKind.Main, Modifier) { registry.setAccess(packageName, Access.ALLOWED) }
     }
 }

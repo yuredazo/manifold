@@ -24,19 +24,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.mkzk.manifold.hub.R
 import dev.mkzk.manifold.hub.broker.Access
 import dev.mkzk.manifold.hub.broker.AppRow
 import dev.mkzk.manifold.hub.broker.PendingRow
 import dev.mkzk.manifold.hub.broker.Registry
+import dev.mkzk.manifold.hub.ui.EmptyNotice
 import dev.mkzk.manifold.hub.ui.IconBadge
 import dev.mkzk.manifold.hub.ui.ListRow
 import dev.mkzk.manifold.hub.ui.Panel
 import dev.mkzk.manifold.hub.ui.PanelDivider
 import dev.mkzk.manifold.hub.ui.Sheet
+import dev.mkzk.manifold.hub.ui.SheetList
+import dev.mkzk.manifold.hub.ui.SheetListDivider
+import dev.mkzk.manifold.hub.ui.SheetListRow
 import dev.mkzk.manifold.hub.ui.SheetTitle
-import dev.mkzk.manifold.hub.ui.secondaryText
+import dev.mkzk.manifold.hub.ui.SquareIcon
 
 @Composable
 internal fun AppsScreen(registry: Registry, apps: List<AppRow>, pending: List<PendingRow>, modifier: Modifier = Modifier) {
@@ -49,7 +54,7 @@ internal fun AppsScreen(registry: Registry, apps: List<AppRow>, pending: List<Pe
     ) {
         if (apps.isEmpty() && pending.isEmpty()) {
             item {
-                Panel { ListRow(title = stringResource(R.string.apps_empty), leading = { IconBadge(Icons.Outlined.Extension) }) }
+                EmptyNotice(Icons.Outlined.Extension, stringResource(R.string.apps_empty_title), stringResource(R.string.apps_empty_body), Modifier.fillParentMaxSize())
             }
         }
         if (pending.isNotEmpty()) {
@@ -122,28 +127,23 @@ private fun look(access: Access) = when (access) {
 
 @Composable
 private fun AccessSheet(app: AppRow, onPick: (Access) -> Unit, onDismiss: () -> Unit) {
-    Sheet(onDismiss) {
-        SheetTitle(app.app)
-        Text(
-            app.packageName,
-            style = MaterialTheme.typography.bodySmall,
-            color = secondaryText(),
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-        Panel {
+    Sheet(onDismiss) { modal ->
+        SheetTitle(app.app, subtitle = app.packageName)
+        SheetList {
             listOf(Access.ALLOWED, Access.ASK, Access.BLOCKED).forEachIndexed { index, option ->
-                if (index > 0) PanelDivider()
+                if (index > 0) SheetListDivider()
                 val shown = look(option)
-                ListRow(
+                val picked = app.access == option
+                val danger = option == Access.BLOCKED
+                SheetListRow(
                     title = stringResource(shown.menu),
                     subtitle = stringResource(shown.hint),
-                    titleColor = if (option == Access.BLOCKED) MaterialTheme.colorScheme.error else Color.Unspecified,
-                    leading = { IconBadge(shown.icon, active = app.access == option) },
-                    trailing = { RadioButton(selected = app.access == option, onClick = null) },
-                    onClick = {
-                        onPick(option)
-                        onDismiss()
-                    },
+                    titleColor = if (danger) MaterialTheme.colorScheme.error else Color.Unspecified,
+                    selected = picked,
+                    role = Role.RadioButton,
+                    leading = { SquareIcon(shown.icon, active = picked && !danger, tint = MaterialTheme.colorScheme.error.takeIf { danger && picked }) },
+                    trailing = { RadioButton(selected = picked, onClick = null) },
+                    onClick = { modal.close { onPick(option); onDismiss() } },
                 )
             }
         }

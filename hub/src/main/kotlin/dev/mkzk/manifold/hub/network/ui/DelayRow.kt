@@ -5,7 +5,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Balance
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Waves
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -19,16 +22,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.mkzk.manifold.hub.R
 import dev.mkzk.manifold.hub.network.StreamPreference
 import dev.mkzk.manifold.hub.network.stream.StreamProfile
 import dev.mkzk.manifold.hub.ui.IconBadge
 import dev.mkzk.manifold.hub.ui.ListRow
-import dev.mkzk.manifold.hub.ui.Panel
-import dev.mkzk.manifold.hub.ui.PanelDivider
 import dev.mkzk.manifold.hub.ui.Sheet
+import dev.mkzk.manifold.hub.ui.SheetList
+import dev.mkzk.manifold.hub.ui.SheetListDivider
+import dev.mkzk.manifold.hub.ui.SheetListRow
 import dev.mkzk.manifold.hub.ui.SheetTitle
+import dev.mkzk.manifold.hub.ui.SquareIcon
 import dev.mkzk.manifold.hub.ui.secondaryText
 
 @Composable
@@ -49,24 +55,33 @@ internal fun DelayRow(preference: StreamPreference) {
         onClick = { open = true },
     )
     if (open) {
-        Sheet(onDismiss = { open = false }) {
+        Sheet(onDismiss = { open = false }) { modal ->
             SheetTitle(stringResource(R.string.devices_delay))
-            Panel {
+            SheetList {
                 StreamProfile.entries.forEachIndexed { index, profile ->
-                    if (index > 0) PanelDivider()
-                    ListRow(
+                    if (index > 0) SheetListDivider()
+                    SheetListRow(
                         title = stringResource(titleOf(profile)),
                         subtitle = stringResource(bodyOf(profile)),
+                        selected = profile == chosen,
+                        role = Role.RadioButton,
+                        leading = { SquareIcon(iconOf(profile), active = profile == chosen) },
                         trailing = { RadioButton(selected = profile == chosen, onClick = null) },
                         onClick = {
                             preference.choose(profile)
-                            open = false
+                            modal.close { open = false }
                         },
                     )
                 }
             }
         }
     }
+}
+
+private fun iconOf(profile: StreamProfile) = when (profile) {
+    StreamProfile.LowLatency -> Icons.Outlined.Bolt
+    StreamProfile.Balanced -> Icons.Outlined.Balance
+    StreamProfile.Smooth -> Icons.Outlined.Waves
 }
 
 private fun titleOf(profile: StreamProfile) = when (profile) {

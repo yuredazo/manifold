@@ -1,5 +1,7 @@
 package dev.mkzk.manifold.hub.broker.ui
 
+import androidx.compose.material.icons.outlined.LiveTv
+import dev.mkzk.manifold.hub.ui.EmptyNotice
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,11 +28,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.mkzk.manifold.hub.R
@@ -163,20 +163,7 @@ private fun SourcePanel(
 private fun EmptyLive(notificationsOn: Boolean, openNotificationSettings: () -> Unit, modifier: Modifier) {
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
         if (!notificationsOn) NotificationsOff(openNotificationSettings)
-        Column(
-            modifier = Modifier.fillMaxSize().padding(32.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(stringResource(R.string.live_empty_title), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
-            Text(
-                stringResource(R.string.live_empty_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = secondaryText(),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
+        EmptyNotice(Icons.Outlined.LiveTv, stringResource(R.string.live_empty_title), stringResource(R.string.live_empty_body), Modifier.fillMaxSize())
     }
 }
 
