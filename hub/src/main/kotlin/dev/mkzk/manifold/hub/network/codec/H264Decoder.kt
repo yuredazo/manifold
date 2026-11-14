@@ -42,11 +42,18 @@ internal class H264Decoder(
             }
 
             override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
+                if (stopped) return
                 val frame = queued.remove(info.presentationTimeUs)
-                if (frame != null && frame.renderAt > 0) {
-                    codec.releaseOutputBuffer(index, frame.renderAt)
-                } else {
-                    codec.releaseOutputBuffer(index, true)
+                // The surface can go while a frame is on its way out; that frame is simply not shown.
+                try {
+                    if (frame != null && frame.renderAt > 0) {
+                        codec.releaseOutputBuffer(index, frame.renderAt)
+                    } else {
+                        codec.releaseOutputBuffer(index, true)
+                    }
+                } catch (e: IllegalStateException) {
+                    Log.w(TAG, "frame dropped as the picture went away", e)
+                    return
                 }
                 frame?.let { onShown(System.nanoTime() - it.pushedAt) }
             }
