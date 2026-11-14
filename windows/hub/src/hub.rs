@@ -255,6 +255,10 @@ impl Hub {
         let saver = storage.clone();
         let mut sharing = Sharing::new(Capture::new(out.clone()), out.clone(), storage.read(SHARES_FILE).as_deref(), move |text| saver.write(SHARES_FILE, text));
         sharing.offer_cameras = settings.offer_cameras;
+        // Start with Windows from before the setting was on still points at the Run key, which would start the hub without the rights.
+        if settings.run_as_admin && system::is_elevated() && system::autostart_enabled(false) {
+            system::set_autostart(true, true);
+        }
         let autostart = system::autostart_enabled(settings.run_as_admin);
         Self {
             watching: Watching::new(out.clone()),
