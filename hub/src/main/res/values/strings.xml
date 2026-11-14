@@ -12,7 +12,7 @@
 
     <string name="channel_network">Network connections</string>
     <string name="network_notice_title">Manifold is on the network</string>
-    <string name="network_notice_text">Devices you paired can connect to this one.</string>
+    <string name="network_notice_text">Paired devices can connect to this one</string>
 
     <string name="devices_fingerprint">Fingerprint %1$s</string>
     <string name="devices_accept">Allow connections</string>
