@@ -62,6 +62,29 @@ These are sent once and never acknowledged, because they are worth nothing when 
 
 A session ends after 15 seconds without any packet, and a ping every 3 seconds keeps an idle one alive. A message that needs an answer is sent again every 400 ms for as long as the session may still be heard, so a gap of a few seconds does not end it, and a redial of a dropped session starts at the next tick. When packets return after more than 2.5 seconds of silence, the Windows hub drops the sound it had buffered, since it is from before the gap. If a paired device dials in while its old session is still up, because it restarted, the old session is reported down first, so streams that belonged to it stop.
 
+## Remote input
+
+A feed that the receiving device may control has bit 3 of the flags byte set in the feed list. The publisher sets it only for a window or display that is not shared for its sound alone, while the device may watch it and the owner switched control on for that device. Input travels as control messages that start with the stream id. Sizes are in bytes and big-endian.
+
+| Kind | Message | Body | Acknowledged |
+|---|---|---|---|
+| 16 | Pointer | stream 2, seq 4, x 2, y 2 | no |
+| 17 | Motion | stream 2, dx 2, dy 2 | no |
+| 18 | Mouse button | stream 2, seq 4, button 1, flags 1, x 2, y 2 | yes |
+| 19 | Scroll | stream 2, dx 2, dy 2 | yes |
+| 20 | Release | stream 2, seq 4, key seq 4 | yes |
+| 21 | Pointer captured, publisher to receiver | stream 2, captured 1 | yes |
+| 22 | Key | stream 2, key seq 4, usage 2, down 1 | yes |
+| 23 | Text | stream 2, key seq 4, length 1, UTF-8 | yes |
+| 24 | Gamepad | stream 2, seq 4, pad 1, buttons 2, left trigger 1, right trigger 1, four sticks 2 each | no |
+| 25 | Rumble, publisher to receiver | stream 2, pad 1, large motor 1, small motor 1 | no |
+
+Positions span the streamed picture, black bars included, from 0 to 65535. Motion is signed pixels of the streamed picture, for games that turn the camera with the mouse. Buttons are 1 left, 2 right, 3 middle, 4 back and 5 forward; flag bit 0 is down and bit 1 says the position is filled in. Scroll counts 120 to a notch, positive up and to the right. A key is a USB HID keyboard usage, which names a physical key whatever the layout. Text is cut between characters at 200 bytes. A gamepad state uses the XInput layout: its button bits, triggers from 0 to 255, and the left and right sticks with up and right positive. A message with a button this version does not know is acknowledged and ignored.
+
+Pointer, button, release and gamepad messages share one seq per stream. The publisher drops a pointer move older than the last one it applied, and a button or gamepad state older than the last one for that button or pad or than a release, so a resent press cannot land after its release. Keys and text have their own seq and are applied strictly in order. When 64 are waiting behind a gap, the gap is given up and the rest applied. A release also carries the last key seq sent, so a key from before it is dropped. The publisher lets go of everything held when the stream ends, when control is switched off for the device, and when sharing is paused. Gamepad states are not acknowledged, so the receiver repeats every pad's state every 200 ms. Rumble levels are repeated by the publisher every 250 ms while the pad exists, and a receiver that hears none for a second stops the motors.
+
+The Windows hub applies input with `SendInput`: keys by scan code, so a game reading W, A, S and D gets the same keys on any layout, text as Unicode characters, and positions mapped onto the window the way the capture fitted it, so a point on a black bar stops at the window's edge. A press brings the shared window to the front. It reports the cursor as captured when the shared window is in front and the cursor is confined or hidden, checked every 250 ms with two checks in a row agreeing, and not while the controlling device holds Alt, which games use to free the cursor on purpose. A gamepad becomes a virtual Xbox 360 controller through the ViGEmBus driver and the `vigem-client` crate; while the driver is missing it is looked for again every 5 seconds.
+
 ## Video
 
 The publishing hub gives the local feed a Surface that belongs to a hardware H.264 encoder and sends what the encoder produces: constant bitrate, low latency, Baseline profile, a keyframe every 2 seconds or when requested. Keyframes carry the SPS and PPS. A hardware decoder renders straight into the Surface of whichever local app subscribed.

@@ -114,6 +114,17 @@ Hubs on different devices pair once, with a six digit code shown on both screens
 
 While you pair, devices on the same network that are open for pairing show up in a list, so there is nothing to type. There is no relay and no discovery beyond the local network: to pair across networks you type the other device's address, and to reach a hub from outside its network you forward UDP port 47200 to it. [docs/NETWORK.md](docs/NETWORK.md) describes the protocol, how loss and delay are handled, measurements, and what is not done yet. The Windows hub is described in [windows/README.md](windows/README.md).
 
+## Remote control
+
+A paired device can control a window or display the PC shares. On the Windows hub, open the device in Devices and switch on "Control with its mouse" under "It can watch", which needs "Windows and displays" on. The Share page then lists which device can control what, with a Stop button. On the phone, open the feed and tap the mouse button in the bottom bar. A rail beside the picture switches between pointer and game mode, opens the keyboard and stops control.
+
+- Pointer mode: one finger moves the pointer with a magnifier, and a second finger clicks, holds for a right click, drags or scrolls. The rail switches to touch, where a tap clicks where it lands.
+- Game mode turns on by itself when a game on the PC holds the cursor. A drag anywhere turns the camera and a pinch zooms. A thumb in the bottom-left quarter brings up a movement pad that holds W, A, S and D. On-screen buttons, placed and bound in the editor the rail opens, send keys and mouse buttons, and a held button turns the camera when the finger slides. Layouts are saved on the phone.
+- The keyboard is a full PC layout that sends physical keys. A Bluetooth keyboard on the phone works too. Android keeps the Windows key for itself, so Right Ctrl sends it.
+- A controller paired with the phone appears on the PC as an Xbox 360 controller, up to four. This needs the [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver on the PC; the hub shows a notice with a download link when it is missing. A game's rumble comes back to the controller, or to the phone when Android cannot reach the controller's motors.
+
+Windows does not deliver input from a program to one running as administrator, so the hub has to run as administrator to control such a program. Input from the phone reaches the PC as if it were typed there, so give control only to devices you trust.
+
 ## Updates
 
 Both hubs can look for a newer release on GitHub. Settings has a "Check for updates on launch" switch, on by default, and a button to check at any time. A check is one request to `api.github.com/repos/yuredazo/manifold/releases/latest`, and GitHub allows 60 anonymous requests an hour per IP address. Nothing is installed until you press Update.

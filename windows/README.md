@@ -7,6 +7,7 @@ The protocol it speaks is described in [../docs/NETWORK.md](../docs/NETWORK.md),
 ## Requirements
 
 - 64-bit Windows 10 or 11. Sharing the sound of one application needs Windows 10 build 20348 or later; on older builds windows are shared without sound. Hiding the mouse pointer needs Windows 10 version 2004 or later.
+- Controllers sent from a phone need the [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver. Controlling a program that runs as administrator needs the hub to run as administrator too. See "Remote control" in the [main README](../README.md#remote-control).
 - To build it: Rust stable, Visual Studio with the "Desktop development with C++" workload (for the capture code and the Windows SDK), and Python 3 to package a release.
 
 To install a released build, unzip `manifold-hub-windows-v<version>.zip` from the [releases page](https://github.com/yuredazo/manifold/releases) into a folder you can write to and run `manifold_hub.exe`. The build is not code signed, so SmartScreen may warn the first time.
