@@ -97,6 +97,8 @@ internal class PreviewSession(
     private var subscriptionId: String? = null
     private var sound: PreviewSound? = null
 
+    val subscription: String? get() = subscriptionId
+
     var muted: Boolean = false
         set(value) {
             field = value

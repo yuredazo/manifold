@@ -13,10 +13,13 @@ import dev.mkzk.manifold.hub.network.codec.AacDecoder
 import dev.mkzk.manifold.hub.network.codec.AlphaUnpacker
 import dev.mkzk.manifold.hub.network.codec.H264Decoder
 import dev.mkzk.manifold.hub.network.protocol.Control
+import dev.mkzk.manifold.hub.network.protocol.ControlCodec
 import dev.mkzk.manifold.hub.network.protocol.Device
 import dev.mkzk.manifold.hub.network.protocol.Endpoint
 import dev.mkzk.manifold.hub.network.protocol.FeedInfo
 import dev.mkzk.manifold.hub.network.protocol.Frame
+import dev.mkzk.manifold.hub.network.protocol.MouseButton
+import dev.mkzk.manifold.hub.network.protocol.PadState
 import dev.mkzk.manifold.hub.network.stream.Assembled
 import dev.mkzk.manifold.hub.network.stream.FrameBuffer
 import dev.mkzk.manifold.hub.network.stream.KeyframeRequests
@@ -25,6 +28,7 @@ import dev.mkzk.manifold.hub.network.stream.ReceiveStats
 import dev.mkzk.manifold.hub.network.stream.StreamProfile
 import dev.mkzk.manifold.hub.network.stream.StreamSnapshot
 import dev.mkzk.manifold.hub.network.stream.describe
+import kotlin.math.roundToInt
 
 private const val TAG = "RemoteFeeds"
 private const val STATS_TAG = "NetStats"
@@ -47,6 +51,27 @@ private const val MAX_SHRINK_RATE = 0.003
 private const val HOLD_MARGIN_NS = 60_000_000L
 private const val DECODE_LEAD_NS = 40_000_000L
 
+// Positions are shares of the picture, from 0 to 1.
+internal sealed interface RemoteAction {
+    data class Move(val x: Float, val y: Float) : RemoteAction
+
+    data class Press(val button: MouseButton, val down: Boolean, val x: Float? = null, val y: Float? = null) : RemoteAction
+
+    data class Scroll(val dx: Int, val dy: Int) : RemoteAction
+
+    data class Motion(val dx: Int, val dy: Int) : RemoteAction
+
+    data class Key(val usage: Int, val down: Boolean) : RemoteAction
+
+    data class Text(val text: String) : RemoteAction
+
+    data class Pad(val index: Int, val state: PadState) : RemoteAction
+
+    data object Release : RemoteAction
+}
+
+internal class PadRumble(val subscriptionId: String, val pad: Int, val large: Int, val small: Int)
+
 internal class RemoteFeeds(
     private val endpoint: Endpoint,
     private val registry: Registry,
@@ -54,6 +79,9 @@ internal class RemoteFeeds(
     private val onStats: (List<StreamSnapshot>) -> Unit = {},
     private val onRefused: (deviceKey: String, feed: String, reason: Control.Refusal) -> Unit = { _, _, _ -> },
     private val onTitles: (Map<String, String>) -> Unit = {},
+    private val onControllable: (Set<String>) -> Unit = {},
+    private val onCaptured: (Set<String>) -> Unit = {},
+    private val onRumble: (PadRumble) -> Unit = {},
     private val profile: () -> StreamProfile = { StreamProfile.Balanced },
 ) {
     private class Received(
@@ -78,6 +106,8 @@ internal class RemoteFeeds(
         val subscribedAt = System.nanoTime()
         var shown = false
         var sender: Control.SenderStats? = null
+        var inputSeq = 0
+        var keySeq = 0
         var latest: StreamSnapshot? = null
     }
 
@@ -113,6 +143,8 @@ internal class RemoteFeeds(
 
     /** Titles of the feeds each device sends, by registry name. A feed keeps its name when its title changes, so nobody is dropped. */
     private val titles = HashMap<String, Map<String, String>>()
+    private val controllable = HashMap<String, Set<String>>()
+    private val captured = HashSet<String>()
 
     fun update(device: Device, feeds: List<FeedInfo>) {
         val known = senders.getOrPut(device.publicKey) { HashMap() }
@@ -137,7 +169,53 @@ internal class RemoteFeeds(
             }
         }
         publishTitles(device.publicKey, feeds.mapNotNull { feed -> known[feed.name]?.let { it.registryName to feed.title } }.filter { it.second.isNotEmpty() }.toMap())
+        publishControllable(device.publicKey, feeds.filter { it.controllable }.mapNotNullTo(HashSet()) { known[it.name]?.registryName })
     }
+
+    private fun publishControllable(deviceKey: String, mine: Set<String>) {
+        val before = controllable.values.flatten().toSet()
+        if (mine.isEmpty()) controllable.remove(deviceKey) else controllable[deviceKey] = mine
+        val now = controllable.values.flatten().toSet()
+        if (now != before) onControllable(now)
+    }
+
+    fun sendInput(subscriptionId: String, action: RemoteAction) {
+        val stream = streams.values.firstOrNull { it.subscriptionId == subscriptionId } ?: return
+        val id = stream.streamId
+        if (action is RemoteAction.Text) {
+            var rest = action.text.toByteArray(Charsets.UTF_8)
+            while (rest.isNotEmpty()) {
+                val end = ControlCodec.utf8Prefix(rest, ControlCodec.MAX_TEXT_BYTES)
+                endpoint.sendInput(stream.deviceKey, Control.Text(id, ++stream.keySeq, rest.copyOf(end).toString(Charsets.UTF_8)))
+                rest = rest.copyOfRange(end, rest.size)
+            }
+            return
+        }
+        val input = when (action) {
+            is RemoteAction.Move -> Control.Pointer(id, ++stream.inputSeq, wire(action.x), wire(action.y))
+            is RemoteAction.Press -> Control.Button(id, ++stream.inputSeq, action.button, action.down, action.x?.let(::wire), action.y?.let(::wire))
+            is RemoteAction.Scroll -> Control.Scroll(id, action.dx, action.dy)
+            is RemoteAction.Motion -> Control.Motion(id, action.dx, action.dy)
+            is RemoteAction.Key -> Control.Key(id, ++stream.keySeq, action.usage, action.down)
+            is RemoteAction.Text -> return
+            is RemoteAction.Pad -> Control.Gamepad(id, ++stream.inputSeq, action.index, action.state)
+            RemoteAction.Release -> Control.Release(id, ++stream.inputSeq, stream.keySeq)
+        }
+        endpoint.sendInput(stream.deviceKey, input)
+    }
+
+    fun onRumble(device: Device, rumble: Control.Rumble) {
+        val stream = streams[device.publicKey to rumble.streamId] ?: return
+        onRumble(PadRumble(stream.subscriptionId, rumble.pad, rumble.large, rumble.small))
+    }
+
+    fun onPointerCaptured(device: Device, streamId: Int, held: Boolean) {
+        val stream = streams[device.publicKey to streamId] ?: return
+        val changed = if (held) captured.add(stream.subscriptionId) else captured.remove(stream.subscriptionId)
+        if (changed) onCaptured(captured.toSet())
+    }
+
+    private fun wire(share: Float) = (share.coerceIn(0f, 1f) * 0xFFFF).roundToInt()
 
     private fun publishTitles(deviceKey: String, mine: Map<String, String>) {
         val before = titles.toMap()
@@ -149,6 +227,7 @@ internal class RemoteFeeds(
         senders[deviceKey]?.keys?.toList()?.forEach { removeSender(deviceKey, it) }
         senders.remove(deviceKey)
         publishTitles(deviceKey, emptyMap())
+        publishControllable(deviceKey, emptySet())
     }
 
     /** The other device will not send this stream, so waiting for its picture would never end. */
@@ -317,6 +396,7 @@ internal class RemoteFeeds(
         entry.value.decoder?.stop()
         entry.value.unpacker?.release()
         entry.value.audio?.stop()
+        if (captured.remove(subscriptionId)) onCaptured(captured.toSet())
         publishStats()
     }
 

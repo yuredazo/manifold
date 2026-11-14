@@ -42,6 +42,18 @@ class CompatFixturesTest {
         check("control_ack", ControlCodec.encodeAck(77))
         check("control_confirm", ControlCodec.encode(6, Control.PairConfirm))
         check("control_addresses", ControlCodec.encode(9, Control.Addresses(listOf(Address("100.77.195.122", 47200), Address("192.168.0.100", 8000)))))
+        check("control_pointer", ControlCodec.encode(10, Control.Pointer(9, 3, 32768, 65535)))
+        check("control_motion", ControlCodec.encode(11, Control.Motion(9, -5, 300)))
+        check("control_button", ControlCodec.encode(12, Control.Button(9, 4, MouseButton.RIGHT, down = true, x = 100, y = 200)))
+        check("control_button_free", ControlCodec.encode(13, Control.Button(9, 5, MouseButton.LEFT, down = false)))
+        check("control_scroll", ControlCodec.encode(14, Control.Scroll(9, 0, -120)))
+        check("control_release", ControlCodec.encode(15, Control.Release(9, 6)))
+        check("control_key", ControlCodec.encode(18, Control.Key(9, 7, 4, down = true)))
+        check("control_text", ControlCodec.encode(19, Control.Text(9, 8, "h\u00e9")))
+        check("control_captured", ControlCodec.encode(17, Control.PointerCaptured(9, true)))
+        check("control_rumble", ControlCodec.encode(21, Control.Rumble(9, 1, 255, 64)))
+        check("control_gamepad", ControlCodec.encode(20, Control.Gamepad(9, 9, 1, PadState(0x1001, 128, 255, 32767, -32768, 256, -1))))
+        check("control_feedlist_control", ControlCodec.encode(16, Control.FeedList(listOf(FeedInfo("desk", 1920, 1080, 30, true, controllable = true)))))
     }
 
     @Test

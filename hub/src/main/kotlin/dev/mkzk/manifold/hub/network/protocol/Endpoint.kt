@@ -44,6 +44,10 @@ internal class Endpoint(
 
         fun onKeyframeRequest(device: Device, streamId: Int) {}
 
+        fun onPointerCaptured(device: Device, streamId: Int, captured: Boolean) {}
+
+        fun onRumble(device: Device, rumble: Control.Rumble) {}
+
         fun onNack(device: Device, nack: Control.Nack) {}
 
         fun onStreamReport(device: Device, report: Control.StreamReport) {}
@@ -163,6 +167,10 @@ internal class Endpoint(
 
     fun unsubscribe(publicKey: String, streamId: Int) {
         links[publicKey]?.control?.send(Control.Unsubscribe(streamId), clock())
+    }
+
+    fun sendInput(publicKey: String, input: Control.Input) {
+        links[publicKey]?.control?.send(input, clock())
     }
 
     fun requestKeyframe(publicKey: String, streamId: Int) {
@@ -388,6 +396,8 @@ internal class Endpoint(
             is Control.SubscribeRefused -> listener.onSubscribeRefused(device, control)
             is Control.Unsubscribe -> listener.onUnsubscribe(device, control.streamId)
             is Control.KeyframeRequest -> listener.onKeyframeRequest(device, control.streamId)
+            is Control.PointerCaptured -> listener.onPointerCaptured(device, control.streamId, control.captured)
+            is Control.Rumble -> listener.onRumble(device, control)
             is Control.TimeRequest -> link.control.send(Control.TimeReply(control.sentAt), clock())
             is Control.TimeReply -> measureRtt(link, control.sentAt)
             is Control.SenderStats -> listener.onSenderStats(device, control)

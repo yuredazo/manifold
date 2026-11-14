@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.graphics.SurfaceTexture
+import android.hardware.input.InputManager
 import android.os.Build
 import android.os.Process
 import android.util.Rational
@@ -20,14 +21,21 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -38,10 +46,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.VolumeOff
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DashboardCustomize
 import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.FullscreenExit
+import androidx.compose.material.icons.outlined.Keyboard
+import androidx.compose.material.icons.outlined.Mouse
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.ScreenRotation
+import androidx.compose.material.icons.outlined.SportsEsports
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,13 +70,24 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,15 +105,44 @@ import dev.mkzk.manifold.hub.R
 import dev.mkzk.manifold.hub.broker.Owner
 import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.broker.SenderRow
+import dev.mkzk.manifold.hub.network.PadRumble
+import dev.mkzk.manifold.hub.network.RemoteAction
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 
 private const val CONTROLS_SHOWN_MS = 3_000L
+private val RailWidth = 56.dp
+
+private val PointerArrow = ImageVector.Builder("PointerArrow", 24.dp, 24.dp, 24f, 24f)
+    .addPath(
+        pathData = PathParser().parsePathString("M6 3.5v15.2l4.1-3.9 2.7 6.1 2.6-1.1-2.7-6h5.6z").toNodes(),
+        stroke = SolidColor(Color.White),
+        strokeLineWidth = 1.8f,
+        strokeLineJoin = StrokeJoin.Round,
+    )
+    .build()
+private const val CONTROL_PREFS = "remote_control"
+private const val MAGNIFY_KEY = "magnify"
+
+// A swipe across the picture turns as far as the mouse crossing the shared window twice; once felt slow in a game.
+private const val LOOK_SPEED = 2f
 private val LiveRed = Color(0xFFFF4D4D)
 
 internal class PreviewStats(val fps: Float, val pingMs: Int?)
 
 @Composable
-internal fun FeedPreview(registry: Registry, feed: SenderRow, title: String, stats: PreviewStats?, live: Boolean, onClose: () -> Unit) {
+internal fun FeedPreview(
+    registry: Registry,
+    feed: SenderRow,
+    title: String,
+    stats: PreviewStats?,
+    live: Boolean,
+    canControl: Boolean,
+    captured: Set<String>,
+    sendInput: (String, RemoteAction) -> Unit,
+    rumbles: Flow<PadRumble>,
+    onClose: () -> Unit,
+) {
     val context = LocalContext.current
     val owner = remember { Owner(Process.myUid(), context.packageName, context.getString(R.string.preview_watcher)) }
     val session = remember(feed.name) {
@@ -101,6 +155,28 @@ internal fun FeedPreview(registry: Registry, feed: SenderRow, title: String, sta
     var landscape by remember { mutableStateOf(false) }
     var inPictureInPicture by remember { mutableStateOf(false) }
     DisposableEffect(session) { onDispose { session.stop() } }
+    var steering by remember(feed.name) { mutableStateOf(false) }
+    val steer: (RemoteAction) -> Unit = { action -> session.subscription?.let { sendInput(it, action) } }
+    if (!canControl) steering = false
+    var typing by remember(feed.name) { mutableStateOf(false) }
+    if (!steering) typing = false
+    val keys = remember { FocusRequester() }
+    LaunchedEffect(steering) { if (steering) runCatching { keys.requestFocus() } }
+    var shownView by remember(feed.name) { mutableStateOf<View?>(null) }
+    val loupe = rememberLoupe(shownView)
+    val controlPrefs = remember { context.getSharedPreferences(CONTROL_PREFS, Context.MODE_PRIVATE) }
+    var magnify by remember { mutableStateOf(controlPrefs.getBoolean(MAGNIFY_KEY, true)) }
+    val buttonLayouts = remember { ButtonLayouts(context, context.getString(R.string.layout_default, 1)) }
+    var editingButtons by remember(feed.name) { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+    val gameOnPc = session.subscription?.let { it in captured } ?: false
+    // A mode picked by hand holds until the PC reports the next change.
+    var forced by remember(feed.name, gameOnPc) { mutableStateOf<Boolean?>(null) }
+    val game = forced ?: gameOnPc
+    if (!steering || !game) editingButtons = false
+    LaunchedEffect(game) { if (steering) steer(RemoteAction.Release) }
+    // Declared after the session's, so it is disposed first and lets go of the other device's buttons while the stream still exists.
+    DisposableEffect(session, steering) { onDispose { if (steering) steer(RemoteAction.Release) } }
     LaunchedEffect(controls) {
         if (controls) {
             delay(CONTROLS_SHOWN_MS)
@@ -118,13 +194,18 @@ internal fun FeedPreview(registry: Registry, feed: SenderRow, title: String, sta
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
-                .pointerInput(Unit) { detectTapGestures(onTap = { controls = !controls }, onDoubleTap = { if (!feed.soundOnly) fill = !fill }) },
+                .pointerInput(steering) { if (!steering) detectTapGestures(onTap = { controls = !controls }, onDoubleTap = { if (!feed.soundOnly) fill = !fill }) },
             contentAlignment = Alignment.Center,
         ) {
             // A feed without a size fills the screen, since its sender draws for that shape.
             val ratio = if (feed.width > 0 && feed.height > 0) feed.width.toFloat() / feed.height else maxWidth / maxHeight
             val screenIsWider = maxWidth / maxHeight > ratio
             val pictureWidth = if (screenIsWider != fill) maxHeight * ratio else maxWidth
+            val picture = with(LocalDensity.current) {
+                val size = Size(pictureWidth.toPx(), (pictureWidth / ratio).toPx())
+                Rect(Offset((maxWidth.toPx() - size.width) / 2, (maxHeight.toPx() - size.height) / 2), size)
+            }
+            val beside = with(LocalDensity.current) { (maxWidth.toPx() - picture.right).coerceAtLeast(0f).toDp() }
             val enterPictureInPicture = rememberPictureInPicture(ratio, enabled = !feed.soundOnly) { inPictureInPicture = it }
 
             if (feed.soundOnly) {
@@ -136,10 +217,98 @@ internal fun FeedPreview(registry: Registry, feed: SenderRow, title: String, sta
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { viewContext ->
-                            pictureView(viewContext, feed.hasAlpha, onReady = { surface, width, height -> refused = !session.start(surface, width, height) }, onGone = session::stop)
+                            pictureView(
+                                viewContext,
+                                texture = feed.hasAlpha || canControl,
+                                transparent = feed.hasAlpha,
+                                onReady = { surface, width, height -> refused = !session.start(surface, width, height) },
+                                onGone = session::stop,
+                            )
+                                .also { shownView = it }
                         },
                     )
                 }
+            }
+            if (steering && !feed.soundOnly) {
+                val speed = LOOK_SPEED * if (feed.width > 0) feed.width / picture.width else 1f
+                val view = LocalView.current
+                val pads = remember(session) { PadReader(view.context, steer) }
+                DisposableEffect(view, pads) {
+                    view.setOnGenericMotionListener { _, event -> pads.onMotion(event) }
+                    val inputs = view.context.getSystemService(InputManager::class.java)
+                    val unplugged = object : InputManager.InputDeviceListener {
+                        override fun onInputDeviceAdded(deviceId: Int) {}
+
+                        override fun onInputDeviceChanged(deviceId: Int) {}
+
+                        override fun onInputDeviceRemoved(deviceId: Int) = pads.forget(deviceId)
+                    }
+                    inputs.registerInputDeviceListener(unplugged, null)
+                    onDispose {
+                        view.setOnGenericMotionListener(null)
+                        inputs.unregisterInputDeviceListener(unplugged)
+                        pads.stopRumble()
+                    }
+                }
+                LaunchedEffect(pads) {
+                    while (true) {
+                        delay(PAD_REPEAT_MS)
+                        pads.repeat()
+                    }
+                }
+                LaunchedEffect(pads, rumbles) {
+                    rumbles.collect { rumble -> if (rumble.subscriptionId == session.subscription) pads.rumble(rumble.pad, rumble.large, rumble.small) }
+                }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .systemGestureExclusion()
+                        .remoteMouse(picture, game, magnify, speed, haptics, loupe, steer)
+                        .focusRequester(keys)
+                        .onKeyEvent { pads.onKey(it.nativeKeyEvent) || forwardKey(it.nativeKeyEvent, steer) }
+                        .focusable(),
+                )
+                if (typing) {
+                    RemoteKeyboard(steer, Modifier.align(Alignment.BottomCenter).padding(horizontal = if (beside >= RailWidth) beside else 0.dp))
+                } else if (game && !editingButtons) {
+                    DirectionPad(steer, Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).fillMaxHeight(0.5f))
+                    GameButtons(buttonLayouts.current, speed, steer)
+                }
+                if (editingButtons) ButtonEditor(buttonLayouts, onDone = { editingButtons = false })
+            }
+            if (steering && !inPictureInPicture && !editingButtons) {
+                val density = LocalDensity.current
+                val below = with(density) { (maxHeight.toPx() - picture.bottom).coerceAtLeast(0f).toDp() }
+                val above = with(density) { picture.top.coerceAtLeast(0f).toDp() }
+                val (vertical, roomy, place) = when {
+                    beside >= RailWidth -> Triple(
+                        true,
+                        true,
+                        Modifier.align(if (typing) Alignment.TopEnd else Alignment.CenterEnd).safeDrawingPadding().width(beside).padding(vertical = 12.dp),
+                    )
+                    !typing && !game && below >= RailWidth -> Triple(false, true, Modifier.align(Alignment.BottomCenter).safeDrawingPadding().height(below))
+                    above >= RailWidth -> Triple(false, true, Modifier.align(Alignment.TopCenter).safeDrawingPadding().height(above))
+                    else -> Triple(true, false, Modifier.align(Alignment.CenterEnd).safeDrawingPadding().padding(end = 6.dp))
+                }
+                ControlRail(
+                    game = game,
+                    typing = typing,
+                    roomy = roomy,
+                    vertical = vertical,
+                    onMode = { forced = !game },
+                    magnify = magnify,
+                    onMagnify = {
+                        magnify = !magnify
+                        controlPrefs.edit().putBoolean(MAGNIFY_KEY, magnify).apply()
+                    },
+                    onKeyboard = { typing = !typing },
+                    onButtons = {
+                        typing = false
+                        editingButtons = true
+                    },
+                    onStop = { steering = false },
+                    modifier = place,
+                )
             }
             if (refused || !live) {
                 Text(
@@ -150,7 +319,7 @@ internal fun FeedPreview(registry: Registry, feed: SenderRow, title: String, sta
                 )
             }
             AnimatedVisibility(
-                visible = controls && !inPictureInPicture,
+                visible = controls && !inPictureInPicture && !steering,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.fillMaxSize(),
@@ -169,11 +338,81 @@ internal fun FeedPreview(registry: Registry, feed: SenderRow, title: String, sta
                         },
                         onToggleFill = { fill = !fill },
                         onRotate = { landscape = !landscape },
+                        onControl = if (canControl) ({ steering = true }) else null,
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ControlRail(
+    game: Boolean,
+    typing: Boolean,
+    roomy: Boolean,
+    vertical: Boolean,
+    onMode: () -> Unit,
+    magnify: Boolean,
+    onMagnify: () -> Unit,
+    onKeyboard: () -> Unit,
+    onButtons: () -> Unit,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val buttons = @Composable {
+        RailButton(
+            if (game) Icons.Outlined.SportsEsports else Icons.Outlined.Mouse,
+            stringResource(if (game) R.string.preview_mode_game else R.string.preview_mode_pointer),
+            active = game,
+            roomy = roomy,
+            onClick = onMode,
+        )
+        if (game) {
+            RailButton(Icons.Outlined.DashboardCustomize, stringResource(R.string.buttons_edit), active = false, roomy = roomy, onClick = onButtons)
+        } else {
+            RailButton(
+                if (magnify) PointerArrow else Icons.Outlined.TouchApp,
+                stringResource(if (magnify) R.string.preview_touch_magnifier else R.string.preview_touch_direct),
+                active = false,
+                roomy = roomy,
+                onClick = onMagnify,
+            )
+        }
+        RailButton(
+            Icons.Outlined.Keyboard,
+            stringResource(if (typing) R.string.preview_keyboard_close else R.string.preview_keyboard),
+            active = typing,
+            roomy = roomy,
+            onClick = onKeyboard,
+        )
+        RailButton(Icons.Outlined.Close, stringResource(R.string.preview_control_stop), active = false, roomy = roomy, onClick = onStop)
+    }
+    if (vertical) {
+        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)) { buttons() }
+    } else {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) { buttons() }
+    }
+}
+
+@Composable
+private fun RailButton(icon: ImageVector, description: String, active: Boolean, roomy: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(if (roomy) 44.dp else 36.dp)
+            .clip(CircleShape)
+            .background(if (active) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = if (roomy) 0.5f else 0.35f))
+            .border(1.dp, if (active) Color.Transparent else Color.White.copy(alpha = 0.25f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = if (active) MaterialTheme.colorScheme.onPrimary else Color.White.copy(alpha = if (roomy) 1f else 0.8f),
+            modifier = Modifier.size(if (roomy) 22.dp else 18.dp),
+        )
     }
 }
 
@@ -219,6 +458,7 @@ private fun BottomBar(
     onToggleSound: () -> Unit,
     onToggleFill: () -> Unit,
     onRotate: () -> Unit,
+    onControl: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -250,6 +490,11 @@ private fun BottomBar(
                 )
             }
         }
+        if (onControl != null) {
+            IconButton(onClick = onControl) {
+                Icon(Icons.Outlined.Mouse, contentDescription = stringResource(R.string.preview_control), tint = Color.White)
+            }
+        }
         if (!feed.soundOnly) {
             IconButton(onClick = onToggleFill) {
                 Icon(
@@ -275,11 +520,12 @@ private fun KeepOrientation(landscape: Boolean) {
     }
 }
 
-/** A transparent feed needs a view that is composited with what is behind it, which a SurfaceView is not. */
-private fun pictureView(context: Context, transparent: Boolean, onReady: (Surface, Int, Int) -> Unit, onGone: () -> Unit): View {
-    if (transparent) {
+// A transparent feed needs a view that is composited with what is behind it, which a SurfaceView is not. A controlled feed
+// needs one too: the magnifier copies the app's window, and a SurfaceView's own surface came out blank between frames.
+private fun pictureView(context: Context, texture: Boolean, transparent: Boolean, onReady: (Surface, Int, Int) -> Unit, onGone: () -> Unit): View {
+    if (texture) {
         return TextureView(context).apply {
-            isOpaque = false
+            isOpaque = !transparent
             var own: Surface? = null
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {

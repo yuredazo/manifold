@@ -1,5 +1,5 @@
 use crate::audio;
-use crate::control::{Control, FeedInfo, MAX_NAME_LENGTH, Refusal, Subscribe};
+use crate::control::{Control, FeedInfo, Input, MAX_NAME_LENGTH, Refusal, Subscribe};
 use crate::control_channel::{ControlChannel, RESEND_AFTER_MS};
 use crate::crypto::{from_hex, to_hex};
 use crate::devices::{Device, DeviceBook, Identity};
@@ -40,6 +40,9 @@ pub enum Event {
     SubscribeRefused { device: Device, stream_id: u16, reason: Refusal },
     Unsubscribe(Device, u16),
     KeyframeRequest(Device, u16),
+    Input(Device, Input),
+    PointerCaptured(Device, u16, bool),
+    Rumble { device: Device, stream_id: u16, pad: u8, large: u8, small: u8 },
     Nack { device: Device, stream_id: u16, frame_id: i32, indexes: Vec<u16> },
     StreamReport { device: Device, stream_id: u16, window_ms: u16, fragments: u16, resend_requests: u16, lost_frames: u16, jitter_ms10: u16 },
     SenderStats { device: Device, stream_id: u16, bitrate_kbps: u16, fps10: u16, encode_ms10: u16, send_ms10: u16 },
@@ -449,6 +452,9 @@ impl Endpoint {
             Control::SubscribeRefused { stream_id, reason } => Event::SubscribeRefused { device, stream_id, reason },
             Control::Unsubscribe(stream_id) => Event::Unsubscribe(device, stream_id),
             Control::KeyframeRequest(stream_id) => Event::KeyframeRequest(device, stream_id),
+            Control::Input(input) => Event::Input(device, input),
+            Control::PointerCaptured { stream_id, captured } => Event::PointerCaptured(device, stream_id, captured),
+            Control::Rumble { stream_id, pad, large, small } => Event::Rumble { device, stream_id, pad, large, small },
             Control::TimeRequest(sent_at) => {
                 self.send_control(index, &Control::TimeReply(sent_at));
                 return;

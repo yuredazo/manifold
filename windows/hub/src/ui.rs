@@ -1,7 +1,7 @@
 use crate::capture::{ShareKind, Shareable};
 use crate::hub::{Command, DeviceView, Input, Pairing, PublicAddress, Snapshot, UpdateState};
 use crate::sharing::ShareOptions;
-use crate::{AppWindow, Choice, DeviceDetail, FeedRow, Ui, NearbyRow, PairedRow, ShareRow, WatchGroup};
+use crate::{AppWindow, Choice, ControllerRow, DeviceDetail, FeedRow, Ui, NearbyRow, PairedRow, ShareRow, WatchGroup};
 use manifold_protocol::stream::StreamProfile;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::collections::HashMap;
@@ -22,6 +22,7 @@ struct Shown {
 struct Lists {
     watch_groups: Rc<VecModel<WatchGroup>>,
     shares: Rc<VecModel<ShareRow>>,
+    controllers: Rc<VecModel<ControllerRow>>,
     activity: Rc<VecModel<SharedString>>,
     paired: Rc<VecModel<PairedRow>>,
     nearby: Rc<VecModel<NearbyRow>>,
@@ -120,6 +121,7 @@ fn device_detail(device: Option<&DeviceView>) -> DeviceDetail {
         send: device.send,
         send_camera: device.send_camera,
         send_spout: device.send_spout,
+        control: device.control,
         refused: LISTS.with(|lists| {
             fill(&lists.refused, device.refused.iter().map(|line| text(line.as_str())).collect());
             ModelRc::from(lists.refused.clone())
@@ -186,9 +188,16 @@ pub fn apply(app: &AppWindow, snapshot: Snapshot) {
             })
             .collect(),
     );
+    LISTS.with(|lists| {
+        fill(
+            &lists.controllers,
+            snapshot.controllers.iter().map(|controller| ControllerRow { key: text(controller.key.as_str()), name: text(controller.name.as_str()), share: text(controller.share.as_str()) }).collect(),
+        )
+    });
     hub.set_can_watch(snapshot.can_watch as i32);
     hub.set_paused(snapshot.paused);
     hub.set_problem(text(snapshot.problem.clone().unwrap_or_default()));
+    hub.set_pads_need_driver(snapshot.pads_need_driver);
     fill(&activity, snapshot.activity.iter().map(|line| text(line.as_str())).collect());
 
     hub.set_listening(snapshot.listening);
@@ -316,6 +325,7 @@ pub fn bind(app: &AppWindow, out: Sender<Input>) {
     LISTS.with(|lists| {
         hub.set_watch_groups(ModelRc::from(lists.watch_groups.clone()));
         hub.set_shares(ModelRc::from(lists.shares.clone()));
+        hub.set_controllers(ModelRc::from(lists.controllers.clone()));
         hub.set_activity(ModelRc::from(lists.activity.clone()));
         hub.set_paired(ModelRc::from(lists.paired.clone()));
         hub.set_nearby(ModelRc::from(lists.nearby.clone()));
@@ -341,6 +351,7 @@ pub fn bind(app: &AppWindow, out: Sender<Input>) {
     on!(on_set_send, |key, on| Command::SetSend(key.into(), on));
     on!(on_set_send_camera, |key, on| Command::SetSendCamera(key.into(), on));
     on!(on_set_send_spout, |key, on| Command::SetSendSpout(key.into(), on));
+    on!(on_set_control, |key, on| Command::SetControl(key.into(), on));
     on!(on_unpair, |key| Command::Unpair(key.into()));
     on!(on_allow_pairing, | | Command::OpenPairing);
     on!(on_stop_pairing, | | Command::ClosePairing);

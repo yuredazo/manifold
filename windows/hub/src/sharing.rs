@@ -1,12 +1,14 @@
 use crate::capture::{Capture, ListPurpose, ShareKind, Shareable, StartRequest};
-use crate::hub::{local_clock, now_ns};
-use manifold_protocol::control::{Control, DEFAULT_FPS, FeedInfo, MAX_ALPHA_HEIGHT, MAX_ALPHA_WIDTH, MAX_NAME_LENGTH, Refusal, Subscribe};
+use crate::hub::{Input as HubInput, local_clock, now_ns};
+use crate::remote::{RemoteInput, Target};
+use manifold_protocol::control::{Control, DEFAULT_FPS, FeedInfo, Input, MAX_ALPHA_HEIGHT, MAX_ALPHA_WIDTH, MAX_NAME_LENGTH, Refusal, Subscribe};
 use manifold_protocol::devices::Device;
 use manifold_protocol::endpoint::Endpoint;
 use manifold_protocol::stream::{RateControl, RetransmitStore};
 use manifold_protocol::video::{self, Frame};
 use serde_json::{Map, Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::Sender;
 
 const MAX_STREAMS_PER_DEVICE: usize = 4;
 const MAX_STREAMS: usize = 8;
@@ -62,6 +64,10 @@ pub struct SharedWindow {
     pub watchers: Vec<Watcher>,
     store: RetransmitStore,
     capturing: bool,
+    stream_width: i32,
+    stream_height: i32,
+    cursor_captured: bool,
+    capture_votes: u8,
     last_keyframe_at: i64,
     next_frame: i32,
 }
@@ -102,6 +108,10 @@ impl SharedWindow {
             watchers: Vec::new(),
             store: RetransmitStore::default(),
             capturing: false,
+            stream_width: 0,
+            stream_height: 0,
+            cursor_captured: false,
+            capture_votes: 0,
             last_keyframe_at: -(1 << 60),
             next_frame: 0,
         }
@@ -270,12 +280,14 @@ pub struct Sharing {
     checking: bool,
     checked_kinds: Vec<ShareKind>,
     watched: HashSet<(String, String)>,
+    remote: RemoteInput,
+    told_captured: HashMap<(String, u16), bool>,
     pub feeds_changed: bool,
     pub changed: bool,
 }
 
 impl Sharing {
-    pub fn new(capture: Capture, saved: Option<&str>, save: impl FnMut(&str) + Send + 'static) -> Self {
+    pub fn new(capture: Capture, rumbles: Sender<HubInput>, saved: Option<&str>, save: impl FnMut(&str) + Send + 'static) -> Self {
         Self {
             shared: decode_shares(saved),
             paused: false,
@@ -288,6 +300,8 @@ impl Sharing {
             checking: false,
             checked_kinds: Vec::new(),
             watched: HashSet::new(),
+            remote: RemoteInput::new(rumbles),
+            told_captured: HashMap::new(),
             feeds_changed: false,
             changed: false,
         }
@@ -307,6 +321,90 @@ impl Sharing {
             self.record(name(&key), feed, false);
         }
         self.watched = now;
+        self.sync_remote(endpoint);
+    }
+
+    pub fn sync_remote(&mut self, endpoint: &Endpoint) {
+        let (shared, paused) = (&self.shared, self.paused);
+        self.remote.keep(|key, stream| {
+            !paused && endpoint.book().find(key).is_some_and(|device| shared.iter().any(|window| window.is_watched_by(key, stream) && Self::controllable(window, device)))
+        });
+    }
+
+    // Two polls in a row have to agree before the mode changes, so a brief hide does not flip it.
+    pub fn poll_capture(&mut self, endpoint: &mut Endpoint) {
+        let mut wanted: HashMap<(String, u16), bool> = HashMap::new();
+        for window in &mut self.shared {
+            let controllers: Vec<(String, u16)> = window
+                .watchers
+                .iter()
+                .filter(|watcher| endpoint.book().find(&watcher.device_key).is_some_and(|device| Self::controllable(window, device)))
+                .map(|watcher| (watcher.device_key.clone(), watcher.stream_id))
+                .collect();
+            if controllers.is_empty() || self.paused {
+                window.cursor_captured = false;
+                window.capture_votes = 0;
+                continue;
+            }
+            let target = Target { kind: window.kind, handle: window.handle, client_only: window.hide_frame, stream_width: window.stream_width, stream_height: window.stream_height };
+            // Alt held from the other device frees a game's cursor on purpose, to click its menus, so it does not end game mode.
+            let holds_alt = controllers.iter().any(|(device_key, stream_id)| self.remote.holds_alt(device_key, *stream_id));
+            if holds_alt || target.cursor_captured() == window.cursor_captured {
+                window.capture_votes = 0;
+            } else {
+                window.capture_votes += 1;
+                if window.capture_votes >= 2 {
+                    window.cursor_captured = !window.cursor_captured;
+                    window.capture_votes = 0;
+                }
+            }
+            for key in controllers {
+                wanted.insert(key, window.cursor_captured);
+            }
+        }
+        for ((device_key, stream_id), captured) in &wanted {
+            if self.told_captured.get(&(device_key.clone(), *stream_id)) != Some(captured) {
+                endpoint.send_to(device_key, &Control::PointerCaptured { stream_id: *stream_id, captured: *captured });
+            }
+        }
+        self.told_captured = wanted;
+    }
+
+    pub fn on_input(&mut self, device: &Device, input: &Input) {
+        let stream_id = input.stream_id();
+        let window = self.shared.iter().find(|window| window.is_watched_by(&device.public_key, stream_id) && Self::controllable(window, device));
+        let Some(window) = window.filter(|_| !self.paused) else { return };
+        let target = Target { kind: window.kind, handle: window.handle, client_only: window.hide_frame, stream_width: window.stream_width, stream_height: window.stream_height };
+        self.remote.apply(&device.public_key, &target, input);
+    }
+
+    pub fn on_rumble(&mut self, device_key: &str, stream_id: u16, pad: u8, large: u8, small: u8, endpoint: &mut Endpoint) {
+        if self.remote.set_rumble(device_key, stream_id, pad, large, small) {
+            endpoint.send_to(device_key, &Control::Rumble { stream_id, pad, large, small });
+        }
+    }
+
+    pub fn repeat_rumble(&self, endpoint: &mut Endpoint) {
+        for (device_key, stream_id, pad, large, small) in self.remote.rumbles() {
+            endpoint.send_to(&device_key, &Control::Rumble { stream_id, pad, large, small });
+        }
+    }
+
+    pub fn pads_need_driver(&self) -> bool {
+        self.remote.pads_need_driver()
+    }
+
+    pub fn controllers(&self, endpoint: &Endpoint) -> Vec<(String, String, String)> {
+        let mut out: Vec<(String, String, String)> = Vec::new();
+        for window in &self.shared {
+            for watcher in &window.watchers {
+                let Some(device) = endpoint.book().find(&watcher.device_key) else { continue };
+                if Self::controllable(window, device) && !out.iter().any(|(key, _, label)| *key == device.public_key && label == window.label()) {
+                    out.push((device.public_key.clone(), device.name.clone(), window.label().to_string()));
+                }
+            }
+        }
+        out
     }
 
     fn record(&mut self, device: String, feed: String, started: bool) {
@@ -320,6 +418,10 @@ impl Sharing {
             ShareKind::Spout => device.send_spout,
             ShareKind::Window | ShareKind::Display => device.send,
         }
+    }
+
+    fn controllable(window: &SharedWindow, device: &Device) -> bool {
+        device.control && Self::allowed(window, device) && matches!(window.kind, ShareKind::Window | ShareKind::Display) && !window.sound_only
     }
 
     pub fn feeds_for(&self, device: &Device) -> Vec<FeedInfo> {
@@ -337,6 +439,7 @@ impl Sharing {
                         fps: window.frame_rate as u8,
                         has_audio: window.with_audio,
                         has_alpha: window.with_alpha,
+                        controllable: Self::controllable(window, device),
                         title: window.shown_title.clone(),
                         ..Default::default()
                     }
@@ -577,6 +680,7 @@ impl Sharing {
             return Some(Refusal::Busy);
         }
         let max_kbps = (request.bitrate_kbps as u32).clamp(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS);
+        self.remote.forget(device_key, request.stream_id);
         let window = &mut self.shared[index];
         window.watchers.retain(|watcher| !watcher.is_stream(device_key, request.stream_id));
         window.watchers.push(Watcher {
@@ -593,6 +697,8 @@ impl Sharing {
         window.capturing = true;
         window.capturing_alpha = alpha;
         let (max_width, max_height) = if alpha { (MAX_ALPHA_WIDTH as i32, MAX_ALPHA_HEIGHT as i32) } else { (MAX_SIZE, MAX_SIZE) };
+        window.stream_width = (request.width as i32).clamp(MIN_SIZE, max_width);
+        window.stream_height = (request.height as i32).clamp(MIN_SIZE, max_height);
         let device = match window.kind {
             ShareKind::Camera => window.device.clone(),
             ShareKind::Spout => window.title.clone(),
@@ -600,8 +706,8 @@ impl Sharing {
         };
         self.capture.start(StartRequest {
             handle: window.handle,
-            width: (request.width as i32).clamp(MIN_SIZE, max_width),
-            height: (request.height as i32).clamp(MIN_SIZE, max_height),
+            width: window.stream_width,
+            height: window.stream_height,
             bitrate_kbps: max_kbps as i32,
             audio: window.with_audio,
             picture: !window.sound_only,

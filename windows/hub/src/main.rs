@@ -4,6 +4,7 @@ mod capture;
 mod discovery;
 mod hub;
 mod player;
+mod remote;
 mod sharing;
 mod store;
 mod system;

@@ -28,6 +28,8 @@ pub struct FeedInfo {
     pub has_audio: bool,
     pub sound_only: bool,
     pub has_alpha: bool,
+    // The receiving device may steer this feed with its mouse. Bit 3 of the flags byte.
+    pub controllable: bool,
     pub title: String,
 }
 
@@ -79,6 +81,68 @@ impl Refusal {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MouseButton {
+    Left = 1,
+    Right = 2,
+    Middle = 3,
+    Back = 4,
+    Forward = 5,
+}
+
+impl MouseButton {
+    pub const ALL: [MouseButton; 5] = [Self::Left, Self::Right, Self::Middle, Self::Back, Self::Forward];
+
+    fn of(code: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|button| *button as u8 == code)
+    }
+}
+
+// The XInput layout: buttons are its bits, triggers 0 to 255, sticks with up and right positive.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct PadState {
+    pub buttons: u16,
+    pub left_trigger: u8,
+    pub right_trigger: u8,
+    pub left_x: i16,
+    pub left_y: i16,
+    pub right_x: i16,
+    pub right_y: i16,
+}
+
+// Positions span the streamed picture, black bars included: 0 is the left or top edge, 65535 the other.
+// seq counts up per stream on the sending side, so the publisher can drop a resent press that arrives after its release.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Input {
+    Pointer { stream_id: u16, seq: u32, x: u16, y: u16 },
+    // Movement in pixels of the streamed picture, for games that turn the camera with the mouse.
+    Motion { stream_id: u16, dx: i16, dy: i16 },
+    Button { stream_id: u16, seq: u32, button: MouseButton, down: bool, at: Option<(u16, u16)> },
+    // 120 to a wheel notch, positive up and to the right, as Windows counts.
+    Scroll { stream_id: u16, dx: i16, dy: i16 },
+    // Keys and text have their own seq, and the publisher applies them strictly in that order, so typing is never jumbled.
+    // usage is the USB HID keyboard usage, which names a physical key whatever the layout.
+    Key { stream_id: u16, seq: u32, usage: u16, down: bool },
+    Text { stream_id: u16, seq: u32, text: String },
+    // Lets go of everything held. key_seq is the last keyboard seq sent, so a late press from before it is dropped.
+    Release { stream_id: u16, seq: u32, key_seq: u32 },
+    // The whole state of one of the sender's controllers. It shares seq with the mouse, and is not acknowledged: the sender
+    // repeats the latest state, so a lost one is replaced shortly.
+    Gamepad { stream_id: u16, seq: u32, pad: u8, state: PadState },
+}
+
+impl Input {
+    pub fn stream_id(&self) -> u16 {
+        match self {
+            Self::Pointer { stream_id, .. } | Self::Motion { stream_id, .. } | Self::Button { stream_id, .. } | Self::Scroll { stream_id, .. }
+            | Self::Key { stream_id, .. }
+            | Self::Text { stream_id, .. }
+            | Self::Release { stream_id, .. }
+            | Self::Gamepad { stream_id, .. } => *stream_id,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Control {
     Ping,
@@ -99,6 +163,12 @@ pub enum Control {
     SenderStats { stream_id: u16, bitrate_kbps: u16, fps10: u16, encode_ms10: u16, send_ms10: u16 },
     // Every address the sender listens on, so the other side can still reach it from another network, such as over a VPN.
     Addresses(Vec<Address>),
+    Input(Input),
+    // The publisher's cursor is held by the program under it, as a game does to turn its camera, so movement should be relative.
+    PointerCaptured { stream_id: u16, captured: bool },
+    // How hard a game drives the two motors of the receiver's controller, 0 to 255, large then small. The publisher repeats
+    // it while the controller is in use, so the receiver stops on its own when it stops hearing it.
+    Rumble { stream_id: u16, pad: u8, large: u8, small: u8 },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -125,13 +195,37 @@ const NACK: u8 = 12;
 const STREAM_REPORT: u8 = 13;
 const SUBSCRIBE_REFUSED: u8 = 14;
 const ADDRESSES: u8 = 15;
+const POINTER: u8 = 16;
+const MOTION: u8 = 17;
+const MOUSE_BUTTON: u8 = 18;
+const SCROLL: u8 = 19;
+const RELEASE_INPUT: u8 = 20;
+const POINTER_CAPTURED: u8 = 21;
+const KEY: u8 = 22;
+const TEXT: u8 = 23;
+const GAMEPAD: u8 = 24;
+const RUMBLE: u8 = 25;
+pub const MAX_TEXT_BYTES: usize = 200;
 const AUDIO_BIT: u8 = 1;
 const SOUND_ONLY_BIT: u8 = 2;
 const ALPHA_BIT: u8 = 4;
+const CONTROL_BIT: u8 = 8;
+const BUTTON_DOWN_BIT: u8 = 1;
+const BUTTON_AT_BIT: u8 = 2;
 
-// Pings and measurements are never acknowledged or resent: a late measurement is worth nothing.
+// Pings, measurements and pointer movement are never acknowledged or resent: late, they are worth nothing.
 pub fn needs_ack(control: &Control) -> bool {
-    !matches!(control, Control::Ping | Control::TimeRequest(_) | Control::TimeReply(_) | Control::SenderStats { .. } | Control::Nack { .. } | Control::StreamReport { .. })
+    !matches!(
+        control,
+        Control::Ping
+            | Control::TimeRequest(_)
+            | Control::TimeReply(_)
+            | Control::SenderStats { .. }
+            | Control::Nack { .. }
+            | Control::StreamReport { .. }
+            | Control::Rumble { .. }
+            | Control::Input(Input::Pointer { .. } | Input::Motion { .. } | Input::Gamepad { .. })
+    )
 }
 
 pub fn encode_ack(id: i32) -> Vec<u8> {
@@ -166,12 +260,79 @@ pub fn encode(id: i32, control: &Control) -> Vec<u8> {
             [clamp16(*stream_id), clamp16(*window_ms), clamp16(*fragments), clamp16(*resend_requests), clamp16(*lost_frames), clamp16(*jitter_ms10)].concat(),
         ),
         Control::Addresses(addresses) => (ADDRESSES, encode_addresses(addresses)),
+        Control::Input(input) => encode_input(input),
+        Control::PointerCaptured { stream_id, captured } => (POINTER_CAPTURED, [&stream_id.to_be_bytes()[..], &[*captured as u8]].concat()),
+        Control::Rumble { stream_id, pad, large, small } => (RUMBLE, [&stream_id.to_be_bytes()[..], &[*pad, *large, *small]].concat()),
     };
     let mut out = Vec::with_capacity(5 + body.len());
     out.push(kind);
     out.extend_from_slice(&id.to_be_bytes());
     out.extend_from_slice(&body);
     out
+}
+
+fn encode_input(input: &Input) -> (u8, Vec<u8>) {
+    let mut out = input.stream_id().to_be_bytes().to_vec();
+    let kind = match input {
+        Input::Pointer { seq, x, y, .. } => {
+            out.extend_from_slice(&seq.to_be_bytes());
+            out.extend_from_slice(&x.to_be_bytes());
+            out.extend_from_slice(&y.to_be_bytes());
+            POINTER
+        }
+        Input::Motion { dx, dy, .. } => {
+            out.extend_from_slice(&dx.to_be_bytes());
+            out.extend_from_slice(&dy.to_be_bytes());
+            MOTION
+        }
+        Input::Button { seq, button, down, at, .. } => {
+            out.extend_from_slice(&seq.to_be_bytes());
+            out.push(*button as u8);
+            out.push((if *down { BUTTON_DOWN_BIT } else { 0 }) | (if at.is_some() { BUTTON_AT_BIT } else { 0 }));
+            let (x, y) = at.unwrap_or((0, 0));
+            out.extend_from_slice(&x.to_be_bytes());
+            out.extend_from_slice(&y.to_be_bytes());
+            MOUSE_BUTTON
+        }
+        Input::Scroll { dx, dy, .. } => {
+            out.extend_from_slice(&dx.to_be_bytes());
+            out.extend_from_slice(&dy.to_be_bytes());
+            SCROLL
+        }
+        Input::Release { seq, key_seq, .. } => {
+            out.extend_from_slice(&seq.to_be_bytes());
+            out.extend_from_slice(&key_seq.to_be_bytes());
+            RELEASE_INPUT
+        }
+        Input::Key { seq, usage, down, .. } => {
+            out.extend_from_slice(&seq.to_be_bytes());
+            out.extend_from_slice(&usage.to_be_bytes());
+            out.push(*down as u8);
+            KEY
+        }
+        Input::Text { seq, text, .. } => {
+            let mut end = text.len().min(MAX_TEXT_BYTES);
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            out.extend_from_slice(&seq.to_be_bytes());
+            out.push(end as u8);
+            out.extend_from_slice(&text.as_bytes()[..end]);
+            TEXT
+        }
+        Input::Gamepad { seq, pad, state, .. } => {
+            out.extend_from_slice(&seq.to_be_bytes());
+            out.push(*pad);
+            out.extend_from_slice(&state.buttons.to_be_bytes());
+            out.push(state.left_trigger);
+            out.push(state.right_trigger);
+            for axis in [state.left_x, state.left_y, state.right_x, state.right_y] {
+                out.extend_from_slice(&axis.to_be_bytes());
+            }
+            GAMEPAD
+        }
+    };
+    (kind, out)
 }
 
 // A request for more pieces than fit is a request for the whole frame.
@@ -222,7 +383,12 @@ fn encode_feeds(feeds: &[FeedInfo]) -> Vec<u8> {
         entry.extend_from_slice(&feed.width.to_be_bytes());
         entry.extend_from_slice(&feed.height.to_be_bytes());
         entry.push(feed.fps);
-        entry.push((if feed.has_audio { AUDIO_BIT } else { 0 }) | (if feed.sound_only { SOUND_ONLY_BIT } else { 0 }) | (if feed.has_alpha { ALPHA_BIT } else { 0 }));
+        entry.push(
+            (if feed.has_audio { AUDIO_BIT } else { 0 })
+                | (if feed.sound_only { SOUND_ONLY_BIT } else { 0 })
+                | (if feed.has_alpha { ALPHA_BIT } else { 0 })
+                | (if feed.controllable { CONTROL_BIT } else { 0 }),
+        );
         if used + entry.len() > MAX_PAYLOAD - 5 {
             break;
         }
@@ -309,6 +475,14 @@ impl<'a> Reader<'a> {
         Some(u16::from_be_bytes(self.take(2)?.try_into().ok()?))
     }
 
+    fn i16(&mut self) -> Option<i16> {
+        Some(i16::from_be_bytes(self.take(2)?.try_into().ok()?))
+    }
+
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_be_bytes(self.take(4)?.try_into().ok()?))
+    }
+
     fn i32(&mut self) -> Option<i32> {
         Some(i32::from_be_bytes(self.take(4)?.try_into().ok()?))
     }
@@ -357,9 +531,53 @@ pub fn decode(bytes: &[u8]) -> Option<Decoded> {
             Some(Control::SenderStats { stream_id: reader.u16()?, bitrate_kbps: reader.u16()?, fps10: reader.u16()?, encode_ms10: reader.u16()?, send_ms10: reader.u16()? })
         })(),
         ADDRESSES => read_addresses(&mut reader),
+        POINTER => (|| Some(Input::Pointer { stream_id: reader.u16()?, seq: reader.u32()?, x: reader.u16()?, y: reader.u16()? }))().map(Control::Input),
+        MOTION => (|| Some(Input::Motion { stream_id: reader.u16()?, dx: reader.i16()?, dy: reader.i16()? }))().map(Control::Input),
+        MOUSE_BUTTON => read_button(&mut reader).map(Control::Input),
+        SCROLL => (|| Some(Input::Scroll { stream_id: reader.u16()?, dx: reader.i16()?, dy: reader.i16()? }))().map(Control::Input),
+        RELEASE_INPUT => (|| {
+            let (stream_id, seq) = (reader.u16()?, reader.u32()?);
+            let key_seq = if reader.has_more() { reader.u32()? } else { 0 };
+            Some(Input::Release { stream_id, seq, key_seq })
+        })()
+        .map(Control::Input),
+        KEY => (|| Some(Input::Key { stream_id: reader.u16()?, seq: reader.u32()?, usage: reader.u16()?, down: reader.u8()? != 0 }))().map(Control::Input),
+        TEXT => (|| {
+            let (stream_id, seq) = (reader.u16()?, reader.u32()?);
+            let length = reader.u8()? as usize;
+            Some(Input::Text { stream_id, seq, text: reader.string(length)? })
+        })()
+        .map(Control::Input),
+        GAMEPAD => (|| {
+            let (stream_id, seq, pad) = (reader.u16()?, reader.u32()?, reader.u8()?);
+            let state = PadState {
+                buttons: reader.u16()?,
+                left_trigger: reader.u8()?,
+                right_trigger: reader.u8()?,
+                left_x: reader.i16()?,
+                left_y: reader.i16()?,
+                right_x: reader.i16()?,
+                right_y: reader.i16()?,
+            };
+            Some(Input::Gamepad { stream_id, seq, pad, state })
+        })()
+        .map(Control::Input),
+        POINTER_CAPTURED => (|| Some(Control::PointerCaptured { stream_id: reader.u16()?, captured: reader.u8()? != 0 }))(),
+        RUMBLE => (|| Some(Control::Rumble { stream_id: reader.u16()?, pad: reader.u8()?, large: reader.u8()?, small: reader.u8()? }))(),
         _ => None,
     };
     Some(control.map_or(Decoded::Unrecognized(id), |control| Decoded::Message(id, control)))
+}
+
+// A button this version does not know makes the whole message unknown, so it is acknowledged and ignored.
+fn read_button(reader: &mut Reader) -> Option<Input> {
+    let stream_id = reader.u16()?;
+    let seq = reader.u32()?;
+    let button = MouseButton::of(reader.u8()?)?;
+    let flags = reader.u8()?;
+    let x = reader.u16()?;
+    let y = reader.u16()?;
+    Some(Input::Button { stream_id, seq, button, down: flags & BUTTON_DOWN_BIT != 0, at: (flags & BUTTON_AT_BIT != 0).then_some((x, y)) })
 }
 
 fn read_nack(reader: &mut Reader) -> Option<Control> {
@@ -409,6 +627,7 @@ fn read_feeds(reader: &mut Reader) -> Option<Vec<FeedInfo>> {
             has_audio: flags & AUDIO_BIT != 0,
             sound_only: flags & SOUND_ONLY_BIT != 0,
             has_alpha: flags & ALPHA_BIT != 0,
+            controllable: flags & CONTROL_BIT != 0,
             title: String::new(),
         }));
     }

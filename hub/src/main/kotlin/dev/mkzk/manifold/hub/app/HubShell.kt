@@ -109,7 +109,10 @@ internal fun HubShell(
         ) { padding ->
             HorizontalPager(pager, Modifier.padding(padding).fillMaxSize(), beyondViewportPageCount = 1, key = { it }) { page ->
                 when (Tab.entries[page]) {
-                    Tab.Live -> LiveScreen(graph.registry, snapshot, networkState.feedTitles, previewStats, sources, notificationsOn, openNotificationSettings, Modifier)
+                    Tab.Live -> LiveScreen(
+                        graph.registry, snapshot, networkState.feedTitles, previewStats, sources, networkState.controllable, networkState.captured, graph.network::sendInput, graph.network.rumbles,
+                        notificationsOn, openNotificationSettings, Modifier,
+                    )
                     Tab.Apps -> AppsScreen(graph.registry, snapshot.apps, snapshot.pending, Modifier)
                     Tab.Devices -> DevicesScreen(network, graph.streamPreference, networkState, devices, Modifier)
                     Tab.Settings -> SettingsScreen(graph.updater, graph.theme, notificationsOn, openNotificationSettings, openAcknowledgements = { acknowledgements = true }, Modifier)

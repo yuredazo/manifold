@@ -1,6 +1,6 @@
 mod common;
 
-use manifold_protocol::control::{Control, FeedInfo, Refusal, Subscribe, encode, encode_ack};
+use manifold_protocol::control::{Control, FeedInfo, Input, MouseButton, PadState, Refusal, Subscribe, encode, encode_ack};
 use manifold_protocol::crypto::{from_hex, sha256, to_hex};
 use manifold_protocol::noise::TransportKeys;
 use manifold_protocol::session::{Session, StreamKind};
@@ -49,6 +49,19 @@ fn control_messages_match_the_fixture() {
     check("control_ack", &encode_ack(77));
     check("control_confirm", &encode(6, &Control::PairConfirm));
     check("control_addresses", &encode(9, &Control::Addresses(vec![Address::new("100.77.195.122", 47200), Address::new("192.168.0.100", 8000)])));
+    check("control_pointer", &encode(10, &Control::Input(Input::Pointer { stream_id: 9, seq: 3, x: 32768, y: 65535 })));
+    check("control_motion", &encode(11, &Control::Input(Input::Motion { stream_id: 9, dx: -5, dy: 300 })));
+    check("control_button", &encode(12, &Control::Input(Input::Button { stream_id: 9, seq: 4, button: MouseButton::Right, down: true, at: Some((100, 200)) })));
+    check("control_button_free", &encode(13, &Control::Input(Input::Button { stream_id: 9, seq: 5, button: MouseButton::Left, down: false, at: None })));
+    check("control_scroll", &encode(14, &Control::Input(Input::Scroll { stream_id: 9, dx: 0, dy: -120 })));
+    check("control_release", &encode(15, &Control::Input(Input::Release { stream_id: 9, seq: 6, key_seq: 0 })));
+    check("control_key", &encode(18, &Control::Input(Input::Key { stream_id: 9, seq: 7, usage: 4, down: true })));
+    check("control_text", &encode(19, &Control::Input(Input::Text { stream_id: 9, seq: 8, text: "h\u{e9}".into() })));
+    let state = PadState { buttons: 0x1001, left_trigger: 128, right_trigger: 255, left_x: 32767, left_y: -32768, right_x: 256, right_y: -1 };
+    check("control_gamepad", &encode(20, &Control::Input(Input::Gamepad { stream_id: 9, seq: 9, pad: 1, state })));
+    check("control_rumble", &encode(21, &Control::Rumble { stream_id: 9, pad: 1, large: 255, small: 64 }));
+    check("control_captured", &encode(17, &Control::PointerCaptured { stream_id: 9, captured: true }));
+    check("control_feedlist_control", &encode(16, &Control::FeedList(vec![FeedInfo { controllable: true, ..FeedInfo::new("desk", 1920, 1080, 30, true) }])));
 }
 
 #[test]

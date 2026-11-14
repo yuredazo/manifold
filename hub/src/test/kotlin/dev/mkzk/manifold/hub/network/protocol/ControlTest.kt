@@ -340,4 +340,50 @@ class ControlTest {
         val odd = listOf("+10.0.0.2", "10.0.0.256", "10.0.0", "1.2.3.4.5", "0x10.0.0.1").map { Address(it, 47200) }
         assertEquals(Control.Addresses(listOf(plain)), roundTrip(Control.Addresses(odd + plain)))
     }
+
+    @Test
+    fun everyMouseMessageSurvivesEncoding() {
+        listOf(
+            Control.Pointer(3, 1, 0, 65535),
+            Control.Motion(3, -32768, 32767),
+            Control.Button(3, 2, MouseButton.FORWARD, down = true, x = 1, y = 2),
+            Control.Button(3, 3, MouseButton.MIDDLE, down = false),
+            Control.Scroll(3, 120, -240),
+            Control.Release(3, Int.MAX_VALUE, keySeq = 12),
+            Control.Key(3, 4, 0xE3, down = false),
+            Control.Text(3, 5, "caf\u00e9 \uD83D\uDE00"),
+            Control.Gamepad(3, 6, 3, PadState(0xF3FF, 1, 254, -32768, 32767, -2, 2)),
+        ).forEach { assertEquals(it, roundTrip(it)) }
+    }
+
+    @Test
+    fun onlyPressesScrollsAndReleasesAreResent() {
+        assertFalse(ControlCodec.needsAck(Control.Pointer(1, 1, 0, 0)))
+        assertFalse(ControlCodec.needsAck(Control.Motion(1, 1, 1)))
+        assertFalse(ControlCodec.needsAck(Control.Gamepad(1, 1, 0, PadState())))
+        assertFalse(ControlCodec.needsAck(Control.Rumble(1, 0, 1, 1)))
+        assertEquals(Control.Rumble(3, 2, 255, 0), roundTrip(Control.Rumble(3, 2, 255, 0)))
+        assertTrue(ControlCodec.needsAck(Control.Button(1, 1, MouseButton.LEFT, down = true)))
+        assertTrue(ControlCodec.needsAck(Control.Scroll(1, 0, 120)))
+        assertTrue(ControlCodec.needsAck(Control.Release(1, 1)))
+    }
+
+    @Test
+    fun aButtonFromANewerHubIsAcknowledgedAndIgnored() {
+        val bytes = ControlCodec.encode(7, Control.Button(1, 1, MouseButton.LEFT, down = true))
+        bytes[11] = 9
+        assertEquals(Decoded.Unrecognized(7), ControlCodec.decode(bytes))
+    }
+
+    @Test
+    fun textTooLongForOneMessageIsCutAtACharacter() {
+        val sent = roundTrip(Control.Text(1, 1, "\u00e9".repeat(150))) as Control.Text
+        assertEquals("\u00e9".repeat(100), sent.text)
+    }
+
+    @Test
+    fun theControlFlagSurvivesAFeedList() {
+        val feeds = Control.FeedList(listOf(FeedInfo("desk", 1920, 1080, 30, false, controllable = true), FeedInfo("camera", 1280, 720, 30, false)))
+        assertEquals(feeds, roundTrip(feeds))
+    }
 }

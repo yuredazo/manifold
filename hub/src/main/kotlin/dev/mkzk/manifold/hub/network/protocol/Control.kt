@@ -19,9 +19,35 @@ internal data class FeedInfo(
     val hasAlpha: Boolean = false,
     /** What people read, such as a window's title, which changes while the feed keeps its [name]. Empty means [name]. */
     val title: String = "",
+    // The receiving device may steer this feed with its mouse. Bit 3 of the flags byte.
+    val controllable: Boolean = false,
 ) {
     val label get() = title.ifEmpty { name }
 }
+
+internal enum class MouseButton(val code: Int) {
+    LEFT(1),
+    RIGHT(2),
+    MIDDLE(3),
+    BACK(4),
+    FORWARD(5),
+    ;
+
+    companion object {
+        fun of(code: Int) = entries.firstOrNull { it.code == code }
+    }
+}
+
+// The XInput layout: buttons are its bits, triggers 0 to 255, sticks from -32768 to 32767 with up and right positive.
+internal data class PadState(
+    val buttons: Int = 0,
+    val leftTrigger: Int = 0,
+    val rightTrigger: Int = 0,
+    val leftX: Int = 0,
+    val leftY: Int = 0,
+    val rightX: Int = 0,
+    val rightY: Int = 0,
+)
 
 internal sealed interface Control {
     data object Ping : Control
@@ -100,6 +126,42 @@ internal sealed interface Control {
 
     // Every address the sender listens on, so the other side can still reach it from another network, such as over a VPN.
     data class Addresses(val addresses: List<Address>) : Control
+
+    // Positions span the streamed picture, black bars included: 0 is the left or top edge, 65535 the other.
+    // seq counts up per stream, so the publisher can drop a resent press that arrives after its release.
+    sealed interface Input : Control {
+        val streamId: Int
+    }
+
+    data class Pointer(override val streamId: Int, val seq: Int, val x: Int, val y: Int) : Input
+
+    // Movement in pixels of the streamed picture, for games that turn the camera with the mouse.
+    data class Motion(override val streamId: Int, val dx: Int, val dy: Int) : Input
+
+    data class Button(override val streamId: Int, val seq: Int, val button: MouseButton, val down: Boolean, val x: Int? = null, val y: Int? = null) : Input
+
+    // 120 to a wheel notch, positive up and to the right, as Windows counts.
+    data class Scroll(override val streamId: Int, val dx: Int, val dy: Int) : Input
+
+    // Keys and text have their own seq, and the publisher applies them strictly in that order, so typing is never jumbled.
+    // usage is the USB HID keyboard usage, which names a physical key whatever the layout.
+    data class Key(override val streamId: Int, val seq: Int, val usage: Int, val down: Boolean) : Input
+
+    data class Text(override val streamId: Int, val seq: Int, val text: String) : Input
+
+    // Lets go of everything held. keySeq is the last keyboard seq sent, so a late press from before it is dropped.
+    data class Release(override val streamId: Int, val seq: Int, val keySeq: Int = 0) : Input
+
+    // The whole state of one of the sender's controllers. It shares seq with the mouse, and is not acknowledged: the sender
+    // repeats the latest state, so a lost one is replaced shortly.
+    data class Gamepad(override val streamId: Int, val seq: Int, val pad: Int, val state: PadState) : Input
+
+    // The publisher's cursor is held by the program under it, as a game does to turn its camera, so movement should be relative.
+    data class PointerCaptured(val streamId: Int, val captured: Boolean) : Control
+
+    // How hard a game drives the two motors of the receiver's controller, 0 to 255, large then small. The publisher repeats
+    // it while the controller is in use, so the receiver stops on its own when it stops hearing it.
+    data class Rumble(val streamId: Int, val pad: Int, val large: Int, val small: Int) : Control
 }
 
 internal sealed interface Decoded {
@@ -133,15 +195,30 @@ internal object ControlCodec {
     private const val STREAM_REPORT = 13
     private const val SUBSCRIBE_REFUSED = 14
     private const val ADDRESSES = 15
+    private const val POINTER = 16
+    private const val MOTION = 17
+    private const val MOUSE_BUTTON = 18
+    private const val SCROLL = 19
+    private const val RELEASE_INPUT = 20
+    private const val POINTER_CAPTURED = 21
+    private const val KEY = 22
+    private const val TEXT = 23
+    private const val GAMEPAD = 24
+    private const val RUMBLE = 25
+    const val MAX_TEXT_BYTES = 200
     private const val AUDIO_BIT = 1
     private const val SOUND_ONLY_BIT = 2
     private const val ALPHA_BIT = 4
+    private const val CONTROL_BIT = 8
+    private const val BUTTON_DOWN_BIT = 1
+    private const val BUTTON_AT_BIT = 2
     const val MAX_NACK_INDEXES = 200
     const val MAX_ADDRESSES = 16
 
-    /** Pings and measurements are never acknowledged or resent: a late measurement is worth nothing. */
+    // Pings, measurements and pointer movement are never acknowledged or resent: late, they are worth nothing.
     fun needsAck(control: Control) = when (control) {
         Control.Ping, is Control.TimeRequest, is Control.TimeReply, is Control.SenderStats, is Control.Nack, is Control.StreamReport -> false
+        is Control.Pointer, is Control.Motion, is Control.Gamepad, is Control.Rumble -> false
         else -> true
     }
 
@@ -180,11 +257,53 @@ internal object ControlCodec {
                 .putShort(control.sendMs10.coerceIn(0, 0xFFFF).toShort())
                 .array()
             is Control.Addresses -> ADDRESSES to encodeAddresses(control.addresses)
+            is Control.Pointer -> POINTER to ByteBuffer.allocate(10)
+                .putShort(control.streamId.toShort()).putInt(control.seq)
+                .putShort(control.x.coerceIn(0, 0xFFFF).toShort()).putShort(control.y.coerceIn(0, 0xFFFF).toShort())
+                .array()
+            is Control.Motion -> MOTION to ByteBuffer.allocate(6)
+                .putShort(control.streamId.toShort())
+                .putShort(control.dx.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort())
+                .putShort(control.dy.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort())
+                .array()
+            is Control.Button -> MOUSE_BUTTON to ByteBuffer.allocate(12)
+                .putShort(control.streamId.toShort()).putInt(control.seq)
+                .put(control.button.code.toByte())
+                .put(((if (control.down) BUTTON_DOWN_BIT else 0) or (if (control.x != null && control.y != null) BUTTON_AT_BIT else 0)).toByte())
+                .putShort((control.x ?: 0).coerceIn(0, 0xFFFF).toShort()).putShort((control.y ?: 0).coerceIn(0, 0xFFFF).toShort())
+                .array()
+            is Control.Scroll -> SCROLL to ByteBuffer.allocate(6)
+                .putShort(control.streamId.toShort())
+                .putShort(control.dx.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort())
+                .putShort(control.dy.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort())
+                .array()
+            is Control.Release -> RELEASE_INPUT to ByteBuffer.allocate(10).putShort(control.streamId.toShort()).putInt(control.seq).putInt(control.keySeq).array()
+            is Control.Key -> KEY to ByteBuffer.allocate(9)
+                .putShort(control.streamId.toShort()).putInt(control.seq).putShort(control.usage.toShort()).put(if (control.down) 1 else 0)
+                .array()
+            is Control.Text -> TEXT to control.text.toByteArray(Charsets.UTF_8).let { bytes ->
+                val text = bytes.copyOf(utf8Prefix(bytes, MAX_TEXT_BYTES))
+                ByteBuffer.allocate(7 + text.size).putShort(control.streamId.toShort()).putInt(control.seq).put(text.size.toByte()).put(text).array()
+            }
+            is Control.Gamepad -> GAMEPAD to control.state.let { state ->
+                ByteBuffer.allocate(19)
+                    .putShort(control.streamId.toShort()).putInt(control.seq).put(control.pad.toByte())
+                    .putShort(state.buttons.toShort())
+                    .put(state.leftTrigger.coerceIn(0, 255).toByte()).put(state.rightTrigger.coerceIn(0, 255).toByte())
+                    .putShort(axis(state.leftX)).putShort(axis(state.leftY)).putShort(axis(state.rightX)).putShort(axis(state.rightY))
+                    .array()
+            }
+            is Control.Rumble -> RUMBLE to ByteBuffer.allocate(5)
+                .putShort(control.streamId.toShort()).put(control.pad.toByte()).put(control.large.coerceIn(0, 255).toByte()).put(control.small.coerceIn(0, 255).toByte())
+                .array()
+            is Control.PointerCaptured -> POINTER_CAPTURED to ByteBuffer.allocate(3).putShort(control.streamId.toShort()).put(if (control.captured) 1 else 0).array()
         }
         return ByteBuffer.allocate(5 + body.size).put(kind.toByte()).putInt(id).put(body).array()
     }
 
     // IPv4 only: four address bytes and a port each. Anything else is left out.
+    private fun axis(value: Int) = value.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+
     private fun encodeAddresses(addresses: List<Address>): ByteArray {
         val usable = addresses.mapNotNull { address -> ipv4Bytes(address.host)?.let { it to address.port } }.distinct().take(MAX_ADDRESSES)
         val out = ByteBuffer.allocate(1 + 6 * usable.size).put(usable.size.toByte())
@@ -281,7 +400,7 @@ internal object ControlCodec {
             val entry = ByteBuffer.allocate(1 + name.size + 6)
                 .put(name.size.toByte()).put(name)
                 .putShort(feed.width.toShort()).putShort(feed.height.toShort())
-                .put(feed.fps.toByte()).put(((if (feed.hasAudio) AUDIO_BIT else 0) or (if (feed.soundOnly) SOUND_ONLY_BIT else 0) or (if (feed.hasAlpha) ALPHA_BIT else 0)).toByte())
+                .put(feed.fps.toByte()).put(flagsOf(feed).toByte())
                 .array()
             if (used + entry.size > Session.MAX_PAYLOAD - 5) break
             encoded += entry
@@ -302,6 +421,27 @@ internal object ControlCodec {
         encoded.forEach(out::put)
         if (titled) titles.forEach { out.put(it.size.toByte()).put(it) }
         return out.array()
+    }
+
+    fun utf8Prefix(bytes: ByteArray, limit: Int): Int {
+        var end = minOf(bytes.size, limit)
+        while (end < bytes.size && end > 0 && bytes[end].toInt() and 0xC0 == 0x80) end--
+        return end
+    }
+
+    private fun flagsOf(feed: FeedInfo) =
+        (if (feed.hasAudio) AUDIO_BIT else 0) or (if (feed.soundOnly) SOUND_ONLY_BIT else 0) or (if (feed.hasAlpha) ALPHA_BIT else 0) or (if (feed.controllable) CONTROL_BIT else 0)
+
+    // A button this version does not know makes the whole message unknown, so it is acknowledged and ignored.
+    private fun readButton(reader: ByteBuffer): Control.Button? {
+        val streamId = reader.getShort().toInt() and 0xFFFF
+        val seq = reader.getInt()
+        val button = MouseButton.of(reader.get().toInt() and 0xFF) ?: return null
+        val flags = reader.get().toInt() and 0xFF
+        val x = reader.getShort().toInt() and 0xFFFF
+        val y = reader.getShort().toInt() and 0xFFFF
+        val at = flags and BUTTON_AT_BIT != 0
+        return Control.Button(streamId, seq, button, flags and BUTTON_DOWN_BIT != 0, x.takeIf { at }, y.takeIf { at })
     }
 
     fun decode(bytes: ByteArray): Decoded? {
@@ -343,6 +483,35 @@ internal object ControlCodec {
                     sendMs10 = reader.getShort().toInt() and 0xFFFF,
                 ))
                 ADDRESSES -> readAddresses(reader)?.let { Decoded.Message(id, it) }
+                POINTER -> Decoded.Message(id, Control.Pointer(reader.getShort().toInt() and 0xFFFF, reader.getInt(), reader.getShort().toInt() and 0xFFFF, reader.getShort().toInt() and 0xFFFF))
+                MOTION -> Decoded.Message(id, Control.Motion(reader.getShort().toInt() and 0xFFFF, reader.getShort().toInt(), reader.getShort().toInt()))
+                MOUSE_BUTTON -> readButton(reader)?.let { Decoded.Message(id, it) }
+                SCROLL -> Decoded.Message(id, Control.Scroll(reader.getShort().toInt() and 0xFFFF, reader.getShort().toInt(), reader.getShort().toInt()))
+                RELEASE_INPUT -> Decoded.Message(id, Control.Release(reader.getShort().toInt() and 0xFFFF, reader.getInt(), if (reader.hasRemaining()) reader.getInt() else 0))
+                KEY -> Decoded.Message(id, Control.Key(reader.getShort().toInt() and 0xFFFF, reader.getInt(), reader.getShort().toInt() and 0xFFFF, reader.get().toInt() != 0))
+                TEXT -> Decoded.Message(
+                    id,
+                    Control.Text(
+                        reader.getShort().toInt() and 0xFFFF,
+                        reader.getInt(),
+                        ByteArray(reader.get().toInt() and 0xFF).also { reader.get(it) }.toString(Charsets.UTF_8),
+                    ),
+                )
+                GAMEPAD -> {
+                    val streamId = reader.getShort().toInt() and 0xFFFF
+                    val seq = reader.getInt()
+                    val pad = reader.get().toInt() and 0xFF
+                    val buttons = reader.getShort().toInt() and 0xFFFF
+                    val leftTrigger = reader.get().toInt() and 0xFF
+                    val rightTrigger = reader.get().toInt() and 0xFF
+                    val state = PadState(buttons, leftTrigger, rightTrigger, reader.getShort().toInt(), reader.getShort().toInt(), reader.getShort().toInt(), reader.getShort().toInt())
+                    Decoded.Message(id, Control.Gamepad(streamId, seq, pad, state))
+                }
+                RUMBLE -> Decoded.Message(
+                    id,
+                    Control.Rumble(reader.getShort().toInt() and 0xFFFF, reader.get().toInt() and 0xFF, reader.get().toInt() and 0xFF, reader.get().toInt() and 0xFF),
+                )
+                POINTER_CAPTURED -> Decoded.Message(id, Control.PointerCaptured(reader.getShort().toInt() and 0xFFFF, reader.get().toInt() != 0))
                 else -> null
             } ?: Decoded.Unrecognized(id)
         } catch (_: BufferUnderflowException) {
@@ -360,7 +529,10 @@ internal object ControlCodec {
             val fps = reader.get().toInt() and 0xFF
             val flags = reader.get().toInt() and 0xFF
             entries += if (Manifold.isValidName(name) && width <= Manifold.MAX_DIMENSION && height <= Manifold.MAX_DIMENSION) {
-                FeedInfo(name.trim(), width, height, fps, flags and AUDIO_BIT != 0, soundOnly = flags and SOUND_ONLY_BIT != 0, hasAlpha = flags and ALPHA_BIT != 0)
+                FeedInfo(
+                    name.trim(), width, height, fps, flags and AUDIO_BIT != 0,
+                    soundOnly = flags and SOUND_ONLY_BIT != 0, hasAlpha = flags and ALPHA_BIT != 0, controllable = flags and CONTROL_BIT != 0,
+                )
             } else {
                 null
             }

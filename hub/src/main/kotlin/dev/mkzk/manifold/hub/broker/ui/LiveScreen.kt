@@ -39,6 +39,8 @@ import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.broker.SenderRow
 import dev.mkzk.manifold.hub.broker.Snapshot
 import dev.mkzk.manifold.hub.broker.SubscriptionRow
+import dev.mkzk.manifold.hub.network.PadRumble
+import dev.mkzk.manifold.hub.network.RemoteAction
 import dev.mkzk.manifold.hub.network.REMOTE_PREFIX
 import dev.mkzk.manifold.hub.ui.Banner
 import dev.mkzk.manifold.hub.ui.IconBadge
@@ -46,6 +48,7 @@ import dev.mkzk.manifold.hub.ui.ListRow
 import dev.mkzk.manifold.hub.ui.Panel
 import dev.mkzk.manifold.hub.ui.PanelDivider
 import dev.mkzk.manifold.hub.ui.secondaryText
+import kotlinx.coroutines.flow.Flow
 
 internal class SourceStatus(val online: Boolean, val latencyMs: Int?)
 
@@ -76,6 +79,10 @@ internal fun LiveScreen(
     titles: Map<String, String>,
     stats: Map<String, PreviewStats>,
     sources: Map<String, SourceStatus>,
+    controllable: Set<String>,
+    captured: Set<String>,
+    sendInput: (String, RemoteAction) -> Unit,
+    rumbles: Flow<PadRumble>,
     notificationsOn: Boolean,
     openNotificationSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -95,7 +102,9 @@ internal fun LiveScreen(
     SideEffect { if (current != null) lastSeen = current }
     previewed?.let { name ->
         val known = current ?: lastSeen?.takeIf { it.name == name } ?: SenderRow(name, "", "", 0, 0, 0, false, 0)
-        FeedPreview(registry, known, title = titles[name] ?: name, stats = stats[name], live = current != null) { previewed = null }
+        FeedPreview(registry, known, title = titles[name] ?: name, stats = stats[name], live = current != null, canControl = name in controllable, captured = captured, sendInput = sendInput, rumbles = rumbles) {
+            previewed = null
+        }
     }
 
     LazyColumn(

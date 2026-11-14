@@ -28,6 +28,8 @@ internal data class NetworkState(
     val remoteFeeds: Map<String, List<FeedInfo>> = emptyMap(),
     /** What a feed from another device is called now, by the name the registry gave it. Only feeds with a title of their own are here. */
     val feedTitles: Map<String, String> = emptyMap(),
+    val controllable: Set<String> = emptySet(),
+    val captured: Set<String> = emptySet(),
     val streams: List<StreamSnapshot> = emptyList(),
     val refused: Map<String, Map<String, Control.Refusal>> = emptyMap(),
 )

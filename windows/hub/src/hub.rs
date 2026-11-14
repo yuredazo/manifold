@@ -65,6 +65,7 @@ pub enum Input {
     UpdateProgress(Option<f32>),
     UpdateInstalled(Result<(), String>),
     Command(Command),
+    Rumble { device_key: String, stream_id: u16, pad: u8, large: u8, small: u8 },
 }
 
 pub enum Command {
@@ -80,6 +81,7 @@ pub enum Command {
     SetSend(String, bool),
     SetSendCamera(String, bool),
     SetSendSpout(String, bool),
+    SetControl(String, bool),
     Unpair(String),
     Watch(String, String),
     StopWatching(String, String),
@@ -136,6 +138,7 @@ pub struct DeviceView {
     pub send: bool,
     pub send_camera: bool,
     pub send_spout: bool,
+    pub control: bool,
     pub address: String,
     pub fingerprint: String,
     pub offered: usize,
@@ -170,6 +173,13 @@ pub struct ShareView {
 }
 
 #[derive(Clone)]
+pub struct Controller {
+    pub key: String,
+    pub name: String,
+    pub share: String,
+}
+
+#[derive(Clone)]
 pub struct Snapshot {
     pub listening: bool,
     pub addresses: Vec<String>,
@@ -179,6 +189,8 @@ pub struct Snapshot {
     pub devices: Vec<DeviceView>,
     pub watch: Vec<WatchGroup>,
     pub shares: Vec<ShareView>,
+    pub controllers: Vec<Controller>,
+    pub pads_need_driver: bool,
     pub can_watch: usize,
     pub paused: bool,
     pub problem: Option<String>,
@@ -239,7 +251,7 @@ impl Hub {
         let book = storage.load_devices();
         let endpoint = Endpoint::new(identity, book, now_ms, || SystemTime::now().duration_since(UNIX_EPOCH).map(|time| time.as_millis() as i64).unwrap_or(0));
         let saver = storage.clone();
-        let mut sharing = Sharing::new(Capture::new(out.clone()), storage.read(SHARES_FILE).as_deref(), move |text| saver.write(SHARES_FILE, text));
+        let mut sharing = Sharing::new(Capture::new(out.clone()), out.clone(), storage.read(SHARES_FILE).as_deref(), move |text| saver.write(SHARES_FILE, text));
         sharing.offer_cameras = settings.offer_cameras;
         Self {
             watching: Watching::new(out.clone()),
@@ -370,6 +382,7 @@ impl Hub {
                 self.command(command);
                 self.dirty = true;
             }
+            Input::Rumble { device_key, stream_id, pad, large, small } => self.sharing.on_rumble(&device_key, stream_id, pad, large, small, &mut self.endpoint),
         }
     }
 
@@ -430,6 +443,7 @@ impl Hub {
             Command::SetSend(key, on) => self.update_device(&key, |device| Device { send: on, ..device.clone() }),
             Command::SetSendCamera(key, on) => self.update_device(&key, |device| Device { send_camera: on, ..device.clone() }),
             Command::SetSendSpout(key, on) => self.update_device(&key, |device| Device { send_spout: on, ..device.clone() }),
+            Command::SetControl(key, on) => self.update_device(&key, |device| Device { control: on, ..device.clone() }),
             Command::Unpair(key) => {
                 self.sharing.drop_device(&key, &self.endpoint);
                 self.watching.stop_where(&mut self.endpoint, |session| session.device_key == key);
@@ -523,6 +537,7 @@ impl Hub {
     fn devices_changed(&mut self) {
         self.offer_to_all();
         self.sharing.enforce(&self.endpoint);
+        self.sharing.sync_remote(&self.endpoint);
         let book: Vec<Device> = self.endpoint.book().devices().to_vec();
         self.watching.stop_where(&mut self.endpoint, |session| !book.iter().any(|device| device.public_key == session.device_key && device.receive));
     }
@@ -621,6 +636,8 @@ impl Hub {
         self.endpoint.tick();
         let now = now_ms();
         self.sharing.tick(now, &self.endpoint);
+        self.sharing.poll_capture(&mut self.endpoint);
+        self.sharing.repeat_rumble(&mut self.endpoint);
         self.watching.tick(now, &mut self.endpoint);
         if self.listening.is_none() {
             return;
@@ -771,6 +788,12 @@ impl Hub {
             }
             Event::Unsubscribe(device, stream_id) => self.sharing.unsubscribe(&device.public_key, stream_id, &self.endpoint),
             Event::KeyframeRequest(device, stream_id) => self.sharing.request_keyframe(&device.public_key, stream_id),
+            Event::Input(device, input) => {
+                let missing = self.sharing.pads_need_driver();
+                self.sharing.on_input(&device, &input);
+                self.dirty |= missing != self.sharing.pads_need_driver();
+            }
+            Event::PointerCaptured(..) | Event::Rumble { .. } => {}
             Event::Nack { device, stream_id, frame_id, indexes } => self.sharing.resend(&device.public_key, stream_id, frame_id, &indexes, &mut self.endpoint),
             Event::StreamReport { device, stream_id, fragments, resend_requests, lost_frames, .. } => {
                 self.sharing.on_report(&device.public_key, stream_id, fragments, resend_requests, lost_frames)
@@ -798,6 +821,7 @@ impl Hub {
                     send: device.send,
                     send_camera: device.send_camera,
                     send_spout: device.send_spout,
+                    control: device.control,
                     address: device.address.clone().unwrap_or_default(),
                     fingerprint: readable_fingerprint(&device.fingerprint()),
                     offered: self.remote_feeds.get(&device.public_key).map(Vec::len).unwrap_or(0),
@@ -854,6 +878,8 @@ impl Hub {
             devices,
             watch,
             shares,
+            controllers: self.sharing.controllers(&self.endpoint).into_iter().map(|(key, name, share)| Controller { key, name, share }).collect(),
+            pads_need_driver: self.sharing.pads_need_driver(),
             paused: self.sharing.paused,
             problem: self.sharing.problem.clone(),
             activity: self

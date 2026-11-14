@@ -25,6 +25,7 @@ pub struct Device {
     pub send: bool,
     pub send_camera: bool,
     pub send_spout: bool,
+    pub control: bool,
     pub others: Vec<String>,
 }
 
@@ -114,13 +115,13 @@ impl DeviceBook {
         let text = self
             .entries
             .iter()
-            .map(|d| [d.public_key.clone(), d.name.clone(), d.addresses().join(","), d.receive.to_string(), d.send.to_string(), d.send_camera.to_string(), d.send_spout.to_string()].join("\t"))
+            .map(|d| [d.public_key.clone(), d.name.clone(), d.addresses().join(","), d.receive.to_string(), d.send.to_string(), d.send_camera.to_string(), d.send_spout.to_string(), d.control.to_string()].join("\t"))
             .collect::<Vec<_>>()
             .join("\n");
         (self.save)(&text);
     }
 
-    // A book from before cameras or Spout could be shared has fewer fields, and what is missing stays off.
+    // A book from before cameras, Spout or control has fewer fields, and what is missing stays off.
     fn parse(&mut self, line: &str) {
         let parts: Vec<&str> = line.split('\t').collect();
         if parts.len() < 5 || parts[0].len() != 2 * KEY_LENGTH || from_hex(parts[0]).is_none() {
@@ -136,6 +137,7 @@ impl DeviceBook {
             send: parts[4] == "true",
             send_camera: parts.get(5) == Some(&"true"),
             send_spout: parts.get(6) == Some(&"true"),
+            control: parts.get(7) == Some(&"true"),
         };
         self.entries.retain(|known| known.public_key != device.public_key);
         self.entries.push(device);

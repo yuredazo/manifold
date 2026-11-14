@@ -37,6 +37,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlin.math.roundToInt
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 
 private const val TAG = "Network"
@@ -72,6 +75,9 @@ internal class Network(
             ::onNetworkThread,
             onStats = { snapshots -> flow.update { it.copy(streams = snapshots) } },
             onTitles = { titles -> flow.update { it.copy(feedTitles = titles) } },
+            onControllable = { names -> flow.update { it.copy(controllable = names) } },
+            onCaptured = { ids -> flow.update { it.copy(captured = ids) } },
+            onRumble = { rumble -> rumbleFlow.tryEmit(rumble) },
             profile = profile,
             onRefused = { deviceKey, feed, reason ->
                 flow.update { it.copy(refused = it.refused + (deviceKey to (it.refused[deviceKey].orEmpty() + (feed to reason)))) }
@@ -81,6 +87,8 @@ internal class Network(
     private val resolved = ConcurrentHashMap<String, InetAddress>()
 
     private val flow = MutableStateFlow(NetworkState())
+    private val rumbleFlow = MutableSharedFlow<PadRumble>(extraBufferCapacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val rumbles: SharedFlow<PadRumble> = rumbleFlow
     val state: StateFlow<NetworkState> = flow
     val devices: StateFlow<List<Device>> = book.devices
 
@@ -155,6 +163,14 @@ internal class Network(
 
         override fun onKeyframeRequest(device: Device, streamId: Int) {
             publisher.onKeyframeRequest(device, streamId)
+        }
+
+        override fun onPointerCaptured(device: Device, streamId: Int, captured: Boolean) {
+            remote.onPointerCaptured(device, streamId, captured)
+        }
+
+        override fun onRumble(device: Device, rumble: Control.Rumble) {
+            remote.onRumble(device, rumble)
         }
 
         override fun onStreamReport(device: Device, report: Control.StreamReport) {
@@ -321,6 +337,10 @@ internal class Network(
 
     fun dismissPairing() {
         flow.update { it.copy(pairing = PairingUi.None) }
+    }
+
+    fun sendInput(subscriptionId: String, action: RemoteAction) {
+        handler.post { remote.sendInput(subscriptionId, action) }
     }
 
     fun setReceive(publicKey: String, on: Boolean) {

@@ -60,7 +60,14 @@ export struct DeviceDetail {
     send: bool,
     send-camera: bool,
     send-spout: bool,
+    control: bool,
     refused: [string],
+}
+
+export struct ControllerRow {
+    key: string,
+    name: string,
+    share: string,
 }
 
 export struct NearbyRow {
@@ -83,9 +90,11 @@ export global Ui {
     in property <int> paired-count;
 
     in property <[ShareRow]> shares;
+    in property <[ControllerRow]> controllers;
     in property <int> can-watch;
     in property <bool> paused;
     in property <string> problem;
+    in property <bool> pads-need-driver;
     in property <[string]> activity;
 
     in property <bool> listening;
@@ -142,6 +151,7 @@ export global Ui {
     callback set-send(string, bool);
     callback set-send-camera(string, bool);
     callback set-send-spout(string, bool);
+    callback set-control(string, bool);
     callback unpair(string);
     callback open-pair();
     callback close-sheet();
@@ -392,6 +402,7 @@ component Notice inherits Rectangle {
     in property <image> icon;
     in property <color> tint: Theme.paused;
     in property <string> action;
+    in property <image> action-icon: @image-url("icons/check.svg");
     callback acted;
     min-height: max(48px, row.preferred-height);
     border-radius: 12px;
@@ -406,7 +417,7 @@ component Notice inherits Rectangle {
         spacing: 12px;
         VerticalLayout { alignment: center; Icon { width: 16px; height: 16px; source: icon; tint: root.tint; } }
         Text { text: root.text; color: Theme.text; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
-        if action != "": VerticalLayout { alignment: center; Chip { label: root.action; icon: @image-url("icons/check.svg"); clicked => { root.acted(); } } }
+        if action != "": VerticalLayout { alignment: center; Chip { label: root.action; icon: root.action-icon; clicked => { root.acted(); } } }
     }
 }
 
@@ -635,6 +646,22 @@ component SharePage inherits Page {
         action: "Dismiss";
         acted => { Ui.dismiss-problem(); }
     }
+    if Ui.pads-need-driver: Notice {
+        text: "A controller on another device can't reach this PC until the ViGEmBus driver is installed.";
+        icon: @image-url("icons/gamepad-2.svg");
+        tint: Theme.paused;
+        action: "Download";
+        action-icon: @image-url("icons/download.svg");
+        acted => { Ui.open-url("https://github.com/nefarius/ViGEmBus/releases/latest"); }
+    }
+    for controller in Ui.controllers: Notice {
+        text: controller.name + " can control " + controller.share;
+        icon: @image-url("icons/mouse-pointer-2.svg");
+        tint: Theme.primary;
+        action: "Stop";
+        action-icon: @image-url("icons/x.svg");
+        acted => { Ui.set-control(controller.key, false); }
+    }
     Group {
         Section {
             title: "Shared";
@@ -850,6 +877,15 @@ component DeviceSheet inherits Page {
         Section { title: "It can watch"; }
         Card {
             SwitchTile { icon: @image-url("icons/monitor.svg"); title: "Windows and displays"; detail: "What you share on the Share page"; on: Ui.device.send; toggled(on) => { Ui.set-send(Ui.device.key, on); } }
+            SwitchTile {
+                divided: true;
+                enabled: Ui.device.send;
+                icon: @image-url("icons/mouse-pointer-2.svg");
+                title: "Control with its mouse";
+                detail: Ui.device.send ? "The windows and displays it watches" : "Needs Windows and displays on";
+                on: Ui.device.control;
+                toggled(on) => { Ui.set-control(Ui.device.key, on); }
+            }
             SwitchTile { divided: true; icon: @image-url("icons/camera.svg"); title: "Cameras"; on: Ui.device.send-camera; toggled(on) => { Ui.set-send-camera(Ui.device.key, on); } }
             SwitchTile { divided: true; icon: @image-url("icons/layers.svg"); title: "Spout senders"; on: Ui.device.send-spout; toggled(on) => { Ui.set-send-spout(Ui.device.key, on); } }
         }
