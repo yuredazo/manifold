@@ -106,7 +106,7 @@ Nothing is delivered until the phone's owner allows the app in the hub. Override
 - Sender names are 1 to 64 characters with no control characters. `Manifold.isValidName` checks one.
 - Bad arguments throw `IllegalArgumentException` instead of failing later.
 
-The public API is recorded in `sdk/api/sdk.api` and checked by `./gradlew :sdk:apiCheck`, which every release runs. The wire protocol and the hub's behavior are described in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+The public API is recorded in `sdk/api/sdk.api`. The wire protocol and the hub's behavior are described in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Between devices
 

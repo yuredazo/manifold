@@ -17,7 +17,6 @@ You need JDK 17 and the Android SDK (compile SDK 36).
 ./gradlew :hub:assembleRelease    # the hub, see "Signing" below
 ./gradlew :probe:assembleDebug    # the cross-process test app
 ./gradlew :sdk:testDebugUnitTest :hub:testDebugUnitTest
-./gradlew :sdk:apiCheck           # fails if the public SDK API changed
 ```
 
 ### Windows hub
@@ -52,7 +51,7 @@ The phases are `basic`, `hubkill`, `senderkill`, `consumerlost`, `misuse` and `a
 
 ## Changing the SDK API
 
-`sdk/api/sdk.api` records the public API, and `:sdk:apiCheck` fails when the code and the file disagree. After a change you meant to make, run `./gradlew :sdk:apiDump` and commit the new file. The SDK uses `explicitApi()`, so every public declaration needs its visibility and type written out.
+`sdk/api/sdk.api` records the public API as of the last binary-compatibility check. That check does not run on the Kotlin built into AGP 9, which the project now uses, so update the file by hand when the API changes and say so in the pull request. The SDK uses `explicitApi()`, so every public declaration needs its visibility and type written out.
 
 ## Changing the protocol
 

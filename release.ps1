@@ -36,7 +36,7 @@ $apk = Join-Path $out "manifold-hub-$tag.apk"
 $zip = Join-Path $out "manifold-hub-windows-$tag.zip"
 
 Step 'Android hub'
-Invoke-Checked 'The Android tests and build' { ./gradlew.bat :sdk:testDebugUnitTest :hub:testDebugUnitTest :sdk:apiCheck :hub:assembleRelease }
+Invoke-Checked 'The Android tests and build' { ./gradlew.bat :sdk:testDebugUnitTest :hub:testDebugUnitTest :hub:assembleRelease }
 Copy-Item 'hub/build/outputs/apk/release/hub-release.apk' $apk
 $sdk = $env:ANDROID_HOME
 if (-not $sdk) {
