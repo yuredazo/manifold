@@ -95,6 +95,7 @@ pub enum Command {
     SetCloseToTray(bool),
     SetCheckOnLaunch(bool),
     SetAutostart(bool),
+    SetRunAsAdmin(bool),
     LookUpPublic,
     CheckUpdates,
     InstallUpdate,
@@ -203,6 +204,7 @@ pub struct Snapshot {
     pub close_to_tray: bool,
     pub check_on_launch: bool,
     pub autostart: bool,
+    pub run_as_admin: bool,
     pub update: UpdateState,
     // The update is unpacked and its swap is waiting for this process to exit.
     pub restart: bool,
@@ -253,6 +255,7 @@ impl Hub {
         let saver = storage.clone();
         let mut sharing = Sharing::new(Capture::new(out.clone()), out.clone(), storage.read(SHARES_FILE).as_deref(), move |text| saver.write(SHARES_FILE, text));
         sharing.offer_cameras = settings.offer_cameras;
+        let autostart = system::autostart_enabled(settings.run_as_admin);
         Self {
             watching: Watching::new(out.clone()),
             inputs,
@@ -275,7 +278,7 @@ impl Hub {
             public_address: PublicAddress::Unknown,
             update: UpdateState::Idle,
             restart: false,
-            autostart: system::autostart_enabled(),
+            autostart,
             ticks: 0,
             redial_now: false,
             dirty: true,
@@ -479,8 +482,22 @@ impl Hub {
             Command::SetCloseToTray(on) => self.settings.set_close_to_tray(on),
             Command::SetCheckOnLaunch(on) => self.settings.set_check_on_launch(on),
             Command::SetAutostart(on) => {
-                system::set_autostart(on);
-                self.autostart = system::autostart_enabled();
+                system::set_autostart(on, self.settings.run_as_admin);
+                self.autostart = system::autostart_enabled(self.settings.run_as_admin);
+            }
+            Command::SetRunAsAdmin(on) => {
+                if on && !system::is_elevated() {
+                    if system::start_elevated(false) {
+                        self.settings.set_run_as_admin(true);
+                        self.restart = true;
+                    }
+                    return;
+                }
+                self.settings.set_run_as_admin(on);
+                if self.autostart {
+                    system::set_autostart(true, on);
+                }
+                self.autostart = system::autostart_enabled(on);
             }
             // Looked up only when asked, since it tells an outside service this computer's address.
             Command::LookUpPublic => {
@@ -900,6 +917,7 @@ impl Hub {
             close_to_tray: self.settings.close_to_tray,
             check_on_launch: self.settings.check_on_launch,
             autostart: self.autostart,
+            run_as_admin: self.settings.run_as_admin,
             update: self.update.clone(),
             restart: self.restart,
         }

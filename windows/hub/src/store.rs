@@ -129,6 +129,7 @@ const CHECK_KEY: &str = "updates.check";
 const TRAY_KEY: &str = "close.tray";
 const CAMERAS_KEY: &str = "share.cameras";
 const PROFILE_KEY: &str = "stream.profile";
+const ADMIN_KEY: &str = "run.admin";
 pub const LISTENING_KEY: &str = "listening";
 
 pub struct Settings {
@@ -138,6 +139,7 @@ pub struct Settings {
     // Off by default: it keeps cameras out of the Share list altogether, so one cannot be shared by mistake.
     pub offer_cameras: bool,
     pub stream_profile: StreamProfile,
+    pub run_as_admin: bool,
 }
 
 impl Settings {
@@ -148,6 +150,7 @@ impl Settings {
             close_to_tray: storage.read(TRAY_KEY).as_deref() == Some("on"),
             offer_cameras: storage.read(CAMERAS_KEY).as_deref() == Some("on"),
             stream_profile: StreamProfile::of(storage.read(PROFILE_KEY).as_deref().unwrap_or("")),
+            run_as_admin: storage.read(ADMIN_KEY).as_deref() == Some("on"),
         }
     }
 
@@ -164,6 +167,11 @@ impl Settings {
     pub fn set_offer_cameras(&mut self, on: bool) {
         self.offer_cameras = on;
         self.storage.write(CAMERAS_KEY, if on { "on" } else { "off" });
+    }
+
+    pub fn set_run_as_admin(&mut self, on: bool) {
+        self.run_as_admin = on;
+        self.storage.write(ADMIN_KEY, if on { "on" } else { "off" });
     }
 
     pub fn set_stream_profile(&mut self, profile: StreamProfile) {

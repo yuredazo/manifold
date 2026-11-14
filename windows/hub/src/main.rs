@@ -67,6 +67,10 @@ fn close_window(app: &AppWindow, out: &Sender<Input>) {
 }
 
 fn main() -> Result<(), slint::PlatformError> {
+    let arguments: Vec<String> = std::env::args().collect();
+    if let Some(process_id) = arguments.iter().position(|arg| arg == system::WAIT_FLAG).and_then(|at| arguments.get(at + 1)?.parse().ok()) {
+        system::wait_for_exit(process_id);
+    }
     // Two hubs would fight over the UDP port and the identity file, so a second launch only brings up the first.
     // The name is the Flutter hub's too, so the two never run at once. The handle stays open for the life of the process.
     let _single = unsafe { CreateMutexW(None, true, w!("Local\\dev.mkzk.manifold.hub")) };
@@ -74,9 +78,13 @@ fn main() -> Result<(), slint::PlatformError> {
         tray::show_running_hub();
         return Ok(());
     }
+    let hidden = arguments.iter().any(|arg| arg == system::HIDDEN_FLAG);
+    // A refused prompt leaves this copy running without the rights rather than not at all.
+    if store::Settings::load(&store::Storage::open()).run_as_admin && !system::is_elevated() && system::start_elevated(hidden) {
+        return Ok(());
+    }
     update::clean_up();
     update::remove_flutter_leftovers();
-    let hidden = std::env::args().any(|arg| arg == system::HIDDEN_FLAG);
     STARTED_HIDDEN.store(hidden, Ordering::Relaxed);
 
     // Without a frame Windows drops the shadow and the rounded corners unless asked for them.

@@ -267,6 +267,7 @@ pub fn apply(app: &AppWindow, snapshot: Snapshot) {
     hub.set_autostart(snapshot.autostart);
     hub.set_close_to_tray(snapshot.close_to_tray);
     hub.set_check_on_launch(snapshot.check_on_launch);
+    hub.set_run_as_admin(snapshot.run_as_admin);
     let (title, detail, action, failed) = match &snapshot.update {
         UpdateState::Idle => ("Not checked yet".to_string(), String::new(), "Check now", false),
         UpdateState::Checking => ("Checking for updates".into(), String::new(), "", false),
@@ -367,6 +368,7 @@ pub fn bind(app: &AppWindow, out: Sender<Input>) {
     on!(on_set_close_to_tray, |on| Command::SetCloseToTray(on));
     on!(on_set_offer_cameras, |on| Command::SetOfferCameras(on));
     on!(on_set_check_on_launch, |on| Command::SetCheckOnLaunch(on));
+    on!(on_set_run_as_admin, |on| Command::SetRunAsAdmin(on));
     on!(on_look_up_public, | | Command::LookUpPublic);
     hub.on_open_url(|url| crate::system::open_url(&url));
     let notices = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join("licenses").join("THIRD-PARTY-NOTICES.txt")));

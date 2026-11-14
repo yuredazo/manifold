@@ -128,6 +128,7 @@ export global Ui {
     in property <bool> autostart;
     in property <bool> close-to-tray;
     in property <bool> check-on-launch;
+    in property <bool> run-as-admin;
     in property <string> version;
     in property <string> update-title;
     in property <string> update-detail;
@@ -166,6 +167,7 @@ export global Ui {
     callback set-close-to-tray(bool);
     callback set-offer-cameras(bool);
     callback set-check-on-launch(bool);
+    callback set-run-as-admin(bool);
     callback update-pressed();
     callback open-url(string);
     callback copy(string);
@@ -770,6 +772,14 @@ component SettingsPage inherits Page {
         Card {
             SwitchTile { icon: @image-url("icons/power.svg"); title: "Start with Windows"; detail: "Opens hidden in the tray"; on: Ui.autostart; toggled(on) => { Ui.set-autostart(on); } }
             SwitchTile { divided: true; icon: @image-url("icons/panel-bottom.svg"); title: "Keep running in the tray"; detail: "When the window is closed"; on: Ui.close-to-tray; toggled(on) => { Ui.set-close-to-tray(on); } }
+            SwitchTile {
+                divided: true;
+                icon: @image-url("icons/shield-check.svg");
+                title: "Run as administrator";
+                detail: "To control apps that run as administrator";
+                on: Ui.run-as-admin;
+                toggled(on) => { Ui.set-run-as-admin(on); }
+            }
         }
     }
     Group {

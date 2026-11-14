@@ -1,6 +1,8 @@
 use std::ffi::c_void;
 use std::net::Ipv4Addr;
-use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
+use std::os::windows::process::CommandExt;
+use std::process::Command;
+use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL, HWND};
 use windows::Win32::NetworkManagement::IpHelper::{
     GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST, GetAdaptersAddresses, IP_ADAPTER_ADDRESSES_LH,
 };
@@ -12,11 +14,16 @@ use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, Glo
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ, RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
 };
+use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
+use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_SYNCHRONIZE, WaitForSingleObject};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SW_SHOWNORMAL};
 use windows::core::{HSTRING, PCWSTR, w};
 
 const CF_UNICODETEXT: u32 = 13;
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub const WAIT_FLAG: &str = "--wait-for";
+const TASK_NAME: &str = "Manifold";
 
 // Every IPv4 address of an adapter that is up, without loopback, so a VPN such as Tailscale is listed too.
 pub fn local_addresses() -> Vec<Ipv4Addr> {
@@ -91,6 +98,44 @@ pub fn copy_text(text: &str) {
     }
 }
 
+pub fn is_elevated() -> bool {
+    unsafe {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut size = 0u32;
+        let read = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut TOKEN_ELEVATION as *mut c_void),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut size,
+        );
+        let _ = CloseHandle(token);
+        read.is_ok() && elevation.TokenIsElevated != 0
+    }
+}
+
+// Starts this copy again as administrator, after the UAC prompt. The new copy waits for this one to exit, since only
+// one hub runs at a time. False when the prompt was refused.
+pub fn start_elevated(hidden: bool) -> bool {
+    let Ok(exe) = std::env::current_exe() else { return false };
+    let arguments = format!("{WAIT_FLAG} {}{}", std::process::id(), if hidden { format!(" {HIDDEN_FLAG}") } else { String::new() });
+    let started = unsafe { ShellExecuteW(None, w!("runas"), &HSTRING::from(exe.as_os_str()), &HSTRING::from(arguments), PCWSTR::null(), SW_SHOWNORMAL) };
+    started.0 as isize > 32
+}
+
+pub fn wait_for_exit(process_id: u32) {
+    unsafe {
+        if let Ok(process) = OpenProcess(PROCESS_SYNCHRONIZE, false, process_id) {
+            WaitForSingleObject(process, 15_000);
+            let _ = CloseHandle(process);
+        }
+    }
+}
+
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const RUN_VALUE: PCWSTR = w!("Manifold");
 pub const HIDDEN_FLAG: &str = "--hidden";
@@ -107,7 +152,11 @@ fn run_key(access: windows::Win32::System::Registry::REG_SAM_FLAGS) -> Option<HK
 }
 
 // Only true while the entry starts this very copy, so a hub that was moved offers to start itself again.
-pub fn autostart_enabled() -> bool {
+// As administrator the hub starts from Task Scheduler instead, since Windows starts nothing elevated from the Run key.
+pub fn autostart_enabled(as_admin: bool) -> bool {
+    if as_admin {
+        return task_starts_this_copy();
+    }
     let Some(key) = run_key(KEY_QUERY_VALUE) else { return false };
     let mut buffer = [0u16; 1024];
     let mut size = (buffer.len() * 2) as u32;
@@ -122,7 +171,17 @@ pub fn autostart_enabled() -> bool {
     text.trim_end_matches('\0') == autostart_command()
 }
 
-pub fn set_autostart(on: bool) {
+pub fn set_autostart(on: bool, as_admin: bool) {
+    if as_admin {
+        set_run_key(false);
+        if on { create_task() } else { delete_task() }
+    } else {
+        delete_task();
+        set_run_key(on);
+    }
+}
+
+fn set_run_key(on: bool) {
     let Some(key) = run_key(KEY_SET_VALUE) else { return };
     unsafe {
         if on {
@@ -133,6 +192,58 @@ pub fn set_autostart(on: bool) {
             let _ = RegDeleteValueW(key, RUN_VALUE);
         }
         let _ = RegCloseKey(key);
+    }
+}
+
+fn schtasks(arguments: &[&str]) -> Option<String> {
+    let output = Command::new("schtasks.exe").args(arguments).creation_flags(CREATE_NO_WINDOW).output().ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn task_starts_this_copy() -> bool {
+    let exe = std::env::current_exe().map(|path| path.display().to_string()).unwrap_or_default();
+    schtasks(&["/Query", "/TN", TASK_NAME, "/XML"]).is_some_and(|xml| xml.contains(&escape_xml(&exe)))
+}
+
+fn delete_task() {
+    let _ = schtasks(&["/Delete", "/F", "/TN", TASK_NAME]);
+}
+
+fn escape_xml(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+// Runs at sign-in for this user only, with the highest rights the user has, with no time limit and at normal priority:
+// Task Scheduler's defaults would stop the hub after three days and run it below normal priority.
+fn create_task() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let user = format!("{}\\{}", std::env::var("USERDOMAIN").unwrap_or_default(), std::env::var("USERNAME").unwrap_or_default());
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>Starts the Manifold hub as administrator when you sign in.</Description></RegistrationInfo>
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>5</Priority>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>{exe}</Command><Arguments>{HIDDEN_FLAG}</Arguments></Exec></Actions>
+</Task>
+"#,
+        user = escape_xml(&user),
+        exe = escape_xml(&exe.display().to_string()),
+    );
+    // schtasks reads a task file as UTF-16 with a byte order mark.
+    let mut bytes = vec![0xFF, 0xFE];
+    bytes.extend(xml.encode_utf16().flat_map(u16::to_le_bytes));
+    let file = std::env::temp_dir().join("manifold-task.xml");
+    if std::fs::write(&file, bytes).is_ok() {
+        let _ = schtasks(&["/Create", "/F", "/TN", TASK_NAME, "/XML", &file.display().to_string()]);
+        let _ = std::fs::remove_file(&file);
     }
 }
 
