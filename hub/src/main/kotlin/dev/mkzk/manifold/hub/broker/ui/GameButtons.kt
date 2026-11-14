@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +29,10 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -71,8 +76,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -106,6 +113,8 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import kotlin.math.roundToInt
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyGridState
 
 private const val TAG = "GameButtons"
 private const val PREFS = "game_buttons"
@@ -114,6 +123,9 @@ private const val ACTIVE_KEY = "active"
 private const val DEFAULT_DIAMETER = 60f
 private const val MIN_DIAMETER = 24f
 private const val MAX_DIAMETER = 120f
+// A landscape phone is about this wide in dp, which sizes the dots in a layout's preview.
+private const val PREVIEW_SCREEN_DP = 880f
+private const val PREVIEW_RATIO = 20f / 9f
 private val PanelWidth = 296.dp
 private val ControlHeight = 40.dp
 private val FieldHeight = 48.dp
@@ -133,7 +145,7 @@ internal data class GameButton(
     val name: String = "",
     val keys: List<Int> = emptyList(),
     val mouse: MouseButton? = null,
-    val showLabel: Boolean = true,
+    val showLabel: Boolean = false,
 ) {
     fun label(): String = name.ifBlank {
         (keys.map(::keyName) + listOfNotNull(mouse?.let { MouseNames[it] })).joinToString("+")
@@ -142,12 +154,13 @@ internal data class GameButton(
 
 private val MouseNames = mapOf(MouseButton.LEFT to "Left", MouseButton.MIDDLE to "Middle", MouseButton.RIGHT to "Right")
 
-internal data class ButtonLayout(val name: String, val buttons: List<GameButton> = emptyList())
+// id only tells layouts apart while the app runs, so a moved one keeps its place in the list; it is not saved.
+internal data class ButtonLayout(val name: String, val buttons: List<GameButton> = emptyList(), val id: Long = 0)
 
 internal class ButtonLayouts(context: Context, defaultName: String) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private var nextId = 1L
-    var layouts by mutableStateOf(listOf(ButtonLayout(defaultName)))
+    var layouts by mutableStateOf(listOf(ButtonLayout(defaultName, id = 0)))
         private set
     var active by mutableIntStateOf(0)
         private set
@@ -166,11 +179,19 @@ internal class ButtonLayouts(context: Context, defaultName: String) {
     }
 
     fun add(name: String, buttons: List<GameButton> = emptyList()) {
-        layouts = layouts + ButtonLayout(name, buttons.map { it.copy(id = newId()) })
+        layouts = layouts + ButtonLayout(name, buttons.map { it.copy(id = newId()) }, newId())
         select(layouts.lastIndex)
     }
 
     fun rename(name: String) = change { it.copy(name = name) }
+
+    fun move(from: Int, to: Int) {
+        if (from !in layouts.indices || to !in layouts.indices || from == to) return
+        val current = layouts[active].id
+        layouts = layouts.toMutableList().apply { add(to, removeAt(from)) }
+        active = layouts.indexOfFirst { it.id == current }.coerceAtLeast(0)
+        save()
+    }
 
     fun remove() {
         if (layouts.size < 2) return
@@ -215,7 +236,9 @@ internal class ButtonLayouts(context: Context, defaultName: String) {
                 val layout = all.getJSONObject(index)
                 val buttons = layout.getJSONArray("buttons")
                 ButtonLayout(
-                    layout.getString("name"),
+                    id = newId(),
+                    name = layout.getString("name"),
+                    buttons =
                     (0 until buttons.length()).map { at ->
                         val button = buttons.getJSONObject(at)
                         val keys = button.getJSONArray("keys")
@@ -227,7 +250,7 @@ internal class ButtonLayouts(context: Context, defaultName: String) {
                             name = button.optString("name"),
                             keys = (0 until keys.length()).map(keys::getInt),
                             mouse = MouseButton.entries.firstOrNull { it.name == button.optString("mouse") },
-                            showLabel = button.optBoolean("label", true),
+                            showLabel = button.optBoolean("label", false),
                         )
                     },
                 )
@@ -885,23 +908,86 @@ private fun KeyCap(label: String, on: Boolean, icon: ImageVector? = null, onClic
     }
 }
 
+@Composable
+private fun LayoutTile(layout: ButtonLayout, on: Boolean, dragging: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = GroupShape,
+        color = if (on) scheme.primary.copy(alpha = 0.12f) else scheme.surfaceContainer,
+        border = BorderStroke(if (on) 2.dp else 1.dp, if (on) scheme.primary else scheme.outlineVariant.copy(alpha = 0.6f)),
+        shadowElevation = if (dragging) 8.dp else 0.dp,
+        onClick = onClick,
+    ) {
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(PREVIEW_RATIO)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(scheme.surfaceContainerHighest),
+            ) {
+                layout.buttons.forEach { button ->
+                    val dot = maxWidth * (button.diameter / PREVIEW_SCREEN_DP)
+                    Box(
+                        Modifier
+                            .offset(maxWidth * button.x - dot / 2, maxHeight * button.y - dot / 2)
+                            .size(dot)
+                            .clip(CircleShape)
+                            .background(if (on) scheme.primary.copy(alpha = 0.7f) else scheme.onSurface.copy(alpha = 0.45f)),
+                    )
+                }
+                if (on) {
+                    Icon(
+                        Icons.Outlined.Check,
+                        contentDescription = null,
+                        tint = scheme.primary,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(18.dp),
+                    )
+                }
+            }
+            Column(Modifier.padding(horizontal = 4.dp)) {
+                Text(layout.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    pluralStringResource(R.plurals.buttons_count, layout.buttons.size, layout.buttons.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondaryText(),
+                )
+            }
+        }
+    }
+}
+
 // null as the action asks to delete the layout, which needs its own confirmation.
 @Composable
 private fun LayoutsSheet(store: ButtonLayouts, onDismiss: () -> Unit, onPick: (Int) -> Unit, onAction: (Naming?) -> Unit) {
+    val haptics = LocalHapticFeedback.current
     Sheet(onDismiss) { modal ->
-        SheetTitle(stringResource(R.string.buttons_layouts))
-        SheetList {
-            store.layouts.forEachIndexed { index, layout ->
-                if (index > 0) SheetListDivider()
-                val on = index == store.active
-                SheetListRow(
-                    title = layout.name,
-                    subtitle = pluralStringResource(R.plurals.buttons_count, layout.buttons.size, layout.buttons.size),
-                    selected = on,
-                    leading = { SquareIcon(Icons.Outlined.DashboardCustomize, active = on) },
-                    trailing = if (on) ({ Icon(Icons.Outlined.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }) else null,
-                    onClick = { modal.close { onPick(index) } },
-                )
+        SheetTitle(stringResource(R.string.buttons_layouts), subtitle = stringResource(R.string.layout_reorder_hint))
+        val grid = rememberLazyGridState()
+        val reorder = rememberReorderableLazyGridState(grid) { from, to ->
+            store.move(from.index, to.index)
+            haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 150.dp),
+            state = grid,
+            modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            itemsIndexed(store.layouts, key = { _, layout -> layout.id }) { index, layout ->
+                ReorderableItem(reorder, key = layout.id) { dragging ->
+                    LayoutTile(
+                        layout = layout,
+                        on = index == store.active,
+                        dragging = dragging,
+                        modifier = Modifier.longPressDraggableHandle(
+                            onDragStarted = { haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate) },
+                        ),
+                        onClick = { modal.close { onPick(index) } },
+                    )
+                }
             }
         }
         SheetList {

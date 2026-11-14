@@ -105,6 +105,7 @@ private val credits = listOf(
         listOf(
             Credit("Jetpack Compose", R.string.ack_compose, "Apache 2.0", "https://developer.android.com/compose", apache("The Android Open Source Project"), emptyList()),
             Credit("Material Icons", R.string.ack_icons, "Apache 2.0", "https://fonts.google.com/icons", apache("Google LLC"), listOf("androidx.compose.material:material-icons")),
+            Credit("Reorderable", R.string.ack_reorderable, "Apache 2.0", "https://github.com/Calvin-LL/Reorderable", apache("Calvin Liang"), listOf("sh.calvin.reorderable:")),
         ),
     ),
     CreditGroup(

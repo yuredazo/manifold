@@ -158,6 +158,7 @@
     <string name="buttons_rename">Rename button</string>
     <string name="buttons_hint">Drag anywhere to move it, pinch with two fingers to resize it.</string>
     <string name="buttons_layouts">Layouts</string>
+    <string name="layout_reorder_hint">Hold a layout to move it</string>
     <string name="buttons_show_label">Show label</string>
     <plurals name="buttons_count">
         <item quantity="one">%1$d button</item>
@@ -226,6 +227,7 @@
     <string name="ack_bouncy_castle">Encrypts video to your other devices.</string>
     <string name="ack_compose">The UI toolkit, with Material 3.</string>
     <string name="ack_icons">The icons.</string>
+    <string name="ack_reorderable">Dragging button layouts into order.</string>
     <string name="ack_kotlin">The language Manifold is written in.</string>
     <string name="ack_coroutines">Runs background work in the hub.</string>
     <string name="stream_low_title">Lowest delay</string>
