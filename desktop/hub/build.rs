@@ -88,6 +88,13 @@ fn write_icon(out: &Path) -> PathBuf {
 }
 
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        build_windows_parts();
+    }
+    slint_build::compile("ui/app.slint").unwrap();
+}
+
+fn build_windows_parts() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let sdk = spout_sdk(&out);
 
@@ -116,5 +123,4 @@ fn main() {
 
     embed_resource::compile(write_icon(&out), embed_resource::NONE).manifest_optional().unwrap();
     println!("cargo:rerun-if-changed=ui/logo.svg");
-    slint_build::compile("ui/app.slint").unwrap();
 }

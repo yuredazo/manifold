@@ -1,17 +1,33 @@
 use crate::system;
+#[cfg(windows)]
 use sha2::{Digest, Sha256};
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
-use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(windows)]
 use std::process::Command;
 
 const REPO: &str = "yuredazo/manifold";
+#[cfg(windows)]
 pub const EXE_NAME: &str = "manifold_hub.exe";
+#[cfg(windows)]
 const ASSET_PREFIX: &str = "manifold-hub-windows-v";
+#[cfg(windows)]
+const ASSET_SUFFIX: &str = ".zip";
+#[cfg(target_os = "linux")]
+const ASSET_PREFIX: &str = "manifold-hub-linux-v";
+#[cfg(target_os = "linux")]
+const ASSET_SUFFIX: &str = ".tar.gz";
+#[cfg(windows)]
 const MAX_DOWNLOAD_BYTES: usize = 300 * 1024 * 1024;
 const MAX_API_BYTES: usize = 2 * 1024 * 1024;
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Clone, Debug)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct Release {
     pub version: String,
     pub page: String,
@@ -22,6 +38,7 @@ pub struct Release {
 
 // The same steps as the Flutter hub's swap, so either hub can install the other: wait for the running hub to exit,
 // copy the new files over its folder, start it again.
+#[cfg(windows)]
 const SWAP_SCRIPT: &str = r#"param([int]$ProcessId, [string]$Staging, [string]$AppDir, [string]$Log)
 Wait-Process -Id $ProcessId -Timeout 60 -ErrorAction SilentlyContinue
 robocopy $Staging $AppDir /E /R:20 /W:1 /NFL /NDL /NJH /NJS /NP | Out-File -FilePath $Log -Encoding utf8
@@ -31,6 +48,7 @@ Start-Process -FilePath (Join-Path $AppDir 'manifold_hub.exe') -WorkingDirectory
 
 // Files a Flutter build of the hub put next to its exe. An update copies the new files over that folder and deletes
 // nothing, so these stay behind; they are removed by name, and data only when it is Flutter's.
+#[cfg(windows)]
 const FLUTTER_FILES: &[&str] = &[
     "d3dcompiler_47.dll",
     "dynamic_color_plugin.dll",
@@ -49,6 +67,7 @@ const FLUTTER_FILES: &[&str] = &[
     "zlib.dll",
 ];
 
+#[cfg(windows)]
 fn install_dir() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(Path::to_path_buf)
 }
@@ -57,6 +76,7 @@ fn work_dir() -> PathBuf {
     std::env::temp_dir().join("manifold-update")
 }
 
+#[cfg(windows)]
 pub fn remove_flutter_leftovers() {
     let Some(dir) = install_dir() else { return };
     if !dir.join("flutter_windows.dll").is_file() {
@@ -98,13 +118,17 @@ pub fn latest_release() -> Result<Option<Release>, String> {
         let name = asset.get("name")?.as_str()?;
         let url = asset.get("browser_download_url")?.as_str()?;
         let digest = asset.get("digest")?.as_str()?.strip_prefix("sha256:")?;
-        let valid_name = name.starts_with(ASSET_PREFIX) && name.ends_with(".zip") && !name.contains(['/', '\\']);
+        let valid_name = name.starts_with(ASSET_PREFIX) && name.ends_with(ASSET_SUFFIX) && !name.contains(['/', '\\']);
         (valid_name && url.starts_with(&download_prefix) && digest.len() == 64).then(|| (name.to_string(), url.to_string(), digest.to_lowercase()))
     });
+    #[cfg(windows)]
     let (asset_name, asset_url, sha256) = asset.ok_or("the release has no Windows download")?;
+    #[cfg(target_os = "linux")]
+    let (asset_name, asset_url, sha256) = asset.unwrap_or_default();
     Ok(Some(Release { version: tag.trim_start_matches('v').to_string(), page, asset_name, asset_url, sha256 }))
 }
 
+#[cfg(windows)]
 fn writable(dir: &Path) -> bool {
     let probe = dir.join(".write-test");
     let written = std::fs::write(&probe, b"").is_ok();
@@ -112,7 +136,14 @@ fn writable(dir: &Path) -> bool {
     written
 }
 
+// Linux builds are not packaged for an in-place update yet, so the release page is where to get one.
+#[cfg(target_os = "linux")]
+pub fn install(release: &Release, _progress: impl FnMut(Option<f32>)) -> Result<(), String> {
+    Err(format!("Download {} from the release page.", release.version))
+}
+
 // The caller has to exit right after: the swap waits for this process before it copies anything.
+#[cfg(windows)]
 pub fn install(release: &Release, mut progress: impl FnMut(Option<f32>)) -> Result<(), String> {
     let app_dir = install_dir().ok_or("Manifold cannot find its own folder")?;
     if !writable(&app_dir) {

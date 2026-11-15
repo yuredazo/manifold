@@ -12,8 +12,10 @@ path = "src/main.rs"
 manifold-protocol = { path = "../protocol" }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
-vigem-client = { version = "=0.1.4", features = ["unstable_xtarget_notification"] }
 slint = { version = "1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "accessibility", "compat-1-2", "unstable-winit-030"] }
+
+[target.'cfg(windows)'.dependencies]
+vigem-client = { version = "=0.1.4", features = ["unstable_xtarget_notification"] }
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
@@ -48,6 +50,14 @@ windows = { version = "0.62.2", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = "=0.13.2"
+ffmpeg-next = { version = "=9.0.0", default-features = false, features = ["codec", "format", "software-scaling"] }
+libc = "0.2.191"
+libpulse-binding = "2.30.1"
+libpulse-simple-binding = "2.29.0"
+x11rb = { version = "0.14.0", features = ["composite", "randr", "shm", "xfixes", "xtest"] }
 
 [build-dependencies]
 cc = "1.11.1"

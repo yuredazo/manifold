@@ -84,6 +84,7 @@ export struct Choice {
 
 export global Ui {
     in-out property <int> tab: 0;
+    in property <bool> linux;
     in-out property <int> sheet: 0;
 
     in property <[WatchGroup]> watch-groups;
@@ -649,12 +650,12 @@ component SharePage inherits Page {
         acted => { Ui.dismiss-problem(); }
     }
     if Ui.pads-need-driver: Notice {
-        text: "A controller on another device can't reach this PC until the ViGEmBus driver is installed.";
+        text: Ui.linux ? "A controller on another device can't reach this PC until Manifold may use /dev/uinput." : "A controller on another device can't reach this PC until the ViGEmBus driver is installed.";
         icon: @image-url("icons/gamepad-2.svg");
         tint: Theme.paused;
-        action: "Download";
-        action-icon: @image-url("icons/download.svg");
-        acted => { Ui.open-url("https://github.com/nefarius/ViGEmBus/releases/latest"); }
+        action: Ui.linux ? "How" : "Download";
+        action-icon: Ui.linux ? @image-url("icons/book-open.svg") : @image-url("icons/download.svg");
+        acted => { Ui.open-url(Ui.linux ? "https://github.com/yuredazo/manifold/blob/main/desktop/README.md#controllers-on-linux" : "https://github.com/nefarius/ViGEmBus/releases/latest"); }
     }
     for controller in Ui.controllers: Notice {
         text: controller.name + " can control " + controller.share;
@@ -693,7 +694,7 @@ component SharePage inherits Page {
                 VerticalLayout { alignment: center; RoundButton { icon: @image-url("icons/x.svg"); clicked => { Ui.unshare(share.feed); } } }
             }
         }
-        WideButton { label: "Share a window, display or camera"; icon: @image-url("icons/plus.svg"); clicked => { Ui.open-picker(); } }
+        WideButton { label: Ui.linux ? "Share a window or display" : "Share a window, display or camera"; icon: @image-url("icons/plus.svg"); clicked => { Ui.open-picker(); } }
     }
     if Ui.activity.length > 0: Group {
         Section { title: "Recent"; }
@@ -723,7 +724,7 @@ component DevicesPage inherits Page {
             }
         }
     }
-    Group {
+    if !Ui.linux: Group {
         Section { title: "Delay when watching"; meta: Ui.profile == 0 ? "least delay, may stutter" : Ui.profile == 1 ? "about 0.3 s, steady" : "about 1 s, fewest stutters"; }
         Toggle { options: ["Lowest", "Balanced", "Smoothest"]; selected: Ui.profile; chosen(index) => { Ui.set-profile(index); } }
     }
@@ -770,9 +771,15 @@ component SettingsPage inherits Page {
     Group {
         Section { title: "Window"; }
         Card {
-            SwitchTile { icon: @image-url("icons/power.svg"); title: "Start with Windows"; detail: "Opens hidden in the tray"; on: Ui.autostart; toggled(on) => { Ui.set-autostart(on); } }
-            SwitchTile { divided: true; icon: @image-url("icons/panel-bottom.svg"); title: "Keep running in the tray"; detail: "When the window is closed"; on: Ui.close-to-tray; toggled(on) => { Ui.set-close-to-tray(on); } }
             SwitchTile {
+                icon: @image-url("icons/power.svg");
+                title: Ui.linux ? "Start on login" : "Start with Windows";
+                detail: Ui.linux ? "Opens hidden, open Manifold again to see it" : "Opens hidden in the tray";
+                on: Ui.autostart;
+                toggled(on) => { Ui.set-autostart(on); }
+            }
+            if !Ui.linux: SwitchTile { divided: true; icon: @image-url("icons/panel-bottom.svg"); title: "Keep running in the tray"; detail: "When the window is closed"; on: Ui.close-to-tray; toggled(on) => { Ui.set-close-to-tray(on); } }
+            if !Ui.linux: SwitchTile {
                 divided: true;
                 icon: @image-url("icons/shield-check.svg");
                 title: "Run as administrator";
@@ -782,7 +789,7 @@ component SettingsPage inherits Page {
             }
         }
     }
-    Group {
+    if !Ui.linux: Group {
         Section { title: "Sharing"; }
         Card {
             SwitchTile { icon: @image-url("icons/camera.svg"); title: "Offer cameras"; detail: "In the Share list"; on: Ui.offer-cameras; toggled(on) => { Ui.set-offer-cameras(on); } }
@@ -873,7 +880,7 @@ component DeviceSheet inherits Page {
         Card {
             Tile { icon: @image-url("icons/shield-check.svg"); title: "Fingerprint"; detail: Ui.device.fingerprint; }
             if Ui.device.address != "": Tile { divided: true; icon: @image-url("icons/globe.svg"); title: "Address"; detail: Ui.device.address; }
-            SwitchTile {
+            if !Ui.linux: SwitchTile {
                 divided: true;
                 icon: @image-url("icons/play.svg");
                 title: "Show its feeds here";
@@ -896,8 +903,8 @@ component DeviceSheet inherits Page {
                 on: Ui.device.control;
                 toggled(on) => { Ui.set-control(Ui.device.key, on); }
             }
-            SwitchTile { divided: true; icon: @image-url("icons/camera.svg"); title: "Cameras"; on: Ui.device.send-camera; toggled(on) => { Ui.set-send-camera(Ui.device.key, on); } }
-            SwitchTile { divided: true; icon: @image-url("icons/layers.svg"); title: "Spout senders"; on: Ui.device.send-spout; toggled(on) => { Ui.set-send-spout(Ui.device.key, on); } }
+            if !Ui.linux: SwitchTile { divided: true; icon: @image-url("icons/camera.svg"); title: "Cameras"; on: Ui.device.send-camera; toggled(on) => { Ui.set-send-camera(Ui.device.key, on); } }
+            if !Ui.linux: SwitchTile { divided: true; icon: @image-url("icons/layers.svg"); title: "Spout senders"; on: Ui.device.send-spout; toggled(on) => { Ui.set-send-spout(Ui.device.key, on); } }
         }
         for line in Ui.device.refused: Text { x: 4px; text: line; color: Theme.error; font-size: 12px; wrap: word-wrap; }
     }
@@ -987,7 +994,17 @@ component AcknowledgementsSheet inherits Page {
     Group {
         Section { title: "Also built on"; }
         Card {
-            for part[index] in [
+            for part[index] in Ui.linux ? [
+                { name: "snow", detail: "Noise handshakes · Apache 2.0 or MIT", url: "https://github.com/mcginty/snow" },
+                { name: "RustCrypto", detail: "Encryption · Apache 2.0 or MIT", url: "https://github.com/RustCrypto" },
+                { name: "dalek-cryptography", detail: "X25519 keys · BSD 3-Clause", url: "https://github.com/dalek-cryptography/curve25519-dalek" },
+                { name: "FFmpeg", detail: "Encoding, from your system · LGPL 2.1 or later", url: "https://ffmpeg.org" },
+                { name: "x11rb", detail: "Capture and input · MIT or Apache 2.0", url: "https://github.com/psychon/x11rb" },
+                { name: "evdev", detail: "Controllers · Apache 2.0 or MIT", url: "https://github.com/cmr/evdev" },
+                { name: "pulse-binding-rust", detail: "Sound · MIT or Apache 2.0", url: "https://github.com/jnqnfe/pulse-binding-rust" },
+                { name: "winit", detail: "Windows and input · Apache 2.0", url: "https://github.com/rust-windowing/winit" },
+                { name: "Lucide", detail: "Icons · ISC", url: "https://lucide.dev" },
+            ] : [
                 { name: "Spout", detail: "Spout senders · BSD 2-Clause, Lynn Jarvis", url: "https://spout.zeal.co" },
                 { name: "snow", detail: "Noise handshakes · Apache 2.0 or MIT", url: "https://github.com/mcginty/snow" },
                 { name: "RustCrypto", detail: "Encryption · Apache 2.0 or MIT", url: "https://github.com/RustCrypto" },
@@ -1045,10 +1062,10 @@ component PickerSheet inherits Page {
                 on: Ui.with-picture;
                 toggled(on) => { Ui.with-picture = on; }
             }
-            SwitchTile { divided: true; enabled: Ui.with-picture; icon: @image-url("icons/volume.svg"); title: "Share its sound"; detail: "App sound, or the PC's for a display"; on: Ui.with-audio; toggled(on) => { Ui.with-audio = on; } }
-            SwitchTile { divided: true; enabled: Ui.with-picture; icon: @image-url("icons/app-window.svg"); title: "Hide the title bar"; detail: "Windows only, not custom title bars"; on: Ui.without-frame; toggled(on) => { Ui.without-frame = on; } }
+            SwitchTile { divided: true; enabled: Ui.with-picture; icon: @image-url("icons/volume.svg"); title: "Share its sound"; detail: Ui.linux ? "The PC's sound, also for a window" : "App sound, or the PC's for a display"; on: Ui.with-audio; toggled(on) => { Ui.with-audio = on; } }
+            if !Ui.linux: SwitchTile { divided: true; enabled: Ui.with-picture; icon: @image-url("icons/app-window.svg"); title: "Hide the title bar"; detail: "Windows only, not custom title bars"; on: Ui.without-frame; toggled(on) => { Ui.without-frame = on; } }
             SwitchTile { divided: true; enabled: Ui.with-picture; icon: @image-url("icons/mouse-pointer-2.svg"); title: "Show the pointer"; on: Ui.with-cursor; toggled(on) => { Ui.with-cursor = on; } }
-            SwitchTile { divided: true; enabled: Ui.with-picture; icon: @image-url("icons/eye.svg"); title: "Keep transparency"; detail: "Spout only, doubles the picture sent"; on: Ui.with-alpha; toggled(on) => { Ui.with-alpha = on; } }
+            if !Ui.linux: SwitchTile { divided: true; enabled: Ui.with-picture; icon: @image-url("icons/eye.svg"); title: "Keep transparency"; detail: "Spout only, doubles the picture sent"; on: Ui.with-alpha; toggled(on) => { Ui.with-alpha = on; } }
             Tile {
                 divided: true;
                 enabled: Ui.with-picture;
@@ -1066,7 +1083,7 @@ component PickerSheet inherits Page {
         }
     }
     Group {
-        Section { title: "Available"; meta: Ui.offer-cameras ? "" : "cameras off in Settings"; action: "Look again"; acted => { Ui.open-picker(); } }
+        Section { title: "Available"; meta: Ui.offer-cameras || Ui.linux ? "" : "cameras off in Settings"; action: "Look again"; acted => { Ui.open-picker(); } }
         Card {
             if Ui.picker-loading: Empty { text: "Looking"; }
             if !Ui.picker-loading && Ui.choices.length == 0: Empty { text: "Nothing else to share"; }
@@ -1298,14 +1315,16 @@ export component AppWindow inherits Window {
                         if Ui.tab == 3: SettingsPage { }
                     }
                     nav := Rectangle {
-                        property <length> cell: (self.width - 8px - 3 * 4px) / 4;
+                        property <int> first: Ui.linux ? 1 : 0;
+                        property <int> count: 4 - self.first;
+                        property <length> cell: (self.width - 8px - (self.count - 1) * 4px) / self.count;
                         height: 56px;
                         border-radius: 28px;
                         background: Theme.card;
                         border-width: 1px;
                         border-color: Theme.divider;
                         Rectangle {
-                            x: 4px + Ui.tab * (nav.cell + 4px);
+                            x: 4px + (Ui.tab - nav.first) * (nav.cell + 4px);
                             y: 4px;
                             width: nav.cell;
                             height: nav.height - 8px;
@@ -1319,7 +1338,8 @@ export component AppWindow inherits Window {
                             { icon: @image-url("icons/smartphone.svg"), label: "Devices" },
                             { icon: @image-url("icons/settings.svg"), label: "Settings" },
                         ]: NavItem {
-                            x: 4px + index * (nav.cell + 4px);
+                            visible: index >= nav.first;
+                            x: 4px + (index - nav.first) * (nav.cell + 4px);
                             y: 4px;
                             width: nav.cell;
                             height: nav.height - 8px;

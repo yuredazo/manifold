@@ -3,27 +3,41 @@
 mod capture;
 mod discovery;
 mod hub;
+#[cfg(not(windows))]
+#[path = "no_player.rs"]
+mod player;
+#[cfg(windows)]
 mod player;
 mod remote;
 mod sharing;
 mod store;
 mod system;
+#[cfg(windows)]
 mod tray;
 mod ui;
 mod update;
 mod watching;
+#[cfg(target_os = "linux")]
+mod x11;
 
 use hub::{Command, Hub, Input};
 use slint::ComponentHandle;
 use slint::winit_030::WinitWindowAccessor;
+#[cfg(windows)]
 use slint::winit_030::winit::platform::windows::{CornerPreference, WindowAttributesExtWindows};
+#[cfg(windows)]
 use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Sender, channel};
+#[cfg(windows)]
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, WPARAM};
+#[cfg(windows)]
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+#[cfg(windows)]
 use windows::Win32::System::Threading::CreateMutexW;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{ICON_BIG, ICON_SMALL, LoadIconW, SendMessageW, SetForegroundWindow, WM_SETICON};
+#[cfg(windows)]
 use windows::core::{PCWSTR, w};
 
 slint::include_modules!();
@@ -31,6 +45,7 @@ slint::include_modules!();
 // A hub started hidden has no window to bring back but the tray icon, so it always has one.
 static STARTED_HIDDEN: AtomicBool = AtomicBool::new(false);
 
+#[cfg(windows)]
 fn native_window(app: &AppWindow) -> Option<HWND> {
     app.window().with_winit_window(|window| match window.window_handle().ok()?.as_raw() {
         RawWindowHandle::Win32(handle) => Some(HWND(handle.hwnd.get() as *mut _)),
@@ -40,6 +55,7 @@ fn native_window(app: &AppWindow) -> Option<HWND> {
 
 fn bring_up(app: &AppWindow) {
     let _ = app.show();
+    #[cfg(windows)]
     if let Some(window) = native_window(app) {
         unsafe {
             let instance = GetModuleHandleW(None).unwrap_or_default();
@@ -53,6 +69,7 @@ fn bring_up(app: &AppWindow) {
 }
 
 fn quit(out: &Sender<Input>) {
+    #[cfg(windows)]
     tray::remove();
     let _ = out.send(Input::Command(Command::Quit));
     let _ = slint::quit_event_loop();
@@ -68,26 +85,36 @@ fn close_window(app: &AppWindow, out: &Sender<Input>) {
 
 fn main() -> Result<(), slint::PlatformError> {
     let arguments: Vec<String> = std::env::args().collect();
+    #[cfg(windows)]
     if let Some(process_id) = arguments.iter().position(|arg| arg == system::WAIT_FLAG).and_then(|at| arguments.get(at + 1)?.parse().ok()) {
         system::wait_for_exit(process_id);
     }
     // Two hubs would fight over the UDP port and the identity file, so a second launch only brings up the first.
     // The name is the Flutter hub's too, so the two never run at once. The handle stays open for the life of the process.
+    #[cfg(windows)]
     let _single = unsafe { CreateMutexW(None, true, w!("Local\\dev.mkzk.manifold.hub")) };
+    #[cfg(windows)]
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         tray::show_running_hub();
         return Ok(());
     }
+    #[cfg(target_os = "linux")]
+    let Some(single) = system::claim_instance() else {
+        system::show_running_hub();
+        return Ok(());
+    };
     let hidden = arguments.iter().any(|arg| arg == system::HIDDEN_FLAG);
     // A refused prompt leaves this copy running without the rights rather than not at all.
     if store::Settings::load(&store::Storage::open()).run_as_admin && !system::is_elevated() && system::start_elevated(hidden) {
         return Ok(());
     }
     update::clean_up();
+    #[cfg(windows)]
     update::remove_flutter_leftovers();
     STARTED_HIDDEN.store(hidden, Ordering::Relaxed);
 
     // Without a frame Windows drops the shadow and the rounded corners unless asked for them.
+    #[cfg(windows)]
     slint::BackendSelector::new()
         .with_winit_window_attributes_hook(|attributes| attributes.with_undecorated_shadow(true).with_corner_preference(CornerPreference::Round))
         .select()?;
@@ -98,10 +125,12 @@ fn main() -> Result<(), slint::PlatformError> {
     let hub = Hub::new(store::Storage::open(), out.clone(), inputs, move |snapshot| {
         let _ = weak.upgrade_in_event_loop(move |app| {
             if snapshot.restart {
+                #[cfg(windows)]
                 tray::remove();
                 let _ = slint::quit_event_loop();
                 return;
             }
+            #[cfg(windows)]
             tray::sync(snapshot.close_to_tray || STARTED_HIDDEN.load(Ordering::Relaxed), snapshot.paused);
             ui::apply(&app, snapshot);
         });
@@ -135,7 +164,16 @@ fn main() -> Result<(), slint::PlatformError> {
         slint::CloseRequestResponse::KeepWindowShown
     });
 
+    #[cfg(target_os = "linux")]
+    {
+        let show = app.as_weak();
+        system::on_show_requests(single, move || {
+            let _ = show.upgrade_in_event_loop(|app| bring_up(&app));
+        });
+    }
+    #[cfg(windows)]
     let (show, exit, pause) = (app.as_weak(), out.clone(), out.clone());
+    #[cfg(windows)]
     tray::start(tray::Actions {
         show: Box::new(move || {
             let _ = show.upgrade_in_event_loop(|app| bring_up(&app));
@@ -148,6 +186,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let _ = slint::invoke_from_event_loop(move || quit(&exit));
         }),
     });
+    #[cfg(windows)]
     tray::sync(hidden, false);
 
     if !hidden {

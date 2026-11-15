@@ -41,16 +41,16 @@ pub fn now_ms() -> i64 {
 }
 
 pub fn local_clock() -> String {
-    let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
-    format!("{:02}:{:02}", time.wHour, time.wMinute)
+    let time = system::local_time();
+    format!("{:02}:{:02}", time.hour, time.minute)
 }
 
 // The same form the Flutter hub wrote to network.log, so one log reads the same across both hubs.
 fn local_timestamp() -> String {
-    let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    let time = system::local_time();
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}",
-        time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds
+        time.year, time.month, time.day, time.hour, time.minute, time.second, time.millisecond
     )
 }
 
@@ -292,6 +292,7 @@ impl Hub {
     }
 
     pub fn run(mut self) {
+        #[cfg(windows)]
         unsafe {
             let _ = windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_MULTITHREADED);
             windows::Win32::Media::timeBeginPeriod(1);

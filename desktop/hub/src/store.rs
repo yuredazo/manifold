@@ -3,11 +3,15 @@ use manifold_protocol::devices::{DeviceBook, Identity};
 use manifold_protocol::stream::StreamProfile;
 use std::io::Write;
 use std::path::PathBuf;
+#[cfg(windows)]
 use windows::Win32::Foundation::{HLOCAL, LocalFree};
-use windows::Win32::System::SystemInformation::{ComputerNameDnsHostname, GetComputerNameExW};
+#[cfg(windows)]
 use windows::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData};
+#[cfg(windows)]
+use windows::Win32::System::SystemInformation::{ComputerNameDnsHostname, GetComputerNameExW};
 
 const IDENTITY_FILE: &str = "identity.key";
+#[cfg(windows)]
 const SEALED_PREFIX: &str = "dpapi:";
 
 // Same folder and file names as the Flutter hub, so switching hubs keeps the identity, pairings and shares.
@@ -18,10 +22,23 @@ pub struct Storage {
 }
 
 impl Storage {
+    #[cfg(windows)]
     pub fn open() -> Self {
         let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
         let directory = base.join("Manifold");
         let _ = std::fs::create_dir_all(&directory);
+        Self { directory }
+    }
+
+    // Only the user may enter the folder, since Linux has no sealing like Windows' DPAPI for the identity key.
+    #[cfg(target_os = "linux")]
+    pub fn open() -> Self {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        let home = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config"));
+        let base = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or(home).unwrap_or_else(std::env::temp_dir);
+        let directory = base.join("manifold");
+        let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&directory);
+        let _ = std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700));
         Self { directory }
     }
 
@@ -63,9 +80,11 @@ impl Storage {
     fn load_keys(&self) -> KeyPair {
         let stored = self.read(IDENTITY_FILE).map(|text| text.trim().to_string());
         let private = match stored.as_deref() {
+            #[cfg(windows)]
             Some(text) if text.starts_with(SEALED_PREFIX) => from_hex(&text[SEALED_PREFIX.len()..]).and_then(|sealed| unprotect(&sealed)),
             Some(text) => {
                 let plain = from_hex(text);
+                #[cfg(windows)]
                 if let Some(key) = plain.as_ref().filter(|key| key.len() == KEY_LENGTH) {
                     self.keep(key);
                 }
@@ -83,10 +102,16 @@ impl Storage {
         }
     }
 
+    #[cfg(windows)]
     fn keep(&self, private: &[u8]) {
         if let Some(sealed) = protect(private) {
             self.write(IDENTITY_FILE, &format!("{SEALED_PREFIX}{}", to_hex(&sealed)));
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn keep(&self, private: &[u8]) {
+        self.write(IDENTITY_FILE, &to_hex(private));
     }
 
     pub fn load_devices(&self) -> DeviceBook {
@@ -96,6 +121,17 @@ impl Storage {
 }
 
 // The host name as gethostname gives it, which is what the Flutter hub showed, case and all.
+#[cfg(target_os = "linux")]
+fn computer_name() -> String {
+    let mut buffer = [0u8; 256];
+    if unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) } != 0 {
+        return "Linux PC".to_string();
+    }
+    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+    String::from_utf8_lossy(&buffer[..end]).into_owned()
+}
+
+#[cfg(windows)]
 fn computer_name() -> String {
     let mut buffer = [0u16; 256];
     let mut size = buffer.len() as u32;
@@ -105,6 +141,7 @@ fn computer_name() -> String {
     }
 }
 
+#[cfg(windows)]
 fn protect(plain: &[u8]) -> Option<Vec<u8>> {
     let input = CRYPT_INTEGER_BLOB { cbData: plain.len() as u32, pbData: plain.as_ptr() as *mut u8 };
     let mut output = CRYPT_INTEGER_BLOB::default();
@@ -112,6 +149,7 @@ fn protect(plain: &[u8]) -> Option<Vec<u8>> {
     Some(take_blob(output))
 }
 
+#[cfg(windows)]
 fn unprotect(sealed: &[u8]) -> Option<Vec<u8>> {
     let input = CRYPT_INTEGER_BLOB { cbData: sealed.len() as u32, pbData: sealed.as_ptr() as *mut u8 };
     let mut output = CRYPT_INTEGER_BLOB::default();
@@ -119,6 +157,7 @@ fn unprotect(sealed: &[u8]) -> Option<Vec<u8>> {
     Some(take_blob(output))
 }
 
+#[cfg(windows)]
 fn take_blob(blob: CRYPT_INTEGER_BLOB) -> Vec<u8> {
     let bytes = unsafe { std::slice::from_raw_parts(blob.pbData, blob.cbData as usize) }.to_vec();
     unsafe { LocalFree(Some(HLOCAL(blob.pbData.cast()))) };

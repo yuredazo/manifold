@@ -377,6 +377,10 @@ pub fn bind(app: &AppWindow, out: Sender<Input>) {
         hub.on_open_notices(move || crate::system::open_url(&notices.display().to_string()));
     }
     hub.on_copy(|value| crate::system::copy_text(&value));
+    if cfg!(target_os = "linux") {
+        hub.set_linux(true);
+        hub.set_tab(1);
+    }
 
     let weak = app.as_weak();
     let sender = send.clone();

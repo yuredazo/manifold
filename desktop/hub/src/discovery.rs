@@ -1,7 +1,7 @@
 use crate::hub::Input;
-use crate::system::{is_private, local_addresses};
+use crate::system::local_addresses;
 use manifold_protocol::beacon::{self, Beacon};
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -93,7 +93,7 @@ impl Discovery {
     // Private networks only, one socket each so the beacon leaves the right adapter: a tunnel cannot carry a broadcast.
     pub fn announce(&self, name: &str, listen_port: u16) {
         let packet = beacon::encode(&Beacon { id: self.own_id.clone(), port: listen_port, name: name.to_string() });
-        for local in local_addresses().into_iter().filter(|ip| is_private(*ip)) {
+        for local in local_addresses().into_iter().filter(Ipv4Addr::is_private) {
             let Ok(out) = UdpSocket::bind((local, 0)) else { continue };
             let _ = out.set_broadcast(true);
             let _ = out.send_to(&packet, ("255.255.255.255", beacon::PORT));

@@ -1,6 +1,6 @@
-# Manifold hub for Windows
+# Manifold hub for Windows and Linux
 
-The Windows hub pairs with the Manifold hub on an Android phone. It plays the feeds that a paired device shares, each in a window of its own, and shares windows, displays, cameras and Spout senders of this PC with paired devices. It is one executable written in Rust, with a [Slint](https://slint.dev) interface and Windows' own capture, encoding and decoding.
+The desktop hub pairs with the Manifold hub on an Android phone. On Windows it plays the feeds that a paired device shares, each in a window of its own, and shares windows, displays, cameras and Spout senders of this PC with paired devices. It is one executable written in Rust, with a [Slint](https://slint.dev) interface and Windows' own capture, encoding and decoding. The Linux build shares windows and displays and takes remote control from a phone; it is described under [Linux](#linux).
 
 The protocol it speaks is described in [../docs/NETWORK.md](../docs/NETWORK.md), and the code is described in [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
@@ -28,7 +28,7 @@ The first build downloads the Spout 2.007.017 sources with `curl` (a pinned arch
 | Path | What it is |
 | --- | --- |
 | `protocol` | The network protocol, a port of the Android hub's `network.protocol` and `network.stream` packages. |
-| `hub/src` | The app: the network thread, sharing, watching, the player windows, storage, the tray and the updater. |
+| `hub/src` | The app: the network thread, sharing, watching, the player windows, storage, the tray and the updater. `capture`, `remote` and `system` each have a `windows.rs` and a `linux` part; `x11.rs` is Linux only. |
 | `hub/ui` | The Slint interface, its icons and the logo the app icon is drawn from. |
 | `hub/native` | C++ that captures windows, displays, cameras and Spout senders and encodes H.264 and AAC, called through `bridge.cpp`. |
 
@@ -92,3 +92,59 @@ The hub replaced a Flutter app of the same name in 1.5.0 and keeps its files, so
 Everything the app stores is in `%APPDATA%\Manifold`: the paired devices (`devices.txt`), the shares (`shares.json`), the switches from Settings, a log of why links went down (`network.log`, newest lines kept), and the identity key (`identity.key`), which is encrypted with Windows data protection for the signed-in user. Other programs running as the same user can read the other files.
 
 Settings > About > Acknowledgements lists the open source parts the app is built on, and the Slint credit its licence asks for.
+
+## Linux
+
+The Linux build shares displays and windows with sound, and a paired phone that watches them can control them with its mouse, keyboard and controllers, as on Windows. It does not play feeds from other devices, so it has no Watch page, and it has no cameras, Spout, tray or "Run as administrator".
+
+It needs an X11 session. Wayland sessions are not supported yet: X11 capture and input do not reach Wayland windows. It has been tested on Ubuntu 22.04 with XFCE on an NVIDIA RTX 3060, headless, with FFmpeg 4.4.
+
+| Part | How it works on Linux |
+| --- | --- |
+| Displays | Each RandR monitor is a display. A screen with no monitor connected, as on a cloud GPU, is offered whole as "Screen". |
+| Windows | Windows the window manager lists, captured through the Composite extension, so a covered window is still captured whole. |
+| Picture | Copied with MIT-SHM, converted with FFmpeg's swscale in four bands at once, and encoded to H.264 with NVENC, or with x264 on the processor when NVENC cannot open. |
+| Sound | What the default output plays, recorded from PulseAudio (or PipeWire's PulseAudio server) and encoded to AAC. A window is shared with the whole PC's sound. |
+| Mouse and keyboard | Sent through the XTEST extension. Keys go in by physical position, as on Windows. |
+| Controllers | Virtual Xbox 360 controllers made with uinput, with rumble sent back to the phone. |
+
+Measured on that machine, sharing a 1920 x 1080 screen at 30 frames a second: a frame takes 3.7 ms to copy, 5.5 ms to convert and 1.5 ms to encode with NVENC, and the hub uses about 65% of one core.
+
+### Build and run on Linux
+
+On Ubuntu 22.04 these are the packages it was built with, and the run-time library the window needed on top:
+
+```sh
+sudo apt-get install build-essential pkg-config clang libclang-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libpulse-dev libxkbcommon-dev libfontconfig1-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev
+sudo apt-get install libxkbcommon-x11-0
+```
+
+Then, from this folder, with Rust stable installed:
+
+```sh
+cargo build --release -p manifold-hub
+./target/release/manifold_hub
+```
+
+The FFmpeg libraries are your system's, linked at run time. `curl` is used to look up the public address and check for updates, `xdg-open` to open links, and one of `wl-copy`, `xclip` or `xsel` to copy text. Updates are not installed in place on Linux: Settings shows a newer version and links to its release page.
+
+On a machine that is only used from another device, turn off the screen saver and screen lock. When XFCE's screen saver starts on a machine with no screen, it takes every click and key press without showing anything, so the desktop looks frozen from the phone. For XFCE: `xset s off -dpms`, stop `xfce4-screensaver`, and hide it from autostart with a `~/.config/autostart/xfce4-screensaver.desktop` that contains `Hidden=true`.
+
+"Start on login" writes `~/.config/autostart/manifold.desktop`, which starts the hub with no window. Opening Manifold again brings the window up, since only one hub runs per user.
+
+### Controllers on Linux
+
+Controllers need write access to `/dev/uinput`, which only root has by default. Without it, the Share page says so once a phone sends a controller. A udev rule hands the device to the `input` group:
+
+```sh
+echo 'KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' | sudo tee /etc/udev/rules.d/60-manifold-uinput.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --name-match=uinput
+sudo usermod -aG input "$USER"
+```
+
+Sign out and in again for the group to apply. Members of `input` can also read every keyboard and mouse on the machine, so add only accounts you trust. The hub tries again every 5 seconds while a controller is in use, so it does not need a restart.
+
+### Files on Linux
+
+Everything the app stores is in `~/.config/manifold` (or `$XDG_CONFIG_HOME/manifold`), with the same file names as on Windows. The folder is readable only by your account. The identity key is stored there as plain hex, because Linux has no per-user encryption like Windows data protection that works without a desktop keyring.

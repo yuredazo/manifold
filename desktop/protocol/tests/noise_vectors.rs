@@ -46,8 +46,7 @@ fn run(pattern: Pattern) {
     let mut responder = Handshake::with_fixed_ephemeral(pattern, false, &resp_static, None, &prologue, &vector.bytes("resp_ephemeral"));
 
     let handshake_messages = if pattern == Pattern::Xx { 3 } else { 2 };
-    for index in 0..handshake_messages {
-        let (payload, expected) = &vector.messages[index];
+    for (index, (payload, expected)) in vector.messages.iter().enumerate().take(handshake_messages) {
         let (writer, reader) = if index % 2 == 0 { (&mut initiator, &mut responder) } else { (&mut responder, &mut initiator) };
         let sent = writer.write_message(payload).unwrap();
         assert_eq!(&sent, expected, "handshake message {index}");

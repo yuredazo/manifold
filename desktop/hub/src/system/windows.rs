@@ -1,3 +1,4 @@
+use super::{HIDDEN_FLAG, LocalTime};
 use std::ffi::c_void;
 use std::net::Ipv4Addr;
 use std::os::windows::process::CommandExt;
@@ -65,8 +66,17 @@ pub fn local_addresses() -> Vec<Ipv4Addr> {
     vec![]
 }
 
-pub fn is_private(ip: Ipv4Addr) -> bool {
-    ip.is_private()
+pub fn local_time() -> LocalTime {
+    let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    LocalTime {
+        year: time.wYear as u32,
+        month: time.wMonth as u32,
+        day: time.wDay as u32,
+        hour: time.wHour as u32,
+        minute: time.wMinute as u32,
+        second: time.wSecond as u32,
+        millisecond: time.wMilliseconds as u32,
+    }
 }
 
 pub fn window_alive(handle: i64) -> bool {
@@ -138,7 +148,6 @@ pub fn wait_for_exit(process_id: u32) {
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const RUN_VALUE: PCWSTR = w!("Manifold");
-pub const HIDDEN_FLAG: &str = "--hidden";
 
 fn autostart_command() -> String {
     let exe = std::env::current_exe().map(|path| path.display().to_string()).unwrap_or_default();
