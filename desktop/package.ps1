@@ -1,6 +1,6 @@
 # Packs a release build into the zip that releases carry and the hubs' updaters install.
 # The exe sits at the top of the zip, which is where the 1.4.0 updater looks for manifold_hub.exe.
-# Usage, from the windows folder after `cargo build --release -p manifold-hub`: ./package.ps1 -Out <zip>
+# Usage, from the desktop folder after `cargo build --release -p manifold-hub`: ./package.ps1 -Out <zip>
 param([Parameter(Mandatory)][string]$Out)
 $ErrorActionPreference = 'Stop'
 

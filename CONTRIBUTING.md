@@ -24,7 +24,7 @@ You need JDK 17 and the Android SDK (compile SDK 36).
 You need Rust stable, Visual Studio with the "Desktop development with C++" workload, and Python 3 for packaging.
 
 ```
-cd windows
+cd desktop
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test -p manifold-protocol
 cargo run -p manifold-hub
@@ -32,7 +32,7 @@ cargo build --release -p manifold-hub
 ./package.ps1 -Out manifold-hub-windows.zip
 ```
 
-The first build downloads the Spout 2.007.017 sources from GitHub (a pinned archive, checked by SHA-256), so it needs internet access. The release build is `windows/target/release/manifold_hub.exe`, and `package.ps1` zips it with its licence files. More in [windows/README.md](windows/README.md).
+The first build downloads the Spout 2.007.017 sources from GitHub (a pinned archive, checked by SHA-256), so it needs internet access. The release build is `desktop/target/release/manifold_hub.exe`, and `package.ps1` zips it with its licence files. More in [desktop/README.md](desktop/README.md).
 
 ### Across processes
 
@@ -58,7 +58,7 @@ The phases are `basic`, `hubkill`, `senderkill`, `consumerlost`, `misuse` and `a
 There are two protocols: the AIDL interface between apps and the hub on one phone, and the packets between hubs. Both have installed clients that you cannot update.
 
 - AIDL: add methods and `SenderInfo` fields at the end, and raise `Manifold.PROTOCOL_VERSION` for any change an older client cannot handle. The rules are in [docs/PROTOCOL.md](docs/PROTOCOL.md#versioning).
-- Network packets: the Kotlin code in `hub/.../network/protocol` and the Rust crate in `windows/protocol` implement the same format and must change together. `fixtures/compat.txt` holds bytes the Kotlin code produces. `CompatFixturesTest` (Kotlin) and `windows/protocol/tests/compat.rs` (Rust) both compare their output with that file, so a format change shows up as a failure in both suites until the fixture and both implementations agree.
+- Network packets: the Kotlin code in `hub/.../network/protocol` and the Rust crate in `desktop/protocol` implement the same format and must change together. `fixtures/compat.txt` holds bytes the Kotlin code produces. `CompatFixturesTest` (Kotlin) and `desktop/protocol/tests/compat.rs` (Rust) both compare their output with that file, so a format change shows up as a failure in both suites until the fixture and both implementations agree.
 - A device must ignore control messages it does not understand and acknowledge them, so a newer device cannot make an older one drop the link. Keep that property when adding messages.
 
 ## Signing
@@ -83,7 +83,7 @@ Releases are built and published from a PC with `release.ps1` in the repository 
 ./release.ps1 -Publish   # the same, then create the GitHub release
 ```
 
-The script needs a clean working tree whose commit is already pushed, `keystore.properties` with the release key (see "Signing"), the Android SDK, and the tools for the Windows hub. It reads `versionName` in `hub/build.gradle.kts` and `version` in `windows/hub/Cargo.toml`, stops if they differ or if their tag already exists on GitHub, and then:
+The script needs a clean working tree whose commit is already pushed, `keystore.properties` with the release key (see "Signing"), the Android SDK, and the tools for the Windows hub. It reads `versionName` in `hub/build.gradle.kts` and `version` in `desktop/hub/Cargo.toml`, stops if they differ or if their tag already exists on GitHub, and then:
 
 1. runs the Android unit tests and the API check and builds the release APK, and checks that it carries the release signature;
 2. runs Clippy and the protocol tests and builds the Windows hub, and zips it with its licence files;

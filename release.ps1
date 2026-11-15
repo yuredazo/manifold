@@ -15,7 +15,7 @@ function Invoke-Checked([string]$What, [scriptblock]$Command) {
 
 Step 'Versions'
 $android = (Select-String -Path 'hub/build.gradle.kts' -Pattern 'versionName = "([^"]+)"').Matches[0].Groups[1].Value
-$windows = (Select-String -Path 'windows/hub/Cargo.toml' -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+$windows = (Select-String -Path 'desktop/hub/Cargo.toml' -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
 if ($android -ne $windows) { throw "The Android hub is $android but the Windows hub is $windows; both updaters compare against the same tag." }
 $version = $android
 $tag = "v$version"
@@ -26,7 +26,7 @@ if (git status --porcelain) { throw 'Commit or stash every change first: the rel
 Invoke-Checked 'git fetch' { git fetch origin --quiet --tags }
 $commit = (git rev-parse HEAD).Trim()
 if (-not (git branch -r --contains $commit)) { throw "Push $commit first: GitHub tags the release on a commit it already has." }
-if (git ls-remote --tags origin "refs/tags/$tag") { throw "$tag already exists on GitHub. Raise the version in hub/build.gradle.kts and windows/hub/Cargo.toml." }
+if (git ls-remote --tags origin "refs/tags/$tag") { throw "$tag already exists on GitHub. Raise the version in hub/build.gradle.kts and desktop/hub/Cargo.toml." }
 if (-not (Test-Path 'keystore.properties')) { throw 'keystore.properties is missing, so the APK would be signed with the debug key.' }
 
 $out = Join-Path $PSScriptRoot 'build/release'
@@ -49,7 +49,7 @@ $certs = & $apksigner.FullName verify --print-certs $apk
 if ($LASTEXITCODE -ne 0 -or -not ($certs -match 'CN=Manifold, O=mkzk')) { throw 'The APK does not carry the release signature.' }
 
 Step 'Windows hub'
-Push-Location 'windows'
+Push-Location 'desktop'
 try {
     Invoke-Checked 'Clippy' { cargo clippy --workspace --all-targets -- -D warnings }
     Invoke-Checked 'The protocol tests' { cargo test -p manifold-protocol }
