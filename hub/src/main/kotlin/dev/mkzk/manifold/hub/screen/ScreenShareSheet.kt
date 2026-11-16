@@ -2,6 +2,8 @@ package dev.mkzk.manifold.hub.screen
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
@@ -26,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,7 +58,9 @@ import kotlinx.coroutines.withContext
 
 private val AppIconSize = 34.dp
 
-internal class LaunchableApp(val packageName: String, val label: String, val sharesLabel: Boolean, val icon: ImageBitmap)
+private val byLabel = compareBy<LaunchableApp, String>(String.CASE_INSENSITIVE_ORDER) { it.label }
+
+internal class LaunchableApp(val packageName: String, val label: String, val icon: ImageBitmap)
 
 @Composable
 internal fun ScreenShareSheet(
@@ -70,15 +75,22 @@ internal fun ScreenShareSheet(
     var withSound by rememberSaveable { mutableStateOf(true) }
     var picking by rememberSaveable { mutableStateOf(false) }
     val iconPx = with(LocalDensity.current) { AppIconSize.roundToPx() }
+    // The full list takes seconds on a cold start, so the few muted apps are looked up on their own.
+    val mutedApps by produceState<List<LaunchableApp>?>(null, muted) {
+        value = withContext(Dispatchers.IO) { installedApps(context, muted, iconPx) }
+    }
     val apps by produceState<List<LaunchableApp>?>(null) {
         value = withContext(Dispatchers.IO) { launchableApps(context, iconPx) }
+    }
+    val sharedLabels = remember(apps, mutedApps) {
+        (apps ?: mutedApps).orEmpty().groupingBy { it.label }.eachCount().filterValues { it > 1 }.keys
     }
     fun toggle(packageName: String) = screenShare.setMuted(if (packageName in muted) muted - packageName else muted + packageName)
 
     Sheet(onDismiss = onDismiss) { modal ->
         if (picking) {
             BackHandler { picking = false }
-            AppPicker(apps, muted, ::toggle, onBack = { picking = false })
+            AppPicker(apps, muted, sharedLabels, ::toggle, onBack = { picking = false })
         } else {
             SheetTitle(stringResource(if (state.sharing) R.string.screen_sharing_title else R.string.screen_share))
             if (state.sharing) {
@@ -112,7 +124,7 @@ internal fun ScreenShareSheet(
             }
 
             val soundOn = if (state.sharing) state.sound else withSound
-            if (soundOn) MutedApps(apps, muted, onUnmute = ::toggle, onAdd = { picking = true })
+            if (soundOn) MutedApps(mutedApps, sharedLabels, onUnmute = ::toggle, onAdd = { picking = true })
 
             if (state.sharing) {
                 ModalButton(stringResource(R.string.screen_stop), ButtonKind.Danger, Modifier.fillMaxWidth()) {
@@ -130,13 +142,13 @@ internal fun ScreenShareSheet(
 }
 
 @Composable
-private fun MutedApps(apps: List<LaunchableApp>?, muted: Set<String>, onUnmute: (String) -> Unit, onAdd: () -> Unit) {
-    val shown = apps.orEmpty().filter { it.packageName in muted }
+private fun MutedApps(apps: List<LaunchableApp>?, sharedLabels: Set<String>, onUnmute: (String) -> Unit, onAdd: () -> Unit) {
+    val shown = apps.orEmpty()
     SheetList(label = stringResource(R.string.screen_muted), meta = shown.size.takeIf { it > 0 }?.toString()) {
         shown.forEach { app ->
             SheetListRow(
                 title = app.label,
-                subtitle = app.packageName.takeIf { app.sharesLabel },
+                subtitle = app.packageName.takeIf { app.label in sharedLabels },
                 onClick = null,
                 leading = { AppIcon(app) },
                 trailing = {
@@ -158,7 +170,7 @@ private fun MutedApps(apps: List<LaunchableApp>?, muted: Set<String>, onUnmute: 
 }
 
 @Composable
-private fun AppPicker(apps: List<LaunchableApp>?, muted: Set<String>, onToggle: (String) -> Unit, onBack: () -> Unit) {
+private fun AppPicker(apps: List<LaunchableApp>?, muted: Set<String>, sharedLabels: Set<String>, onToggle: (String) -> Unit, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
@@ -182,7 +194,7 @@ private fun AppPicker(apps: List<LaunchableApp>?, muted: Set<String>, onToggle: 
                 val checked = app.packageName in muted
                 SheetListRow(
                     title = app.label,
-                    subtitle = app.packageName.takeIf { app.sharesLabel },
+                    subtitle = app.packageName.takeIf { app.label in sharedLabels },
                     role = Role.Checkbox,
                     leading = { AppIcon(app) },
                     trailing = { Checkbox(checked = checked, onCheckedChange = null) },
@@ -201,16 +213,26 @@ private fun AppIcon(app: LaunchableApp) {
 private fun launchableApps(context: Context, iconPx: Int): List<LaunchableApp> {
     val packages = context.packageManager
     val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-    val found = packages.queryIntentActivities(launcher, 0)
+    return packages.queryIntentActivities(launcher, 0)
         .map { it.activityInfo.applicationInfo }
         .distinctBy { it.packageName }
         .filter { it.packageName != context.packageName }
-    val labels = found.associate { it.packageName to packages.getApplicationLabel(it).toString() }
-    val labelCounts = labels.values.groupingBy { it }.eachCount()
-    return found
-        .map {
-            val label = labels.getValue(it.packageName)
-            LaunchableApp(it.packageName, label, labelCounts.getValue(label) > 1, packages.getApplicationIcon(it).toBitmap(iconPx, iconPx).asImageBitmap())
-        }
-        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+        .map { packages.launchableApp(it, iconPx) }
+        .sortedWith(byLabel)
 }
+
+private fun installedApps(context: Context, packageNames: Set<String>, iconPx: Int): List<LaunchableApp> {
+    val packages = context.packageManager
+    return packageNames
+        .mapNotNull {
+            try {
+                packages.launchableApp(packages.getApplicationInfo(it, 0), iconPx)
+            } catch (_: PackageManager.NameNotFoundException) {
+                null
+            }
+        }
+        .sortedWith(byLabel)
+}
+
+private fun PackageManager.launchableApp(info: ApplicationInfo, iconPx: Int) =
+    LaunchableApp(info.packageName, getApplicationLabel(info).toString(), getApplicationIcon(info).toBitmap(iconPx, iconPx).asImageBitmap())
