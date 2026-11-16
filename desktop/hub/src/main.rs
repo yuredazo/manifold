@@ -9,6 +9,8 @@ mod player;
 #[cfg(windows)]
 mod player;
 mod remote;
+#[cfg(windows)]
+mod secure;
 mod sharing;
 mod store;
 mod system;
@@ -85,6 +87,10 @@ fn close_window(app: &AppWindow, out: &Sender<Input>) {
 
 fn main() -> Result<(), slint::PlatformError> {
     let arguments: Vec<String> = std::env::args().collect();
+    #[cfg(windows)]
+    if let Some(code) = secure::run_mode(&arguments) {
+        std::process::exit(code);
+    }
     #[cfg(windows)]
     if let Some(process_id) = arguments.iter().position(|arg| arg == system::WAIT_FLAG).and_then(|at| arguments.get(at + 1)?.parse().ok()) {
         system::wait_for_exit(process_id);

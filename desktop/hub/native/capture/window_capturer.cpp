@@ -18,10 +18,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstring>
+#include <mutex>
 #include <thread>
 
 #include "nv12_converter.h"
+#include "secure/secure_client.h"
 
 using Microsoft::WRL::ComPtr;
 namespace capture = winrt::Windows::Graphics::Capture;
@@ -80,6 +83,16 @@ struct WindowCapturer::Impl {
   std::atomic<bool> running{false};
   bool media_started = false;
 
+  std::mutex converting;
+  // Where the picture comes from while a UAC prompt or the lock screen is up: the display itself, or the main display
+  // for a window, since that is where the prompt appears.
+  RECT secure_monitor{};
+  bool secure_wanted = false;
+  std::thread secure_thread;
+  ComPtr<ID3D11Texture2D> secure_texture;
+  int secure_width = 0;
+  int secure_height = 0;
+
   // A window's capture is its visible frame, so the client area is found relative to the frame's top left corner.
   // Read each frame, since the window can be resized or moved between monitors while it is shared.
   RECT ClientCrop() const {
@@ -115,8 +128,51 @@ struct WindowCapturer::Impl {
     auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
     ComPtr<ID3D11Texture2D> texture;
     if (FAILED(access->GetInterface(IID_PPV_ARGS(&texture)))) return;
+    if (secure_client::Showing()) return;
+    std::lock_guard<std::mutex> guard(converting);
     if (client_only) converter.SetCrop(ClientCrop());
     if (converter.Convert(texture.Get(), content.Width, content.Height, packed)) pump.Submit(packed, frame.SystemRelativeTime().count() - epoch);
+  }
+
+  bool SecureTexture(int width, int height) {
+    if (secure_texture && secure_width == width && secure_height == height) return true;
+    secure_texture.Reset();
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = static_cast<UINT>(width);
+    description.Height = static_cast<UINT>(height);
+    description.MipLevels = 1;
+    description.ArraySize = 1;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.SampleDesc.Count = 1;
+    description.Usage = D3D11_USAGE_DEFAULT;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    if (FAILED(device->CreateTexture2D(&description, nullptr, &secure_texture))) return false;
+    secure_width = width;
+    secure_height = height;
+    return true;
+  }
+
+  void SecureLoop(int frame_rate) {
+    const auto interval = std::chrono::milliseconds(1000 / std::max(frame_rate, 1));
+    std::vector<uint8_t> pixels;
+    std::vector<uint8_t> converted;
+    int64_t sequence = 0;
+    while (running) {
+      if (!secure_client::Showing()) {
+        sequence = 0;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        continue;
+      }
+      int width = 0;
+      int height = 0;
+      if (secure_client::Frame(secure_monitor, sequence, pixels, width, height) && SecureTexture(width, height)) {
+        context->UpdateSubresource(secure_texture.Get(), 0, nullptr, pixels.data(), static_cast<UINT>(width) * 4, 0);
+        std::lock_guard<std::mutex> guard(converting);
+        converter.SetCrop({});
+        if (converter.Convert(secure_texture.Get(), width, height, converted)) pump.Submit(converted, NowIn100ns() - epoch);
+      }
+      std::this_thread::sleep_for(interval);
+    }
   }
 };
 
@@ -173,6 +229,16 @@ bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height,
     }
     state.running = true;
     state.session.StartCapture();
+    if (window) {
+      state.secure_monitor = secure_client::PrimaryMonitor();
+    } else {
+      MONITORINFO info{sizeof(info)};
+      GetMonitorInfoW(monitor, &info);
+      state.secure_monitor = info.rcMonitor;
+    }
+    secure_client::Want(state.secure_monitor);
+    state.secure_wanted = true;
+    state.secure_thread = std::thread([&state, frame_rate] { state.SecureLoop(frame_rate); });
     return true;
   } catch (const winrt::hresult_error&) {
     Stop();
@@ -183,6 +249,11 @@ bool WindowCapturer::Start(HWND window, HMONITOR monitor, int width, int height,
 void WindowCapturer::Stop() {
   Impl& state = *impl_;
   state.running = false;
+  if (state.secure_thread.joinable()) state.secure_thread.join();
+  if (state.secure_wanted) {
+    secure_client::Unwant(state.secure_monitor);
+    state.secure_wanted = false;
+  }
   try {
     if (state.pool) state.pool.FrameArrived(state.frame_token);
     if (state.item) state.item.Closed(state.closed_token);
@@ -196,6 +267,7 @@ void WindowCapturer::Stop() {
   state.pool = nullptr;
   state.item = nullptr;
   state.converter.Close();
+  state.secure_texture.Reset();
   state.winrt_device = nullptr;
   state.context.Reset();
   state.device.Reset();

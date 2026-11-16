@@ -18,6 +18,9 @@ const NATIVE: &[&str] = &[
     "native/encode/h264_encoder.cpp",
     "native/encode/aac_encoder.cpp",
     "native/encode/mft.cpp",
+    "native/secure/secure_client.cpp",
+    "native/secure/secure_helper.cpp",
+    "native/secure/secure_service.cpp",
 ];
 
 const SPOUT: &[&str] = &[
@@ -32,7 +35,7 @@ const SPOUT: &[&str] = &[
 
 const LIBRARIES: &[&str] = &[
     "d3d11", "d3dcompiler", "dxgi", "mfplat", "mf", "mfreadwrite", "mfuuid", "strmiids", "wmcodecdspuuid", "mmdevapi", "windowsapp", "winmm",
-    "dwmapi", "version", "comctl32", "comdlg32", "shell32", "ole32", "uuid", "user32", "advapi32",
+    "dwmapi", "version", "comctl32", "comdlg32", "shell32", "ole32", "uuid", "user32", "advapi32", "wtsapi32",
 ];
 
 fn spout_sdk(out: &Path) -> PathBuf {

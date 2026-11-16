@@ -66,6 +66,8 @@ pub enum Input {
     UpdateInstalled(Result<(), String>),
     Command(Command),
     Rumble { device_key: String, stream_id: u16, pad: u8, large: u8, small: u8 },
+    #[cfg_attr(not(windows), allow(dead_code))]
+    SecureDesktopChanged { on: bool, done: bool },
 }
 
 pub enum Command {
@@ -96,6 +98,8 @@ pub enum Command {
     SetCheckOnLaunch(bool),
     SetAutostart(bool),
     SetRunAsAdmin(bool),
+    #[cfg_attr(not(windows), allow(dead_code))]
+    SetSecureDesktop(bool),
     LookUpPublic,
     CheckUpdates,
     InstallUpdate,
@@ -205,6 +209,11 @@ pub struct Snapshot {
     pub check_on_launch: bool,
     pub autostart: bool,
     pub run_as_admin: bool,
+    pub secure_desktop: bool,
+    pub secure_busy: bool,
+    pub secure_outdated: bool,
+    // Some(on) when switching to `on` failed.
+    pub secure_failed: Option<bool>,
     pub update: UpdateState,
     // The update is unpacked and its swap is waiting for this process to exit.
     pub restart: bool,
@@ -238,6 +247,9 @@ pub struct Hub {
     update: UpdateState,
     restart: bool,
     autostart: bool,
+    secure_desktop: bool,
+    secure_busy: bool,
+    secure_failed: Option<bool>,
     ticks: u64,
     redial_now: bool,
     dirty: bool,
@@ -283,6 +295,9 @@ impl Hub {
             update: UpdateState::Idle,
             restart: false,
             autostart,
+            secure_desktop: secure_installed(),
+            secure_busy: false,
+            secure_failed: None,
             ticks: 0,
             redial_now: false,
             dirty: true,
@@ -391,6 +406,12 @@ impl Hub {
                 self.dirty = true;
             }
             Input::Rumble { device_key, stream_id, pad, large, small } => self.sharing.on_rumble(&device_key, stream_id, pad, large, small, &mut self.endpoint),
+            Input::SecureDesktopChanged { on, done } => {
+                self.secure_busy = false;
+                self.secure_desktop = secure_installed();
+                self.secure_failed = (!done).then_some(on);
+                self.dirty = true;
+            }
         }
     }
 
@@ -504,6 +525,21 @@ impl Hub {
                 }
                 self.autostart = system::autostart_enabled(on);
             }
+            // The UAC prompt for the service can stay open for a while, and the network must not wait for it.
+            #[cfg(windows)]
+            Command::SetSecureDesktop(on) => {
+                if !self.secure_busy {
+                    self.secure_busy = true;
+                    self.secure_failed = None;
+                    let out = self.out.clone();
+                    std::thread::spawn(move || {
+                        let done = crate::secure::set_installed(on);
+                        let _ = out.send(Input::SecureDesktopChanged { on, done });
+                    });
+                }
+            }
+            #[cfg(not(windows))]
+            Command::SetSecureDesktop(_) => {}
             // Looked up only when asked, since it tells an outside service this computer's address.
             Command::LookUpPublic => {
                 self.public_address = PublicAddress::Looking;
@@ -923,10 +959,28 @@ impl Hub {
             check_on_launch: self.settings.check_on_launch,
             autostart: self.autostart,
             run_as_admin: self.settings.run_as_admin,
+            secure_desktop: self.secure_desktop,
+            secure_busy: self.secure_busy,
+            secure_outdated: self.secure_desktop && secure_outdated(),
+            secure_failed: self.secure_failed,
             update: self.update.clone(),
             restart: self.restart,
         }
     }
+}
+
+fn secure_installed() -> bool {
+    #[cfg(windows)]
+    return crate::secure::installed();
+    #[cfg(not(windows))]
+    false
+}
+
+fn secure_outdated() -> bool {
+    #[cfg(windows)]
+    return crate::secure::outdated();
+    #[cfg(not(windows))]
+    false
 }
 
 fn own_addresses() -> Vec<String> {

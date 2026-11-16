@@ -1,11 +1,12 @@
 use super::{Rect, Target};
 use crate::capture::ShareKind;
+use crate::secure::{self, RawInput};
 use manifold_protocol::control::{MouseButton, PadState};
 use std::sync::Arc;
 use vigem_client::{Client, TargetId, XButtons, XGamepad, Xbox360Wired};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
-use windows::Win32::Graphics::Gdi::{ClientToScreen, GetMonitorInfoW, HMONITOR, MONITORINFO};
+use windows::Win32::Graphics::Gdi::{ClientToScreen, GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE,
     MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
@@ -30,8 +31,13 @@ fn rect(rect: RECT) -> Rect {
     Rect { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
 }
 
+// While a UAC prompt or the lock screen is up, a window's stream shows the main display, where the prompt appears.
 pub fn source(target: &Target) -> Option<Rect> {
     unsafe {
+        if target.kind == ShareKind::Window && secure::showing() {
+            let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+            return GetMonitorInfoW(MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY), &mut info).as_bool().then_some(rect(info.rcMonitor));
+        }
         if target.kind == ShareKind::Display {
             let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
             return GetMonitorInfoW(HMONITOR((target.handle & !MONITOR_TAG) as isize as *mut _), &mut info).as_bool().then_some(rect(info.rcMonitor));
@@ -56,6 +62,9 @@ pub fn source(target: &Target) -> Option<Rect> {
 // A game that turns its camera with the mouse confines the cursor or hides it while its window is in front.
 // Windows also hides the cursor while someone types, but the next injected move shows it again.
 pub fn cursor_captured(target: &Target) -> bool {
+    if secure::showing() {
+        return false;
+    }
     unsafe {
         if target.kind == ShareKind::Window && GetAncestor(GetForegroundWindow(), GA_ROOT) != window(target) {
             return false;
@@ -73,6 +82,9 @@ pub fn cursor_captured(target: &Target) -> bool {
 
 // Windows keeps a background process from taking the foreground, but this one has just sent input, which lets it.
 pub fn bring_forward(target: &Target) {
+    if secure::showing() {
+        return;
+    }
     unsafe {
         if GetForegroundWindow() != window(target) {
             let _ = SetForegroundWindow(window(target));
@@ -183,6 +195,10 @@ pub fn type_text(text: &str) {
 
 fn send_key(unicode: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) {
     let scan = if flags.contains(KEYEVENTF_UNICODE) { unicode } else { scan };
+    if secure::showing() {
+        secure::send(&[RawInput { kind: INPUT_KEYBOARD.0, dx: 0, dy: 0, data: 0, flags: flags.0, scan }]);
+        return;
+    }
     let input = INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: Default::default(), wScan: scan, dwFlags: flags, time: 0, dwExtraInfo: 0 } } };
     unsafe {
         SendInput(&[input], size_of::<INPUT>() as i32);
@@ -273,8 +289,13 @@ pub fn move_to(x: i32, y: i32) {
     send(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, x, y, 0);
 }
 
-// Windows drops input aimed at a program running as administrator unless this one is too.
+// Windows drops input aimed at a program running as administrator unless this one is too. A UAC prompt or the lock
+// screen takes input only from the secure desktop helper.
 fn send(flags: MOUSE_EVENT_FLAGS, dx: i32, dy: i32, data: i32) {
+    if secure::showing() {
+        secure::send(&[RawInput { kind: INPUT_MOUSE.0, dx, dy, data: data as u32, flags: flags.0, scan: 0 }]);
+        return;
+    }
     let input = INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dx, dy, mouseData: data as u32, dwFlags: flags, time: 0, dwExtraInfo: 0 } } };
     unsafe {
         SendInput(&[input], size_of::<INPUT>() as i32);

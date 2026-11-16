@@ -130,6 +130,8 @@ export global Ui {
     in property <bool> close-to-tray;
     in property <bool> check-on-launch;
     in property <bool> run-as-admin;
+    in property <bool> secure-desktop;
+    in property <string> secure-detail;
     in property <string> version;
     in property <string> update-title;
     in property <string> update-detail;
@@ -169,6 +171,7 @@ export global Ui {
     callback set-offer-cameras(bool);
     callback set-check-on-launch(bool);
     callback set-run-as-admin(bool);
+    callback set-secure-desktop(bool);
     callback update-pressed();
     callback open-url(string);
     callback copy(string);
@@ -786,6 +789,14 @@ component SettingsPage inherits Page {
                 detail: "To control apps that run as administrator";
                 on: Ui.run-as-admin;
                 toggled(on) => { Ui.set-run-as-admin(on); }
+            }
+            if !Ui.linux: SwitchTile {
+                divided: true;
+                icon: @image-url("icons/shield-alert.svg");
+                title: "Show UAC prompts and lock screen";
+                detail: Ui.secure-detail;
+                on: Ui.secure-desktop;
+                toggled(on) => { Ui.set-secure-desktop(on); }
             }
         }
     }

@@ -125,6 +125,8 @@ A paired device can control a window or display the PC shares. On the Windows or
 
 Windows does not deliver input from a program to one running as administrator, so the hub has to run as administrator to control such a program. Input from the phone reaches the PC as if it were typed there, so give control only to devices you trust.
 
+UAC prompts and the lock screen show on a separate secure desktop that programs cannot capture or send input to. With "Show UAC prompts and lock screen" on in the Windows hub's Settings, the phone sees and answers them too; see [UAC prompts and the lock screen](desktop/README.md#uac-prompts-and-the-lock-screen) for what that installs.
+
 ## Updates
 
 Both hubs can look for a newer release on GitHub. Settings has a "Check for updates on launch" switch, on by default, and a button to check at any time. A check is one request to `api.github.com/repos/yuredazo/manifold/releases/latest`, and GitHub allows 60 anonymous requests an hour per IP address. Nothing is installed until you press Update.

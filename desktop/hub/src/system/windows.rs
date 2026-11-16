@@ -16,9 +16,9 @@ use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ, RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
 };
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
-use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_SYNCHRONIZE, WaitForSingleObject};
-use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SW_SHOWNORMAL};
+use windows::Win32::System::Threading::{GetCurrentProcess, GetExitCodeProcess, INFINITE, OpenProcess, OpenProcessToken, PROCESS_SYNCHRONIZE, WaitForSingleObject};
+use windows::Win32::UI::Shell::{SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW, ShellExecuteW};
+use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SW_HIDE, SW_SHOWNORMAL};
 use windows::core::{HSTRING, PCWSTR, w};
 
 const CF_UNICODETEXT: u32 = 13;
@@ -125,6 +125,32 @@ pub fn is_elevated() -> bool {
         );
         let _ = CloseHandle(token);
         read.is_ok() && elevation.TokenIsElevated != 0
+    }
+}
+
+// The elevated copy's exit code. None when the prompt was refused or the copy could not be started.
+pub fn run_elevated_and_wait(argument: &str) -> Option<u32> {
+    let exe = HSTRING::from(std::env::current_exe().ok()?.as_os_str());
+    let parameters = HSTRING::from(argument);
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC,
+        lpVerb: w!("runas"),
+        lpFile: PCWSTR(exe.as_ptr()),
+        lpParameters: PCWSTR(parameters.as_ptr()),
+        nShow: SW_HIDE.0,
+        ..Default::default()
+    };
+    unsafe {
+        ShellExecuteExW(&mut info).ok()?;
+        if info.hProcess.is_invalid() {
+            return None;
+        }
+        WaitForSingleObject(info.hProcess, INFINITE);
+        let mut code = 0;
+        let finished = GetExitCodeProcess(info.hProcess, &mut code).is_ok();
+        let _ = CloseHandle(info.hProcess);
+        finished.then_some(code)
     }
 }
 

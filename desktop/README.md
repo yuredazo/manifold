@@ -81,6 +81,16 @@ Closing the window exits the app. In Settings, "Keep running in the tray" hides 
 
 Only one hub runs per Windows session, because two would compete for UDP port 47200. Starting a second one brings the first window forward, even from the tray.
 
+## UAC prompts and the lock screen
+
+UAC prompts, the lock screen and the sign-in screen show on Windows' secure desktop, which ordinary programs can neither capture nor send input to. "Show UAC prompts and lock screen" in Settings installs a Windows service named "Manifold secure desktop", after one UAC prompt, or none when the hub already runs as administrator. It copies the hub to `C:\Program Files\Manifold Secure Desktop`, which only administrators can change, and runs that copy as SYSTEM. The service starts a helper in the signed-in session. While the secure desktop is up, the helper captures it with Desktop Duplication and passes the phone's input to it, and the hub streams the picture as usual. A display share shows its own display; a window share shows the main display, where UAC prompts appear.
+
+While the switch is on, any program running as you can talk to the helper, so a program you run could answer a UAC prompt. Microsoft does not treat UAC as a security boundary, but leave the switch off on a PC where it matters. Switching it off removes the service and its folder.
+
+The service keeps running the copy it was installed from. After the hub updates, Settings says "Switch off and on to update the service".
+
+Not supported yet: the pointer is not drawn on the secure desktop, Ctrl+Alt+Del cannot be sent, and Remote Desktop sessions are not followed, only the one at the PC's own screen.
+
 ## Updates
 
 Settings checks GitHub for a newer release and can install it. How that works is in the [main README](../README.md#updates). The updater needs the folder the app runs from to be writable.
