@@ -1,8 +1,8 @@
 use crate::audio;
-use crate::control::{Control, FeedInfo, Input, MAX_NAME_LENGTH, Refusal, Subscribe};
+use crate::control::{Control, FeedInfo, Input, Refusal, Subscribe};
 use crate::control_channel::{ControlChannel, RESEND_AFTER_MS};
 use crate::crypto::{from_hex, to_hex};
-use crate::devices::{Device, DeviceBook, Identity};
+use crate::devices::{Device, DeviceBook, Identity, clean_name, truncate_name};
 use crate::noise::{Handshake, Pattern};
 use crate::session::{Session, StreamKind, TYPE_DATA};
 use crate::video;
@@ -19,6 +19,11 @@ pub const LINK_TIMEOUT_MS: i64 = 15_000;
 // Pings and probes arrive every one to three seconds.
 pub const RESUME_AFTER_SILENCE_MS: i64 = 2_500;
 pub const PROBE_INTERVAL_MS: i64 = 1_000;
+pub const HELLOS_PER_SECOND: i64 = 20;
+pub const HELLO_BURST: i64 = 5;
+const HELLO_COST_MS: i64 = 1000 / HELLOS_PER_SECOND;
+const MAX_LIMITED_HOSTS: usize = 1024;
+const REPORT_EVERY_MS: i64 = 60_000;
 // Resent until the link would time out anyway.
 const ESTABLISHED_ATTEMPTS: u32 = (LINK_TIMEOUT_MS / RESEND_AFTER_MS) as u32;
 const RTT_SAMPLES: usize = 9;
@@ -43,6 +48,7 @@ pub enum Event {
     Input(Device, Input),
     PointerCaptured(Device, u16, bool),
     Rumble { device: Device, stream_id: u16, pad: u8, large: u8, small: u8 },
+    Clipboard { device: Device, stream_id: u16, seq: u32, part: u16, count: u16, data: Vec<u8> },
     Nack { device: Device, stream_id: u16, frame_id: i32, indexes: Vec<u16> },
     StreamReport { device: Device, stream_id: u16, window_ms: u16, fragments: u16, resend_requests: u16, lost_frames: u16, jitter_ms10: u16 },
     SenderStats { device: Device, stream_id: u16, bitrate_kbps: u16, fps10: u16, encode_ms10: u16, send_ms10: u16 },
@@ -77,7 +83,6 @@ struct Pairing {
     resends: u32,
     link: Option<i32>,
     remote_name: String,
-    code: String,
     heard_data: bool,
     local_confirmed: bool,
     remote_confirmed: bool,
@@ -105,6 +110,7 @@ pub struct Endpoint {
     links: HashMap<i32, Link>,
     current: HashMap<String, i32>,
     last_hello: HashMap<String, i64>,
+    hello_gate: HelloGate,
     outgoing: Vec<(Address, Vec<u8>)>,
     events: Vec<Event>,
 }
@@ -122,6 +128,7 @@ impl Endpoint {
             links: HashMap::new(),
             current: HashMap::new(),
             last_hello: HashMap::new(),
+            hello_gate: HelloGate::default(),
             outgoing: Vec::new(),
             events: Vec::new(),
         }
@@ -327,9 +334,9 @@ impl Endpoint {
             return;
         };
         let session = Session::new(current.local_index, current.remote_index, current.handshake.split());
-        current.code = pairing_code(&current.handshake.handshake_hash());
+        let code = pairing_code(&current.handshake.handshake_hash());
         current.link = Some(current.local_index);
-        let (address, name, code, index) = (current.address.clone(), current.remote_name.clone(), current.code.clone(), current.local_index);
+        let (address, name, index) = (current.address.clone(), current.remote_name.clone(), current.local_index);
         let link = self.new_link(to_hex(&key), address.clone(), session);
         self.links.insert(index, link);
         self.events.push(Event::PairingCode { address, remote_name: name, code });
@@ -337,6 +344,14 @@ impl Endpoint {
 
     // Unknown keys and replays get no answer at all.
     fn hello_received(&mut self, from: Address, packet: HandshakePacket) {
+        match self.hello_gate.admit(&from.host, (self.clock)()) {
+            Gate::Pass => {}
+            Gate::Drop => return,
+            Gate::DropAndReport => {
+                self.events.push(Event::Log(format!("hellos from {} arrive faster than {HELLOS_PER_SECOND} a second; the rest are dropped", from.host)));
+                return;
+            }
+        }
         let mut handshake = Handshake::new(Pattern::Ik, false, &self.identity.keys, None, PROLOGUE);
         let Ok(payload) = handshake.read_message(&packet.message) else { return };
         let Some(remote) = handshake.remote_static() else { return };
@@ -455,6 +470,7 @@ impl Endpoint {
             Control::Input(input) => Event::Input(device, input),
             Control::PointerCaptured { stream_id, captured } => Event::PointerCaptured(device, stream_id, captured),
             Control::Rumble { stream_id, pad, large, small } => Event::Rumble { device, stream_id, pad, large, small },
+            Control::Clipboard { stream_id, seq, part, count, data } => Event::Clipboard { device, stream_id, seq, part, count, data },
             Control::TimeRequest(sent_at) => {
                 self.send_control(index, &Control::TimeReply(sent_at));
                 return;
@@ -694,6 +710,47 @@ impl Endpoint {
     }
 }
 
+// A hello costs key agreements before it can be judged, so each source address may send only so many, as WireGuard
+// allows: a burst of 5, then 20 a second, whatever they turn out to be. A device dialing sends one a second.
+#[derive(Default)]
+struct HelloGate {
+    buckets: HashMap<String, Bucket>,
+}
+
+// budget_ms is time saved up, one hello's worth every HELLO_COST_MS.
+struct Bucket {
+    budget_ms: i64,
+    at: i64,
+    reported_at: Option<i64>,
+}
+
+enum Gate {
+    Pass,
+    Drop,
+    DropAndReport,
+}
+
+impl HelloGate {
+    fn admit(&mut self, host: &str, now: i64) -> Gate {
+        const FULL_MS: i64 = HELLO_BURST * HELLO_COST_MS;
+        if !self.buckets.contains_key(host) && self.buckets.len() >= MAX_LIMITED_HOSTS {
+            self.buckets.retain(|_, bucket| now - bucket.at < FULL_MS);
+        }
+        let bucket = self.buckets.entry(host.to_string()).or_insert(Bucket { budget_ms: FULL_MS, at: now, reported_at: None });
+        bucket.budget_ms = (bucket.budget_ms + now - bucket.at).min(FULL_MS);
+        bucket.at = now;
+        if bucket.budget_ms >= HELLO_COST_MS {
+            bucket.budget_ms -= HELLO_COST_MS;
+            return Gate::Pass;
+        }
+        if bucket.reported_at.is_some_and(|at| now - at < REPORT_EVERY_MS) {
+            return Gate::Drop;
+        }
+        bucket.reported_at = Some(now);
+        Gate::DropAndReport
+    }
+}
+
 fn new_pairing(initiator: bool, address: Address, handshake: Handshake, local_index: i32, started_at: i64) -> Pairing {
     Pairing {
         initiator,
@@ -707,7 +764,6 @@ fn new_pairing(initiator: bool, address: Address, handshake: Handshake, local_in
         resends: 0,
         link: None,
         remote_name: String::new(),
-        code: String::new(),
         heard_data: false,
         local_confirmed: false,
         remote_confirmed: false,
@@ -719,18 +775,11 @@ fn pairing_code(handshake_hash: &[u8]) -> String {
     format!("{:06}", number % 1_000_000)
 }
 
-// Names are capped in UTF-16 units, as the other hubs count them.
-fn truncate_name(name: &str) -> String {
-    let units: Vec<u16> = name.encode_utf16().take(MAX_NAME_LENGTH).collect();
-    String::from_utf16_lossy(&units)
-}
-
 fn name_bytes(name: &str) -> Vec<u8> {
     truncate_name(name).into_bytes()
 }
 
 fn read_name(bytes: &[u8]) -> String {
-    let cleaned = String::from_utf8_lossy(bytes).replace(['\t', '\n'], " ");
-    let name = truncate_name(cleaned.trim());
+    let name = clean_name(&String::from_utf8_lossy(bytes));
     if name.is_empty() { "Unknown device".to_string() } else { name }
 }

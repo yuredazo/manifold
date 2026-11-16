@@ -48,6 +48,8 @@ internal class Endpoint(
 
         fun onRumble(device: Device, rumble: Control.Rumble) {}
 
+        fun onClipboard(device: Device, part: Control.Clipboard) {}
+
         fun onNack(device: Device, nack: Control.Nack) {}
 
         fun onStreamReport(device: Device, report: Control.StreamReport) {}
@@ -94,6 +96,7 @@ internal class Endpoint(
     private val links = HashMap<String, Link>()
     private val linksByIndex = HashMap<Int, Link>()
     private val lastHello = HashMap<String, Long>()
+    private val helloGate = HelloGate()
 
     fun openPairing(durationMs: Long = PAIRING_WINDOW_MS) {
         pairingOpenUntil = clock() + durationMs
@@ -171,6 +174,10 @@ internal class Endpoint(
 
     fun sendInput(publicKey: String, input: Control.Input) {
         links[publicKey]?.control?.send(input, clock())
+    }
+
+    fun sendClipboard(publicKey: String, part: Control.Clipboard) {
+        links[publicKey]?.control?.send(part, clock())
     }
 
     fun requestKeyframe(publicKey: String, streamId: Int) {
@@ -297,6 +304,14 @@ internal class Endpoint(
 
     // Unknown keys and replays get no answer at all.
     private fun helloReceived(from: Address, packet: Wire.Handshake) {
+        when (helloGate.admit(from.host, clock())) {
+            HelloGate.Verdict.PASS -> Unit
+            HelloGate.Verdict.DROP -> return
+            HelloGate.Verdict.DROP_AND_REPORT -> {
+                log("hellos from ${from.host} arrive faster than ${HelloGate.PER_SECOND} a second; the rest are dropped")
+                return
+            }
+        }
         val handshake = NoiseHandshake(Pattern.IK, false, identity.keys, prologue = PROLOGUE, newEphemeral = newKeyPair)
         val payload = try {
             handshake.readMessage(packet.message)
@@ -398,6 +413,7 @@ internal class Endpoint(
             is Control.KeyframeRequest -> listener.onKeyframeRequest(device, control.streamId)
             is Control.PointerCaptured -> listener.onPointerCaptured(device, control.streamId, control.captured)
             is Control.Rumble -> listener.onRumble(device, control)
+            is Control.Clipboard -> listener.onClipboard(device, control)
             is Control.TimeRequest -> link.control.send(Control.TimeReply(control.sentAt), clock())
             is Control.TimeReply -> measureRtt(link, control.sentAt)
             is Control.SenderStats -> listener.onSenderStats(device, control)

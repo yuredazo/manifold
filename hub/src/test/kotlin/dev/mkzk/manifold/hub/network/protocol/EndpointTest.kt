@@ -408,6 +408,57 @@ class EndpointTest {
         assertEquals("no second answer", answers, world.log.count { it.first == beta.address && it.third[0] == Wire.TYPE_HELLO })
     }
 
+    private fun badHello(seed: Int) =
+        Wire.encode(Wire.Handshake(Wire.TYPE_HELLO, 0, 7, 0, ByteArray(96) { (it * 31 + seed).toByte() }))
+
+    // Alpha restarts and dials in again without any time passing; Beta keeps running, and with it its count of hellos.
+    private fun dialInNow(world: World, alpha: Node, beta: Node): Boolean {
+        val before = beta.linksUp.size
+        alpha.start()
+        alpha.endpoint.connect(alpha.book.find(beta.identity.keys.public)!!, listOf(beta.address))
+        world.pump()
+        return beta.linksUp.size > before
+    }
+
+    @Test
+    fun aFloodOfHellosFromOneAddressIsCutToTheRate() {
+        val (world, alpha, beta) = pairedWorld()
+        repeat(100) { beta.endpoint.onDatagram(alpha.address, badHello(it)) }
+        assertEquals(1, beta.logs.count { it.startsWith("hellos from 10.0.0.1 arrive faster") })
+
+        assertFalse("dropped while over the rate", dialInNow(world, alpha, beta))
+        world.advance(2_000)
+        assertTrue("the next hello a second later is heard", alpha.endpoint.isLinked(beta.publicKey) && beta.endpoint.isLinked(alpha.publicKey))
+    }
+
+    @Test
+    fun aFloodFromOneAddressDoesNotSlowAnother() {
+        val (world, alpha, beta) = pairedWorld()
+        repeat(100) { beta.endpoint.onDatagram(Address("10.0.0.66", 4000), badHello(it)) }
+        assertTrue(dialInNow(world, alpha, beta))
+    }
+
+    // Two hubs on one phone, or an address that now belongs to another device: the hellos meant for the other one keep
+    // failing here, once a second each, and must not shut the sender out.
+    @Test
+    fun hellosMeantForAnotherDeviceAtThisAddressDoNotShutTheSenderOut() {
+        val (world, alpha, beta) = pairedWorld()
+        repeat(60) {
+            beta.endpoint.onDatagram(alpha.address, badHello(it))
+            world.advance(1_000)
+        }
+        assertTrue(dialInNow(world, alpha, beta))
+    }
+
+    @Test
+    fun aPairedDeviceReconnectingOftenIsNeverHeldBack() {
+        val (world, alpha, beta) = pairedWorld()
+        repeat(10) {
+            assertTrue(dialInNow(world, alpha, beta))
+            world.advance(1_000)
+        }
+    }
+
     @Test
     fun aSilentLinkIsDroppedOnBothSides() {
         val (world, alpha, beta) = pairedWorld()

@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod beacon;
+pub mod clipboard;
 pub mod control;
 pub mod control_channel;
 pub mod crypto;

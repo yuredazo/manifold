@@ -1,7 +1,5 @@
-package dev.mkzk.manifold.hub.broker.ui
+package dev.mkzk.manifold.hub.live
 
-import androidx.compose.material.icons.outlined.LiveTv
-import dev.mkzk.manifold.hub.ui.EmptyNotice
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.HourglassEmpty
+import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Videocam
@@ -39,10 +38,13 @@ import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.broker.SenderRow
 import dev.mkzk.manifold.hub.broker.Snapshot
 import dev.mkzk.manifold.hub.broker.SubscriptionRow
+import dev.mkzk.manifold.hub.broker.ui.PendingBanner
+import dev.mkzk.manifold.hub.network.CopiedText
 import dev.mkzk.manifold.hub.network.PadRumble
-import dev.mkzk.manifold.hub.network.RemoteAction
 import dev.mkzk.manifold.hub.network.REMOTE_PREFIX
+import dev.mkzk.manifold.hub.network.RemoteAction
 import dev.mkzk.manifold.hub.ui.Banner
+import dev.mkzk.manifold.hub.ui.EmptyNotice
 import dev.mkzk.manifold.hub.ui.IconBadge
 import dev.mkzk.manifold.hub.ui.ListRow
 import dev.mkzk.manifold.hub.ui.Panel
@@ -83,6 +85,7 @@ internal fun LiveScreen(
     captured: Set<String>,
     sendInput: (String, RemoteAction) -> Unit,
     rumbles: Flow<PadRumble>,
+    copied: Flow<CopiedText>,
     notificationsOn: Boolean,
     openNotificationSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -102,7 +105,7 @@ internal fun LiveScreen(
     SideEffect { if (current != null) lastSeen = current }
     previewed?.let { name ->
         val known = current ?: lastSeen?.takeIf { it.name == name } ?: SenderRow(name, "", "", 0, 0, 0, false, 0)
-        FeedPreview(registry, known, title = titles[name] ?: name, stats = stats[name], live = current != null, canControl = name in controllable, captured = captured, sendInput = sendInput, rumbles = rumbles) {
+        FeedPreview(registry, known, title = titles[name] ?: name, stats = stats[name], live = current != null, canControl = name in controllable, captured = captured, sendInput = sendInput, rumbles = rumbles, copied = copied) {
             previewed = null
         }
     }

@@ -195,26 +195,30 @@ impl Settings {
 
     pub fn set_check_on_launch(&mut self, on: bool) {
         self.check_on_launch = on;
-        self.storage.write(CHECK_KEY, if on { "on" } else { "off" });
+        self.write_flag(CHECK_KEY, on);
     }
 
     pub fn set_close_to_tray(&mut self, on: bool) {
         self.close_to_tray = on;
-        self.storage.write(TRAY_KEY, if on { "on" } else { "off" });
+        self.write_flag(TRAY_KEY, on);
     }
 
     pub fn set_offer_cameras(&mut self, on: bool) {
         self.offer_cameras = on;
-        self.storage.write(CAMERAS_KEY, if on { "on" } else { "off" });
+        self.write_flag(CAMERAS_KEY, on);
     }
 
     pub fn set_run_as_admin(&mut self, on: bool) {
         self.run_as_admin = on;
-        self.storage.write(ADMIN_KEY, if on { "on" } else { "off" });
+        self.write_flag(ADMIN_KEY, on);
     }
 
     pub fn set_stream_profile(&mut self, profile: StreamProfile) {
         self.stream_profile = profile;
         self.storage.write(PROFILE_KEY, profile.id());
+    }
+
+    fn write_flag(&self, key: &str, on: bool) {
+        self.storage.write(key, if on { "on" } else { "off" });
     }
 }

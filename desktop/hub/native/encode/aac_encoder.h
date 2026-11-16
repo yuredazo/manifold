@@ -1,5 +1,4 @@
-#ifndef RUNNER_AAC_ENCODER_H_
-#define RUNNER_AAC_ENCODER_H_
+#pragma once
 
 #include <mftransform.h>
 #include <wrl/client.h>
@@ -32,4 +31,3 @@ class AacEncoder {
   DWORD output_size_ = 0;
 };
 
-#endif  // RUNNER_AAC_ENCODER_H_

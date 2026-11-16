@@ -1,5 +1,5 @@
 use crate::remote::Rect;
-use crate::x11::Desktop;
+use crate::system::x11::Desktop;
 use x11rb::connection::Connection;
 use x11rb::protocol::composite::{ConnectionExt as _, Redirect};
 use x11rb::protocol::shm::ConnectionExt as _;

@@ -162,13 +162,13 @@ pub fn install(release: &Release, mut progress: impl FnMut(Option<f32>)) -> Resu
     let staging = work.join("staging");
     std::fs::create_dir_all(&staging).map_err(|error| format!("Could not prepare the update: {error}"))?;
     // The tar that ships with Windows 10 and later unpacks zip archives.
-    let unpacked = Command::new("tar").arg("-xf").arg(&zip).arg("-C").arg(&staging).creation_flags(CREATE_NO_WINDOW).status();
+    let unpacked = Command::new(system::system_program("tar.exe")).arg("-xf").arg(&zip).arg("-C").arg(&staging).creation_flags(CREATE_NO_WINDOW).status();
     if !unpacked.is_ok_and(|status| status.success()) || !staging.join(EXE_NAME).is_file() {
         return Err("The download does not contain the Manifold app.".into());
     }
     let script = work.join("swap.ps1");
     std::fs::write(&script, SWAP_SCRIPT).map_err(|error| format!("Could not write the update: {error}"))?;
-    Command::new("powershell.exe")
+    Command::new(system::system_program(r"WindowsPowerShell\v1.0\powershell.exe"))
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File"])
         .arg(&script)
         .arg("-ProcessId")

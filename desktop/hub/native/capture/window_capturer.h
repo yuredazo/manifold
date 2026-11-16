@@ -1,5 +1,4 @@
-#ifndef RUNNER_WINDOW_CAPTURER_H_
-#define RUNNER_WINDOW_CAPTURER_H_
+#pragma once
 
 #include <windows.h>
 
@@ -27,12 +26,9 @@ class WindowCapturer : public FrameSource {
   void RequestKeyframe() override;
   void SetBitrate(int bitrate_kbps) override;
 
-  int width() const override;
-  int height() const override;
 
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };
 
-#endif  // RUNNER_WINDOW_CAPTURER_H_

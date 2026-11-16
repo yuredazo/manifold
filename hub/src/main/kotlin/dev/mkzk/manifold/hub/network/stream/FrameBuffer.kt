@@ -82,7 +82,7 @@ internal class FrameBuffer {
             frames += release()
         }
         while (pending.isNotEmpty()) {
-            val head = pending[nextId] ?: pending.firstEntry().value
+            val head = pending[nextId] ?: pending.values.first()
             // Giving up on a keyframe costs another one, which is the biggest frame there is, so it is waited for longer.
             val wait = if (head.keyframe) maxOf(maxWait, keyframeMaxWait) else maxWait
             if (now - head.firstAt < wait) break

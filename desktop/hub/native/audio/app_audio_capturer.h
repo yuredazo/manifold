@@ -1,5 +1,4 @@
-#ifndef RUNNER_APP_AUDIO_CAPTURER_H_
-#define RUNNER_APP_AUDIO_CAPTURER_H_
+#pragma once
 
 #include <windows.h>
 
@@ -32,4 +31,3 @@ class AppAudioCapturer {
   std::unique_ptr<Impl> impl_;
 };
 
-#endif  // RUNNER_APP_AUDIO_CAPTURER_H_

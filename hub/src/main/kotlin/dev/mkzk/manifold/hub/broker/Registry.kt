@@ -97,14 +97,14 @@ internal class Registry(
         }
     }
 
-    fun removeSender(key: Any, uid: Int? = null) {
-        synchronized(lock) {
-            val entry = senders[key] ?: return
-            if (uid != null && entry.owner.uid != uid) return
-            senders.remove(key)
-            detach(entry)
-            publishSenders()
-        }
+    // False only when another app owns the entry, so the caller must not drop its death watch.
+    fun removeSender(key: Any, uid: Int? = null): Boolean = synchronized(lock) {
+        val entry = senders[key] ?: return true
+        if (uid != null && entry.owner.uid != uid) return false
+        senders.remove(key)
+        detach(entry)
+        publishSenders()
+        true
     }
 
     fun addReceiver(link: ReceiverLink, owner: Owner): Boolean = synchronized(lock) {
@@ -116,13 +116,12 @@ internal class Registry(
         true
     }
 
-    fun removeReceiver(key: Any, uid: Int? = null) {
-        synchronized(lock) {
-            val entry = receivers[key] ?: return
-            if (uid != null && entry.owner.uid != uid) return
-            dropReceiver(key)
-            publishState()
-        }
+    fun removeReceiver(key: Any, uid: Int? = null): Boolean = synchronized(lock) {
+        val entry = receivers[key] ?: return true
+        if (uid != null && entry.owner.uid != uid) return false
+        dropReceiver(key)
+        publishState()
+        true
     }
 
     fun subscribe(

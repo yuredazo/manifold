@@ -1,5 +1,4 @@
-#ifndef RUNNER_SPOUT_CAPTURER_H_
-#define RUNNER_SPOUT_CAPTURER_H_
+#pragma once
 
 #include <cstdint>
 #include <functional>
@@ -36,12 +35,9 @@ class SpoutCapturer : public FrameSource {
   void RequestKeyframe() override;
   void SetBitrate(int bitrate_kbps) override;
 
-  int width() const override;
-  int height() const override;
 
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };
 
-#endif  // RUNNER_SPOUT_CAPTURER_H_

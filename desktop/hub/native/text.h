@@ -1,5 +1,4 @@
-#ifndef NATIVE_UTILS_H_
-#define NATIVE_UTILS_H_
+#pragma once
 
 #include <windows.h>
 
@@ -23,4 +22,3 @@ inline std::wstring Utf16FromUtf8(const std::string& text) {
   return wide;
 }
 
-#endif  // NATIVE_UTILS_H_

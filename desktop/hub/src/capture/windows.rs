@@ -85,38 +85,6 @@ extern "C" fn collect(context: *mut c_void, entry: *const RawEntry) {
     });
 }
 
-fn list(kind: ShareKind) -> Vec<Shareable> {
-    let mut collecting = Collecting { kind, found: Vec::new() };
-    let context = &mut collecting as *mut Collecting as *mut c_void;
-    unsafe {
-        match kind {
-            ShareKind::Window => capture_list_windows(collect, context),
-            ShareKind::Display => capture_list_displays(collect, context),
-            ShareKind::Camera => capture_list_cameras(collect, context),
-            ShareKind::Spout => capture_list_spouts(collect, context),
-        }
-    }
-    collecting.found
-}
-
-fn start(request: &StartRequest) -> bool {
-    let device = CString::new(request.device.replace('\0', "")).unwrap_or_default();
-    let raw = RawStart {
-        handle: request.handle,
-        width: request.width,
-        height: request.height,
-        bitrate_kbps: request.bitrate_kbps,
-        audio: request.audio as i32,
-        picture: request.picture as i32,
-        cursor: request.cursor as i32,
-        client_only: request.client_only as i32,
-        alpha: request.alpha as i32,
-        fps: request.fps,
-        device: device.as_ptr(),
-    };
-    unsafe { capture_start(&raw) != 0 }
-}
-
 pub struct Backend;
 
 impl Backend {
@@ -129,11 +97,35 @@ impl Backend {
     }
 
     pub fn list(&mut self, kind: ShareKind) -> Vec<Shareable> {
-        list(kind)
+        let mut collecting = Collecting { kind, found: Vec::new() };
+        let context = &mut collecting as *mut Collecting as *mut c_void;
+        unsafe {
+            match kind {
+                ShareKind::Window => capture_list_windows(collect, context),
+                ShareKind::Display => capture_list_displays(collect, context),
+                ShareKind::Camera => capture_list_cameras(collect, context),
+                ShareKind::Spout => capture_list_spouts(collect, context),
+            }
+        }
+        collecting.found
     }
 
     pub fn start(&mut self, request: &StartRequest) -> bool {
-        start(request)
+        let device = CString::new(request.device.replace('\0', "")).unwrap_or_default();
+        let raw = RawStart {
+            handle: request.handle,
+            width: request.width,
+            height: request.height,
+            bitrate_kbps: request.bitrate_kbps,
+            audio: request.audio as i32,
+            picture: request.picture as i32,
+            cursor: request.cursor as i32,
+            client_only: request.client_only as i32,
+            alpha: request.alpha as i32,
+            fps: request.fps,
+            device: device.as_ptr(),
+        };
+        unsafe { capture_start(&raw) != 0 }
     }
 
     pub fn stop(&mut self, handle: i64) {

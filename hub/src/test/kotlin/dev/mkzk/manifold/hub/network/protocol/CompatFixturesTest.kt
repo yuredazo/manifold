@@ -52,6 +52,11 @@ class CompatFixturesTest {
         check("control_text", ControlCodec.encode(19, Control.Text(9, 8, "h\u00e9")))
         check("control_captured", ControlCodec.encode(17, Control.PointerCaptured(9, true)))
         check("control_rumble", ControlCodec.encode(21, Control.Rumble(9, 1, 255, 64)))
+        check("control_clipboard", ControlCodec.encode(3, Control.Clipboard(7, 5, 0, 1, "hi".toByteArray())))
+        check(
+            "control_feedlist_clipboard",
+            ControlCodec.encode(9, Control.FeedList(listOf(FeedInfo("alpha", 720, 1080, 30, false, controllable = true, clipboard = true)))),
+        )
         check("control_gamepad", ControlCodec.encode(20, Control.Gamepad(9, 9, 1, PadState(0x1001, 128, 255, 32767, -32768, 256, -1))))
         check("control_feedlist_control", ControlCodec.encode(16, Control.FeedList(listOf(FeedInfo("desk", 1920, 1080, 30, true, controllable = true)))))
     }

@@ -62,6 +62,11 @@ fn control_messages_match_the_fixture() {
     check("control_rumble", &encode(21, &Control::Rumble { stream_id: 9, pad: 1, large: 255, small: 64 }));
     check("control_captured", &encode(17, &Control::PointerCaptured { stream_id: 9, captured: true }));
     check("control_feedlist_control", &encode(16, &Control::FeedList(vec![FeedInfo { controllable: true, ..FeedInfo::new("desk", 1920, 1080, 30, true) }])));
+    check("control_clipboard", &encode(3, &Control::Clipboard { stream_id: 7, seq: 5, part: 0, count: 1, data: b"hi".to_vec() }));
+    check(
+        "control_feedlist_clipboard",
+        &encode(9, &Control::FeedList(vec![FeedInfo { controllable: true, clipboard: true, ..FeedInfo::new("alpha", 720, 1080, 30, false) }])),
+    );
 }
 
 #[test]

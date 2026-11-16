@@ -13,7 +13,7 @@
 #include "capture/frame_pump.h"
 #include "capture/spout_capturer.h"
 #include "capture/window_capturer.h"
-#include "utils.h"
+#include "text.h"
 
 // Handle tags, kept identical to the Flutter runner's so a saved share means the same thing to either hub.
 namespace {
@@ -257,8 +257,6 @@ void capture_list_spouts(EntrySink sink, void* context) {
     Emit(found, sink, context);
   }
 }
-
-int32_t capture_window_alive(int64_t handle) { return IsWindow(ToWindow(handle)) ? 1 : 0; }
 
 void capture_stop(int64_t handle);
 

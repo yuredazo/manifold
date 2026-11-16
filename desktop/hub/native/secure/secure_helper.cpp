@@ -229,16 +229,17 @@ class Helper {
         watched = watched_;
         resend = std::exchange(resend_slots_, false);
       }
+      // A new watch usually arrives while no secure desktop is up, and the hub dropped its old pictures with it.
+      if (resend) {
+        for (auto& slot : slots) slot.Release();
+        slots.clear();
+      }
       if (!secure || watched.empty()) {
         duplications.clear();
         Sleep(kIdleMs);
         continue;
       }
       if (follower.Follow()) duplications.clear();
-      if (resend) {
-        for (auto& slot : slots) slot.Release();
-        slots.clear();
-      }
       for (size_t i = 0; i < watched.size(); ++i) {
         if (i >= duplications.size() || !SameRect(duplications[i].monitor, watched[i])) {
           duplications.resize(i);

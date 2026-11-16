@@ -21,6 +21,8 @@ internal data class FeedInfo(
     val title: String = "",
     // The receiving device may steer this feed with its mouse. Bit 3 of the flags byte.
     val controllable: Boolean = false,
+    // While steering it, the two devices share their clipboards. Bit 4.
+    val clipboard: Boolean = false,
 ) {
     val label get() = title.ifEmpty { name }
 }
@@ -162,6 +164,9 @@ internal sealed interface Control {
     // How hard a game drives the two motors of the receiver's controller, 0 to 255, large then small. The publisher repeats
     // it while the controller is in use, so the receiver stops on its own when it stops hearing it.
     data class Rumble(val streamId: Int, val pad: Int, val large: Int, val small: Int) : Control
+
+    // One part of copied text, either way while a feed is controlled. seq names the copy; its parts are put back in order.
+    class Clipboard(val streamId: Int, val seq: Int, val part: Int, val count: Int, val data: ByteArray) : Control
 }
 
 internal sealed interface Decoded {
@@ -205,11 +210,18 @@ internal object ControlCodec {
     private const val TEXT = 23
     private const val GAMEPAD = 24
     private const val RUMBLE = 25
+    private const val CLIPBOARD = 26
+    const val MAX_CLIPBOARD_BYTES = 65_536
+
+    // What is left of one datagram after the message header and the clipboard fields.
+    val CLIPBOARD_CHUNK = Session.MAX_PAYLOAD - 5 - 10
+    val MAX_CLIPBOARD_PARTS = (MAX_CLIPBOARD_BYTES + CLIPBOARD_CHUNK - 1) / CLIPBOARD_CHUNK
     const val MAX_TEXT_BYTES = 200
     private const val AUDIO_BIT = 1
     private const val SOUND_ONLY_BIT = 2
     private const val ALPHA_BIT = 4
     private const val CONTROL_BIT = 8
+    private const val CLIPBOARD_BIT = 16
     private const val BUTTON_DOWN_BIT = 1
     private const val BUTTON_AT_BIT = 2
     const val MAX_NACK_INDEXES = 200
@@ -297,6 +309,13 @@ internal object ControlCodec {
                 .putShort(control.streamId.toShort()).put(control.pad.toByte()).put(control.large.coerceIn(0, 255).toByte()).put(control.small.coerceIn(0, 255).toByte())
                 .array()
             is Control.PointerCaptured -> POINTER_CAPTURED to ByteBuffer.allocate(3).putShort(control.streamId.toShort()).put(if (control.captured) 1 else 0).array()
+            is Control.Clipboard -> {
+                val size = minOf(control.data.size, CLIPBOARD_CHUNK)
+                CLIPBOARD to ByteBuffer.allocate(10 + size)
+                    .putShort(control.streamId.toShort()).putInt(control.seq).putShort(control.part.toShort()).putShort(control.count.toShort())
+                    .put(control.data, 0, size)
+                    .array()
+            }
         }
         return ByteBuffer.allocate(5 + body.size).put(kind.toByte()).putInt(id).put(body).array()
     }
@@ -430,7 +449,7 @@ internal object ControlCodec {
     }
 
     private fun flagsOf(feed: FeedInfo) =
-        (if (feed.hasAudio) AUDIO_BIT else 0) or (if (feed.soundOnly) SOUND_ONLY_BIT else 0) or (if (feed.hasAlpha) ALPHA_BIT else 0) or (if (feed.controllable) CONTROL_BIT else 0)
+        (if (feed.hasAudio) AUDIO_BIT else 0) or (if (feed.soundOnly) SOUND_ONLY_BIT else 0) or (if (feed.hasAlpha) ALPHA_BIT else 0) or (if (feed.controllable) CONTROL_BIT else 0) or (if (feed.clipboard) CLIPBOARD_BIT else 0)
 
     // A button this version does not know makes the whole message unknown, so it is acknowledged and ignored.
     private fun readButton(reader: ByteBuffer): Control.Button? {
@@ -512,6 +531,15 @@ internal object ControlCodec {
                     Control.Rumble(reader.getShort().toInt() and 0xFFFF, reader.get().toInt() and 0xFF, reader.get().toInt() and 0xFF, reader.get().toInt() and 0xFF),
                 )
                 POINTER_CAPTURED -> Decoded.Message(id, Control.PointerCaptured(reader.getShort().toInt() and 0xFFFF, reader.get().toInt() != 0))
+                CLIPBOARD -> {
+                    val streamId = reader.getShort().toInt() and 0xFFFF
+                    val seq = reader.getInt()
+                    val part = reader.getShort().toInt() and 0xFFFF
+                    val count = reader.getShort().toInt() and 0xFFFF
+                    val data = ByteArray(reader.remaining()).also { reader.get(it) }
+                    val valid = part < count && count <= MAX_CLIPBOARD_PARTS && data.size <= CLIPBOARD_CHUNK
+                    if (valid) Decoded.Message(id, Control.Clipboard(streamId, seq, part, count, data)) else null
+                }
                 else -> null
             } ?: Decoded.Unrecognized(id)
         } catch (_: BufferUnderflowException) {
@@ -531,7 +559,7 @@ internal object ControlCodec {
             entries += if (Manifold.isValidName(name) && width <= Manifold.MAX_DIMENSION && height <= Manifold.MAX_DIMENSION) {
                 FeedInfo(
                     name.trim(), width, height, fps, flags and AUDIO_BIT != 0,
-                    soundOnly = flags and SOUND_ONLY_BIT != 0, hasAlpha = flags and ALPHA_BIT != 0, controllable = flags and CONTROL_BIT != 0,
+                    soundOnly = flags and SOUND_ONLY_BIT != 0, hasAlpha = flags and ALPHA_BIT != 0, controllable = flags and CONTROL_BIT != 0, clipboard = flags and CLIPBOARD_BIT != 0,
                 )
             } else {
                 null

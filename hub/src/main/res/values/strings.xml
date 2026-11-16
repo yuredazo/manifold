@@ -14,7 +14,6 @@
     <string name="network_notice_title">Manifold is on the network</string>
     <string name="network_notice_text">Paired devices can connect to this one</string>
 
-    <string name="devices_fingerprint">Fingerprint %1$s</string>
     <string name="devices_accept">Allow connections</string>
     <string name="devices_off">Off</string>
     <string name="devices_no_address">No network address found</string>
@@ -60,7 +59,6 @@
     <string name="device_offers">Feeds on offer: %1$d</string>
     <string name="device_streams">Streams</string>
     <string name="device_offers_nothing">Offers no feeds right now</string>
-    <string name="device_options">Device options</string>
     <string name="device_unpair">Unpair</string>
     <string name="device_refused_not_shared">%1$s: turn on Let it watch what I share on that device.</string>
     <string name="device_refused_not_found">%1$s: that device no longer has this feed.</string>
@@ -156,10 +154,21 @@
     <string name="buttons_more_keys">More</string>
     <string name="buttons_untitled">New button</string>
     <string name="buttons_rename">Rename button</string>
-    <string name="buttons_hint">Drag anywhere to move it, pinch with two fingers to resize it.</string>
+    <string name="buttons_hint">Drag anywhere to move it, pinch with two fingers to resize it, hold it to make a copy.</string>
     <string name="buttons_layouts">Layouts</string>
     <string name="layout_reorder_hint">Hold a layout to move it</string>
     <string name="buttons_show_label">Show label</string>
+    <string name="buttons_opacity">Opacity</string>
+    <string name="buttons_opacity_follow">Layout</string>
+    <string name="buttons_controller">Controller</string>
+    <string name="buttons_stick">Stick</string>
+    <string name="buttons_add_title">Add</string>
+    <string name="buttons_add_left_stick">Left stick</string>
+    <string name="buttons_add_right_stick">Right stick</string>
+    <string name="buttons_add_dpad">D-pad</string>
+    <string name="layout_controller">Controller</string>
+    <string name="buttons_opacity_layout">Layout opacity</string>
+    <string name="buttons_opacity_layout_hint">Buttons with their own opacity keep it.</string>
     <plurals name="buttons_count">
         <item quantity="one">%1$d button</item>
         <item quantity="other">%1$d buttons</item>

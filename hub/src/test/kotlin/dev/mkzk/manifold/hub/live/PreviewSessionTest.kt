@@ -1,4 +1,4 @@
-package dev.mkzk.manifold.hub.broker.ui
+package dev.mkzk.manifold.hub.live
 
 import android.os.ParcelFileDescriptor
 import android.view.Surface

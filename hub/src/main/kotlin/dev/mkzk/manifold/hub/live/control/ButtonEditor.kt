@@ -1,7 +1,5 @@
-package dev.mkzk.manifold.hub.broker.ui
+package dev.mkzk.manifold.hub.live.control
 
-import android.content.Context
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -11,19 +9,20 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -42,25 +41,26 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Adjust
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.DashboardCustomize
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Gamepad
 import androidx.compose.material.icons.outlined.Keyboard
+import androidx.compose.material.icons.outlined.Opacity
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -68,10 +68,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -83,18 +83,19 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.mkzk.manifold.hub.R
 import dev.mkzk.manifold.hub.network.RemoteAction
 import dev.mkzk.manifold.hub.network.protocol.MouseButton
@@ -103,271 +104,27 @@ import dev.mkzk.manifold.hub.ui.ConfirmModal
 import dev.mkzk.manifold.hub.ui.ModalButton
 import dev.mkzk.manifold.hub.ui.ModalField
 import dev.mkzk.manifold.hub.ui.Sheet
-import dev.mkzk.manifold.hub.ui.SheetList
-import dev.mkzk.manifold.hub.ui.SheetListDivider
-import dev.mkzk.manifold.hub.ui.SheetListRow
 import dev.mkzk.manifold.hub.ui.SheetTitle
-import dev.mkzk.manifold.hub.ui.SquareIcon
 import dev.mkzk.manifold.hub.ui.secondaryText
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
 import kotlin.math.roundToInt
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyGridState
 
-private const val TAG = "GameButtons"
-private const val PREFS = "game_buttons"
-private const val LAYOUTS_KEY = "layouts"
-private const val ACTIVE_KEY = "active"
-private const val DEFAULT_DIAMETER = 60f
-private const val MIN_DIAMETER = 24f
-private const val MAX_DIAMETER = 120f
-// A landscape phone is about this wide in dp, which sizes the dots in a layout's preview.
-private const val PREVIEW_SCREEN_DP = 880f
-private const val PREVIEW_RATIO = 20f / 9f
+// Five percent apart from 10 to 100.
+private const val OPACITY_STEPS = 17
 private val PanelWidth = 296.dp
 private val ControlHeight = 40.dp
 private val FieldHeight = 48.dp
 private val PanelShape = RoundedCornerShape(28.dp)
 private val GroupShape = RoundedCornerShape(20.dp)
 private val KeyShape = RoundedCornerShape(10.dp)
+private val MiniPanelWidth = 236.dp
+// Tiles sit concentric inside the small panels: 22 dp corners less 10 dp padding.
+private val MiniPanelShape = RoundedCornerShape(22.dp)
+private val TileShape = RoundedCornerShape(12.dp)
 private val MouseWidth = 64.dp
 private val MouseHeight = 92.dp
 private val MouseShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp, bottomStart = 30.dp, bottomEnd = 30.dp)
-
-// x and y place the button's centre as shares of the screen, so a layout fits either way the phone is turned. diameter is in dp.
-internal data class GameButton(
-    val id: Long,
-    val x: Float,
-    val y: Float,
-    val diameter: Float = DEFAULT_DIAMETER,
-    val name: String = "",
-    val keys: List<Int> = emptyList(),
-    val mouse: MouseButton? = null,
-    val showLabel: Boolean = false,
-) {
-    fun label(): String = name.ifBlank {
-        (keys.map(::keyName) + listOfNotNull(mouse?.let { MouseNames[it] })).joinToString("+")
-    }
-}
-
-private val MouseNames = mapOf(MouseButton.LEFT to "Left", MouseButton.MIDDLE to "Middle", MouseButton.RIGHT to "Right")
-
-// id only tells layouts apart while the app runs, so a moved one keeps its place in the list; it is not saved.
-internal data class ButtonLayout(val name: String, val buttons: List<GameButton> = emptyList(), val id: Long = 0)
-
-internal class ButtonLayouts(context: Context, defaultName: String) {
-    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    private var nextId = 1L
-    var layouts by mutableStateOf(listOf(ButtonLayout(defaultName, id = 0)))
-        private set
-    var active by mutableIntStateOf(0)
-        private set
-
-    val current: ButtonLayout get() = layouts[active.coerceIn(0, layouts.lastIndex)]
-
-    init {
-        load()
-    }
-
-    fun newId() = nextId++
-
-    fun select(index: Int) {
-        active = index.coerceIn(0, layouts.lastIndex)
-        save()
-    }
-
-    fun add(name: String, buttons: List<GameButton> = emptyList()) {
-        layouts = layouts + ButtonLayout(name, buttons.map { it.copy(id = newId()) }, newId())
-        select(layouts.lastIndex)
-    }
-
-    fun rename(name: String) = change { it.copy(name = name) }
-
-    fun move(from: Int, to: Int) {
-        if (from !in layouts.indices || to !in layouts.indices || from == to) return
-        val current = layouts[active].id
-        layouts = layouts.toMutableList().apply { add(to, removeAt(from)) }
-        active = layouts.indexOfFirst { it.id == current }.coerceAtLeast(0)
-        save()
-    }
-
-    fun remove() {
-        if (layouts.size < 2) return
-        layouts = layouts.filterIndexed { index, _ -> index != active }
-        select(active - 1)
-    }
-
-    fun change(save: Boolean = true, edit: (ButtonLayout) -> ButtonLayout) {
-        layouts = layouts.mapIndexed { index, layout -> if (index == active) edit(layout) else layout }
-        if (save) save()
-    }
-
-    fun changeButton(id: Long, save: Boolean = true, edit: (GameButton) -> GameButton) =
-        change(save) { layout -> layout.copy(buttons = layout.buttons.map { if (it.id == id) edit(it) else it }) }
-
-    fun save() {
-        val all = JSONArray()
-        layouts.forEach { layout ->
-            val buttons = JSONArray()
-            layout.buttons.forEach { button ->
-                buttons.put(
-                    JSONObject()
-                        .put("x", button.x.toDouble())
-                        .put("y", button.y.toDouble())
-                        .put("diameter", button.diameter.toDouble())
-                        .put("name", button.name)
-                        .put("keys", JSONArray(button.keys))
-                        .put("mouse", button.mouse?.name ?: "")
-                        .put("label", button.showLabel),
-                )
-            }
-            all.put(JSONObject().put("name", layout.name).put("buttons", buttons))
-        }
-        prefs.edit().putString(LAYOUTS_KEY, all.toString()).putInt(ACTIVE_KEY, active).apply()
-    }
-
-    private fun load() {
-        val text = prefs.getString(LAYOUTS_KEY, null) ?: return
-        try {
-            val all = JSONArray(text)
-            val loaded = (0 until all.length()).map { index ->
-                val layout = all.getJSONObject(index)
-                val buttons = layout.getJSONArray("buttons")
-                ButtonLayout(
-                    id = newId(),
-                    name = layout.getString("name"),
-                    buttons =
-                    (0 until buttons.length()).map { at ->
-                        val button = buttons.getJSONObject(at)
-                        val keys = button.getJSONArray("keys")
-                        GameButton(
-                            id = newId(),
-                            x = button.getDouble("x").toFloat().coerceIn(0f, 1f),
-                            y = button.getDouble("y").toFloat().coerceIn(0f, 1f),
-                            diameter = button.optDouble("diameter", DEFAULT_DIAMETER.toDouble()).toFloat().coerceIn(MIN_DIAMETER, MAX_DIAMETER),
-                            name = button.optString("name"),
-                            keys = (0 until keys.length()).map(keys::getInt),
-                            mouse = MouseButton.entries.firstOrNull { it.name == button.optString("mouse") },
-                            showLabel = button.optBoolean("label", false),
-                        )
-                    },
-                )
-            }
-            if (loaded.isNotEmpty()) {
-                layouts = loaded
-                active = prefs.getInt(ACTIVE_KEY, 0).coerceIn(0, loaded.lastIndex)
-            }
-        } catch (e: JSONException) {
-            Log.w(TAG, "saved layouts unreadable, starting fresh", e)
-        }
-    }
-}
-
-private fun Modifier.placed(button: GameButton, width: Dp, height: Dp) = offset {
-    IntOffset(
-        ((width * button.x).toPx() - button.diameter.dp.toPx() / 2).roundToInt(),
-        ((height * button.y).toPx() - button.diameter.dp.toPx() / 2).roundToInt(),
-    )
-}
-
-@Composable
-private fun ButtonFace(button: GameButton, modifier: Modifier, fill: Color, border: BorderStroke, text: Color?) {
-    val label = button.label()
-    Box(
-        modifier = modifier
-            .size(button.diameter.dp)
-            .clip(CircleShape)
-            .background(fill)
-            .border(border, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (text == null) return@Box
-        val size = (button.diameter * if (label.length > 5) 0.16f else 0.3f).coerceIn(7f, 22f).sp
-        Text(
-            label.ifEmpty { "?" },
-            color = text,
-            fontSize = size,
-            lineHeight = size,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            // Without the font's own padding and with the line trimmed to the glyphs, a short label sits in the true centre.
-            style = TextStyle(
-                platformStyle = PlatformTextStyle(includeFontPadding = false),
-                lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
-            ),
-            modifier = Modifier.padding((button.diameter * 0.12f).dp),
-        )
-    }
-}
-
-@Composable
-internal fun GameButtons(layout: ButtonLayout, speed: Float, send: (RemoteAction) -> Unit, modifier: Modifier = Modifier) {
-    BoxWithConstraints(modifier.fillMaxSize()) {
-        layout.buttons.forEach { button -> key(button.id) { PlayButton(button, maxWidth, maxHeight, speed, send) } }
-    }
-}
-
-@Composable
-private fun PlayButton(button: GameButton, width: Dp, height: Dp, speed: Float, send: (RemoteAction) -> Unit) {
-    val sender by rememberUpdatedState(send)
-    var down by remember { mutableStateOf(false) }
-    fun press(on: Boolean) {
-        if (down == on) return
-        down = on
-        if (on) {
-            button.keys.forEach { sender(RemoteAction.Key(it, true)) }
-            button.mouse?.let { sender(RemoteAction.Press(it, true)) }
-        } else {
-            button.mouse?.let { sender(RemoteAction.Press(it, false)) }
-            button.keys.asReversed().forEach { sender(RemoteAction.Key(it, false)) }
-        }
-    }
-    DisposableEffect(button) { onDispose { press(false) } }
-    ButtonFace(
-        button,
-        Modifier
-            .placed(button, width, height)
-            .pointerInput(button, speed) {
-                awaitEachGesture {
-                    val first = awaitFirstDown()
-                    first.consume()
-                    press(true)
-                    var aiming = false
-                    var carried = Offset.Zero
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { it.consume() }
-                        val change = event.changes.firstOrNull { it.id == first.id }
-                        if (change == null || !change.pressed) break
-                        if (aiming) {
-                            carried += (change.position - change.previousPosition) * speed
-                        } else if ((change.position - first.position).getDistance() > viewConfiguration.touchSlop) {
-                            aiming = true
-                            carried += (change.position - first.position) * speed
-                        }
-                        val dx = carried.x.toInt()
-                        val dy = carried.y.toInt()
-                        if (dx != 0 || dy != 0) {
-                            sender(RemoteAction.Motion(dx, dy))
-                            carried -= Offset(dx.toFloat(), dy.toFloat())
-                        }
-                    }
-                    press(false)
-                }
-            },
-        fill = if (down) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.25f),
-        border = BorderStroke(1.dp, if (down) Color.Transparent else Color.White.copy(alpha = 0.22f)),
-        text = when {
-            !button.showLabel -> null
-            down -> MaterialTheme.colorScheme.onPrimary
-            else -> Color.White.copy(alpha = 0.85f)
-        },
-    )
-}
 
 // Keys most games bind, offered first so a button rarely needs the full keyboard.
 private val CommonKeys = listOf(
@@ -381,12 +138,15 @@ private enum class Naming { NewLayout, RenameLayout, DuplicateLayout, RenameButt
 
 @Composable
 internal fun ButtonEditor(store: ButtonLayouts, onDone: () -> Unit, modifier: Modifier = Modifier) {
+    val haptics = LocalHapticFeedback.current
     var selected by remember { mutableStateOf<Long?>(null) }
     var allKeys by remember { mutableStateOf(false) }
     var layoutsOpen by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf<Naming?>(null) }
     var deleting by remember { mutableStateOf(false) }
     var moving by remember { mutableStateOf(false) }
+    var layoutOpacity by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
     val layout = store.current
     val chosen = layout.buttons.firstOrNull { it.id == selected }
     if (chosen == null) allKeys = false
@@ -480,22 +240,63 @@ internal fun ButtonEditor(store: ButtonLayouts, onDone: () -> Unit, modifier: Mo
                     button,
                     Modifier
                         .placed(button, width, height)
+                        .graphicsLayer { alpha = button.opacity ?: layout.opacity }
                         .pointerInput(button.id, width, height) {
                             awaitEachGesture {
                                 val first = awaitFirstDown()
                                 first.consume()
                                 selected = button.id
+                                var target = button.id
                                 var moved = false
+                                var settled = false
+                                var copied = false
+                                val deadline = first.uptimeMillis + viewConfiguration.longPressTimeoutMillis
+                                var last = first.uptimeMillis
                                 while (true) {
-                                    val change = awaitPointerEvent().changes.firstOrNull { it.id == first.id } ?: break
+                                    val event = if (settled) {
+                                        awaitPointerEvent()
+                                    } else {
+                                        withTimeoutOrNull((deadline - last).coerceAtLeast(1)) { awaitPointerEvent() }
+                                    }
+                                    if (event == null) {
+                                        settled = true
+                                        val source = store.current.buttons.firstOrNull { it.id == target } ?: continue
+                                        val copy = store.newId()
+                                        val nudge = 12.dp.toPx()
+                                        store.change(save = false) {
+                                            it.copy(
+                                                buttons = it.buttons + source.copy(
+                                                    id = copy,
+                                                    x = (source.x + nudge / width.toPx()).coerceIn(0f, 1f),
+                                                    y = (source.y + nudge / height.toPx()).coerceIn(0f, 1f),
+                                                ),
+                                            )
+                                        }
+                                        target = copy
+                                        selected = copy
+                                        copied = true
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        continue
+                                    }
+                                    val change = event.changes.firstOrNull { it.id == first.id } ?: break
                                     if (!change.pressed) break
-                                    if (change.isConsumed) continue
+                                    if (change.isConsumed) {
+                                        settled = true
+                                        continue
+                                    }
                                     change.consume()
-                                    val step = change.position - change.previousPosition
-                                    if (step.x == 0f && step.y == 0f) continue
-                                    moved = true
-                                    moving = true
-                                    store.changeButton(button.id, save = false) {
+                                    last = change.uptimeMillis
+                                    val step = if (moved) {
+                                        change.position - change.previousPosition
+                                    } else {
+                                        val total = change.position - first.position
+                                        if (total.getDistance() <= viewConfiguration.touchSlop) continue
+                                        moved = true
+                                        settled = true
+                                        moving = true
+                                        total
+                                    }
+                                    store.changeButton(target, save = false) {
                                         it.copy(
                                             x = (it.x + step.x / width.toPx()).coerceIn(0f, 1f),
                                             y = (it.y + step.y / height.toPx()).coerceIn(0f, 1f),
@@ -503,7 +304,7 @@ internal fun ButtonEditor(store: ButtonLayouts, onDone: () -> Unit, modifier: Mo
                                     }
                                 }
                                 moving = false
-                                if (moved) store.save()
+                                if (moved || copied) store.save()
                             }
                         },
                     fill = if (on) scheme.primary.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.35f),
@@ -557,11 +358,17 @@ internal fun ButtonEditor(store: ButtonLayouts, onDone: () -> Unit, modifier: Mo
         val beside = if (chosen != null && !allKeys && wide) PanelWidth + 24.dp else 0.dp
         Toolbar(
             layoutName = layout.name,
+            opacity = layout.opacity,
             onLayouts = { layoutsOpen = true },
+            onOpacity = {
+                layoutOpacity = !layoutOpacity
+                adding = false
+                selected = null
+            },
             onAdd = {
-                val id = store.newId()
-                store.change { it.copy(buttons = it.buttons + GameButton(id, 0.5f, 0.5f)) }
-                selected = id
+                adding = !adding
+                layoutOpacity = false
+                selected = null
             },
             onDone = onDone,
             modifier = Modifier
@@ -570,6 +377,45 @@ internal fun ButtonEditor(store: ButtonLayouts, onDone: () -> Unit, modifier: Mo
                 .padding(vertical = 12.dp)
                 .padding(start = if (panelAtStart) beside else 0.dp, end = if (panelAtStart) 0.dp else beside),
         )
+
+        if (adding && chosen == null) {
+            fun add(stick: Stick?) {
+                val id = store.newId()
+                val diameter = when (stick) {
+                    null -> 60f
+                    Stick.DPAD -> 100f
+                    else -> 120f
+                }
+                store.change { it.copy(buttons = it.buttons + GameButton(id, 0.5f, 0.5f, diameter, stick = stick)) }
+                selected = id
+                adding = false
+            }
+            ToolbarPanel(atTop = toolbarAtTop) {
+                PanelTitle(stringResource(R.string.buttons_add_title))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ChoiceTile(stringResource(R.string.buttons_add), Icons.Outlined.RadioButtonUnchecked, Modifier.weight(1f)) { add(null) }
+                    ChoiceTile(stringResource(R.string.buttons_add_dpad), Icons.Outlined.Gamepad, Modifier.weight(1f)) { add(Stick.DPAD) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ChoiceTile(stringResource(R.string.buttons_add_left_stick), Icons.Outlined.Adjust, Modifier.weight(1f)) { add(Stick.LEFT) }
+                    ChoiceTile(stringResource(R.string.buttons_add_right_stick), Icons.Outlined.Adjust, Modifier.weight(1f)) { add(Stick.RIGHT) }
+                }
+            }
+        }
+
+        if (layoutOpacity && chosen == null) {
+            ToolbarPanel(atTop = toolbarAtTop) {
+                PanelTitle(stringResource(R.string.buttons_opacity_layout))
+                PillFader(layout.opacity, onChange = { value -> store.change(save = false) { it.copy(opacity = value) } }, onFinished = { store.save() })
+                Text(
+                    stringResource(R.string.buttons_opacity_layout_hint),
+                    style = MaterialTheme.typography.bodySmall.copy(lineBreak = LineBreak.Heading),
+                    color = secondaryText(),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
 
         if (chosen != null && allKeys) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -614,6 +460,11 @@ internal fun ButtonEditor(store: ButtonLayouts, onDone: () -> Unit, modifier: Mo
                     onKey = { usage -> store.changeButton(chosen.id) { it.copy(keys = it.keys.toggled(usage)) } },
                     onMouse = { mouse -> store.changeButton(chosen.id) { it.copy(mouse = mouse) } },
                     onShowLabel = { show -> store.changeButton(chosen.id) { it.copy(showLabel = show) } },
+                    onPad = { bit -> store.changeButton(chosen.id) { it.copy(pad = it.pad xor bit) } },
+                    onStick = { stick -> store.changeButton(chosen.id) { it.copy(stick = stick) } },
+                    layoutOpacity = layout.opacity,
+                    onOpacity = { value -> store.changeButton(chosen.id, save = false) { it.copy(opacity = value) } },
+                    onOpacitySaved = { store.save() },
                     onAllKeys = { allKeys = true },
                     onRename = { naming = Naming.RenameButton },
                     onDelete = {
@@ -706,11 +557,20 @@ private fun Floating(shape: androidx.compose.ui.graphics.Shape, modifier: Modifi
 }
 
 @Composable
-private fun Toolbar(layoutName: String, onLayouts: () -> Unit, onAdd: () -> Unit, onDone: () -> Unit, modifier: Modifier = Modifier) {
+private fun Toolbar(
+    layoutName: String,
+    opacity: Float,
+    onLayouts: () -> Unit,
+    onOpacity: () -> Unit,
+    onAdd: () -> Unit,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Floating(shape = CircleShape, modifier = modifier) {
         Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Pill(layoutName, Icons.Outlined.ExpandMore, iconAfter = true, onClick = onLayouts)
             Box(Modifier.width(1.dp).height(20.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            Pill(percent(opacity), Icons.Outlined.Opacity, widest = percent(1f), onClick = onOpacity)
             Pill(stringResource(R.string.buttons_add), Icons.Outlined.Add, onClick = onAdd)
             Pill(stringResource(R.string.buttons_done), Icons.Outlined.Check, strong = true, onClick = onDone)
         }
@@ -718,7 +578,8 @@ private fun Toolbar(layoutName: String, onLayouts: () -> Unit, onAdd: () -> Unit
 }
 
 @Composable
-private fun Pill(label: String, icon: ImageVector, iconAfter: Boolean = false, strong: Boolean = false, onClick: () -> Unit) {
+// widest reserves room for the longest label the pill can show, so a changing number does not move its neighbours.
+private fun Pill(label: String, icon: ImageVector, iconAfter: Boolean = false, strong: Boolean = false, widest: String? = null, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val ink = if (strong) scheme.onPrimary else scheme.onSurface
     Row(
@@ -732,7 +593,11 @@ private fun Pill(label: String, icon: ImageVector, iconAfter: Boolean = false, s
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (!iconAfter) Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
-        Text(label, color = ink, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(contentAlignment = Alignment.Center) {
+            val style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum")
+            if (widest != null) Text(widest, style = style, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.alpha(0f))
+            Text(label, color = ink, style = style, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         if (iconAfter) Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
     }
 }
@@ -758,6 +623,11 @@ private fun ButtonPanel(
     onKey: (Int) -> Unit,
     onMouse: (MouseButton?) -> Unit,
     onShowLabel: (Boolean) -> Unit,
+    onPad: (Int) -> Unit,
+    onStick: (Stick) -> Unit,
+    layoutOpacity: Float,
+    onOpacity: (Float?) -> Unit,
+    onOpacitySaved: () -> Unit,
     onAllKeys: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
@@ -765,18 +635,60 @@ private fun ButtonPanel(
 ) {
     val scheme = MaterialTheme.colorScheme
     Column(Modifier.verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val kind = stringResource(
+            when (button.stick) {
+                null -> R.string.buttons_add
+                Stick.LEFT -> R.string.buttons_add_left_stick
+                Stick.RIGHT -> R.string.buttons_add_right_stick
+                Stick.DPAD -> R.string.buttons_add_dpad
+            },
+        )
+        val title = if (button.stick != null) button.name.ifBlank { kind } else button.label().ifEmpty { stringResource(R.string.buttons_untitled) }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                button.label().ifEmpty { stringResource(R.string.buttons_untitled) },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(start = 6.dp),
-            )
+            Box(Modifier.size(ControlHeight).clip(CircleShape).background(scheme.surfaceContainerHighest), contentAlignment = Alignment.Center) {
+                Icon(
+                    when (button.stick) {
+                        null -> Icons.Outlined.RadioButtonUnchecked
+                        Stick.DPAD -> Icons.Outlined.Gamepad
+                        else -> Icons.Outlined.Adjust
+                    },
+                    contentDescription = null,
+                    tint = scheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (title != kind) Text(kind, style = MaterialTheme.typography.labelMedium, color = secondaryText(), maxLines = 1)
+            }
             RoundIcon(Icons.Outlined.Edit, stringResource(R.string.buttons_rename), onClick = onRename)
             RoundIcon(Icons.Outlined.DeleteOutline, stringResource(R.string.buttons_delete), tint = scheme.error, onClick = onDelete)
             RoundIcon(Icons.Outlined.Close, stringResource(R.string.buttons_close), onClick = onClose)
+        }
+
+        val opacity: @Composable () -> Unit = {
+            Group(stringResource(R.string.buttons_opacity)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    KeyCap(stringResource(R.string.buttons_opacity_follow), on = button.opacity == null) {
+                        onOpacity(if (button.opacity == null) layoutOpacity else null)
+                        onOpacitySaved()
+                    }
+                    PillFader(button.opacity ?: layoutOpacity, onChange = onOpacity, onFinished = onOpacitySaved, height = 36.dp, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+        val stick = button.stick
+        if (stick != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(stringResource(R.string.buttons_stick), style = MaterialTheme.typography.labelMedium, color = secondaryText(), modifier = Modifier.padding(horizontal = 6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ChoiceTile(stringResource(R.string.buttons_add_left_stick), Icons.Outlined.Adjust, Modifier.weight(1f), on = stick == Stick.LEFT) { onStick(Stick.LEFT) }
+                    ChoiceTile(stringResource(R.string.buttons_add_right_stick), Icons.Outlined.Adjust, Modifier.weight(1f), on = stick == Stick.RIGHT) { onStick(Stick.RIGHT) }
+                    ChoiceTile(stringResource(R.string.buttons_add_dpad), Icons.Outlined.Gamepad, Modifier.weight(1f), on = stick == Stick.DPAD) { onStick(Stick.DPAD) }
+                }
+            }
+            opacity()
+            return@Column
         }
 
         Group(stringResource(R.string.buttons_keys)) {
@@ -785,6 +697,16 @@ private fun ButtonPanel(
                     KeyCap(keyName(usage), usage in button.keys) { onKey(usage) }
                 }
                 KeyCap(stringResource(R.string.buttons_more_keys), on = false, icon = Icons.Outlined.Keyboard, onClick = onAllKeys)
+            }
+        }
+
+        Group(stringResource(R.string.buttons_controller)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                PadButtons.chunked(4).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        row.forEach { (bit, name) -> KeyCap(name, button.pad and bit != 0, modifier = Modifier.weight(1f)) { onPad(bit) } }
+                    }
+                }
             }
         }
 
@@ -808,6 +730,8 @@ private fun ButtonPanel(
                 }
             }
         }
+
+        opacity()
 
         Surface(Modifier.fillMaxWidth(), shape = GroupShape, color = scheme.surfaceContainerHigh) {
             Row(
@@ -870,6 +794,68 @@ private fun MousePicker(chosen: MouseButton?, onPick: (MouseButton) -> Unit) {
     }
 }
 
+// The number keeps a fixed place, so dragging never moves anything beside it.
+@Composable
+private fun PillFader(value: Float, onChange: (Float) -> Unit, onFinished: () -> Unit, modifier: Modifier = Modifier, height: Dp = ControlHeight) {
+    val scheme = MaterialTheme.colorScheme
+    val change by rememberUpdatedState(onChange)
+    val finish by rememberUpdatedState(onFinished)
+    val label = percent(value)
+    BoxWithConstraints(
+        modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(CircleShape)
+            .background(scheme.surfaceContainerHighest)
+            .semantics {
+                contentDescription = label
+                progressBarRangeInfo = ProgressBarRangeInfo(value, MIN_OPACITY..1f, OPACITY_STEPS)
+                setProgress { target ->
+                    change(snapped(target))
+                    finish()
+                    true
+                }
+            }
+            .pointerInput(Unit) {
+                fun at(x: Float) = snapped(MIN_OPACITY + (x / size.width).coerceIn(0f, 1f) * (1f - MIN_OPACITY))
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    down.consume()
+                    change(at(down.position.x))
+                    while (true) {
+                        val moved = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                        if (!moved.pressed) break
+                        moved.consume()
+                        change(at(moved.position.x))
+                    }
+                    finish()
+                }
+            },
+    ) {
+        val fill = height + (maxWidth - height) * ((value - MIN_OPACITY) / (1f - MIN_OPACITY))
+        val numberWidth = 52.dp
+        Box(Modifier.fillMaxHeight().width(fill).clip(CircleShape).background(scheme.primary))
+        Icon(
+            Icons.Outlined.Opacity,
+            contentDescription = null,
+            tint = scheme.onPrimary,
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = (height - 18.dp) / 2).size(18.dp),
+        )
+        Text(
+            label,
+            color = if (fill >= maxWidth - numberWidth / 2) scheme.onPrimary else scheme.onSurface,
+            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+            modifier = Modifier.align(Alignment.CenterEnd).width(numberWidth).padding(end = 14.dp),
+        )
+    }
+}
+
+private fun snapped(value: Float) = ((value * 20).roundToInt() / 20f).coerceIn(MIN_OPACITY, 1f)
+
+private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
+
 @Composable
 private fun Group(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -881,10 +867,48 @@ private fun Group(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun KeyCap(label: String, on: Boolean, icon: ImageVector? = null, onClick: () -> Unit) {
+private fun ChoiceTile(label: String, icon: ImageVector, modifier: Modifier, on: Boolean = false, color: Color? = null, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        modifier
+            .height(58.dp)
+            .clip(TileShape)
+            .background(if (on) scheme.primary.copy(alpha = 0.12f) else scheme.surfaceContainerHighest)
+            .then(if (on) Modifier.border(1.5.dp, scheme.primary, TileShape) else Modifier)
+            .clickable(role = Role.Button, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+    ) {
+        Icon(icon, contentDescription = null, tint = color ?: scheme.primary, modifier = Modifier.size(20.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = color ?: scheme.onSurface, textAlign = TextAlign.Center, maxLines = 1)
+    }
+}
+
+@Composable
+private fun BoxScope.ToolbarPanel(atTop: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    Floating(
+        shape = MiniPanelShape,
+        modifier = Modifier
+            .align(if (atTop) Alignment.TopCenter else Alignment.BottomCenter)
+            .safeDrawingPadding()
+            .padding(vertical = 12.dp + ControlHeight + 16.dp, horizontal = 12.dp)
+            .widthIn(max = MiniPanelWidth)
+            .fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    }
+}
+
+@Composable
+private fun PanelTitle(text: String) {
+    Text(text, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
+}
+
+@Composable
+private fun KeyCap(label: String, on: Boolean, icon: ImageVector? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     Row(
-        Modifier
+        modifier
             .defaultMinSize(minWidth = 36.dp)
             .height(36.dp)
             .clip(KeyShape)
@@ -913,47 +937,22 @@ private fun LayoutTile(layout: ButtonLayout, on: Boolean, dragging: Boolean, mod
     val scheme = MaterialTheme.colorScheme
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = GroupShape,
-        color = if (on) scheme.primary.copy(alpha = 0.12f) else scheme.surfaceContainer,
-        border = BorderStroke(if (on) 2.dp else 1.dp, if (on) scheme.primary else scheme.outlineVariant.copy(alpha = 0.6f)),
+        shape = TileShape,
+        color = if (on) scheme.primary.copy(alpha = 0.12f) else scheme.surfaceContainerHigh,
+        border = if (on) BorderStroke(1.5.dp, scheme.primary) else null,
         shadowElevation = if (dragging) 8.dp else 0.dp,
         onClick = onClick,
     ) {
-        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            BoxWithConstraints(
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(PREVIEW_RATIO)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(scheme.surfaceContainerHighest),
-            ) {
-                layout.buttons.forEach { button ->
-                    val dot = maxWidth * (button.diameter / PREVIEW_SCREEN_DP)
-                    Box(
-                        Modifier
-                            .offset(maxWidth * button.x - dot / 2, maxHeight * button.y - dot / 2)
-                            .size(dot)
-                            .clip(CircleShape)
-                            .background(if (on) scheme.primary.copy(alpha = 0.7f) else scheme.onSurface.copy(alpha = 0.45f)),
-                    )
-                }
-                if (on) {
-                    Icon(
-                        Icons.Outlined.Check,
-                        contentDescription = null,
-                        tint = scheme.primary,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(18.dp),
-                    )
-                }
-            }
-            Column(Modifier.padding(horizontal = 4.dp)) {
-                Text(layout.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.heightIn(min = 64.dp).padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(layout.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     pluralStringResource(R.plurals.buttons_count, layout.buttons.size, layout.buttons.size),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = secondaryText(),
                 )
             }
+            if (on) Icon(Icons.Outlined.Check, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -970,7 +969,7 @@ private fun LayoutsSheet(store: ButtonLayouts, onDismiss: () -> Unit, onPick: (I
             haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
         }
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 150.dp),
+            columns = GridCells.Adaptive(minSize = 140.dp),
             state = grid,
             modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -990,20 +989,14 @@ private fun LayoutsSheet(store: ButtonLayouts, onDismiss: () -> Unit, onPick: (I
                 }
             }
         }
-        SheetList {
-            SheetListRow(stringResource(R.string.layout_new), { modal.close { onAction(Naming.NewLayout) } }, leading = { SquareIcon(Icons.Outlined.Add) })
-            SheetListDivider()
-            SheetListRow(stringResource(R.string.layout_rename), { modal.close { onAction(Naming.RenameLayout) } }, leading = { SquareIcon(Icons.Outlined.Edit) })
-            SheetListDivider()
-            SheetListRow(stringResource(R.string.layout_duplicate), { modal.close { onAction(Naming.DuplicateLayout) } }, leading = { SquareIcon(Icons.Outlined.ContentCopy) })
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChoiceTile(stringResource(R.string.layout_new), Icons.Outlined.Add, Modifier.weight(1f)) { modal.close { onAction(Naming.NewLayout) } }
+            ChoiceTile(stringResource(R.string.layout_rename), Icons.Outlined.Edit, Modifier.weight(1f)) { modal.close { onAction(Naming.RenameLayout) } }
+            ChoiceTile(stringResource(R.string.layout_duplicate), Icons.Outlined.ContentCopy, Modifier.weight(1f)) { modal.close { onAction(Naming.DuplicateLayout) } }
             if (store.layouts.size > 1) {
-                SheetListDivider()
-                SheetListRow(
-                    stringResource(R.string.layout_delete),
-                    { modal.close { onAction(null) } },
-                    titleColor = MaterialTheme.colorScheme.error,
-                    leading = { SquareIcon(Icons.Outlined.DeleteOutline, tint = MaterialTheme.colorScheme.error) },
-                )
+                ChoiceTile(stringResource(R.string.layout_delete), Icons.Outlined.DeleteOutline, Modifier.weight(1f), color = MaterialTheme.colorScheme.error) {
+                    modal.close { onAction(null) }
+                }
             }
         }
     }

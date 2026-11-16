@@ -1,7 +1,10 @@
 use crate::capture::{Capture, ListPurpose, ShareKind, Shareable, StartRequest};
 use crate::hub::{Input as HubInput, local_clock, now_ns};
 use crate::remote::{RemoteInput, Target};
-use manifold_protocol::control::{Control, DEFAULT_FPS, FeedInfo, Input, MAX_ALPHA_HEIGHT, MAX_ALPHA_WIDTH, MAX_NAME_LENGTH, Refusal, Subscribe};
+use manifold_protocol::clipboard::{self, Assembler};
+use manifold_protocol::control::{
+    Control, DEFAULT_FPS, FeedInfo, Input, MAX_ALPHA_HEIGHT, MAX_ALPHA_WIDTH, MAX_CLIPBOARD_BYTES, MAX_NAME_LENGTH, Refusal, Subscribe,
+};
 use manifold_protocol::devices::Device;
 use manifold_protocol::endpoint::Endpoint;
 use manifold_protocol::stream::{RateControl, RetransmitStore};
@@ -83,6 +86,10 @@ impl SharedWindow {
 
     fn is_watched_by(&self, device_key: &str, stream_id: u16) -> bool {
         self.watchers.iter().any(|watcher| watcher.is_stream(device_key, stream_id))
+    }
+
+    fn target(&self) -> Target {
+        Target { kind: self.kind, handle: self.handle, client_only: self.hide_frame, stream_width: self.stream_width, stream_height: self.stream_height }
     }
 
     fn new(feed_name: String, title: String, process: String, window_class: String, with_audio: bool, kind: ShareKind) -> Self {
@@ -251,6 +258,15 @@ fn decode_shares(text: Option<&str>) -> Vec<SharedWindow> {
     shares
 }
 
+// last is the text both sides hold, sent or received, so a copy is never sent back to where it came from.
+#[derive(Default)]
+struct ClipboardSync {
+    parts: HashMap<(String, u16), Assembler>,
+    last: Option<String>,
+    seen_change: Option<u32>,
+    next_seq: u32,
+}
+
 pub struct ShareOptions {
     pub audio: bool,
     pub sound_only: bool,
@@ -282,6 +298,7 @@ pub struct Sharing {
     watched: HashSet<(String, String)>,
     remote: RemoteInput,
     told_captured: HashMap<(String, u16), bool>,
+    clipboard: ClipboardSync,
     pub feeds_changed: bool,
     pub changed: bool,
 }
@@ -302,6 +319,7 @@ impl Sharing {
             watched: HashSet::new(),
             remote: RemoteInput::new(rumbles),
             told_captured: HashMap::new(),
+            clipboard: ClipboardSync::default(),
             feeds_changed: false,
             changed: false,
         }
@@ -346,7 +364,7 @@ impl Sharing {
                 window.capture_votes = 0;
                 continue;
             }
-            let target = Target { kind: window.kind, handle: window.handle, client_only: window.hide_frame, stream_width: window.stream_width, stream_height: window.stream_height };
+            let target = window.target();
             // Alt held from the other device frees a game's cursor on purpose, to click its menus, so it does not end game mode.
             let holds_alt = controllers.iter().any(|(device_key, stream_id)| self.remote.holds_alt(device_key, *stream_id));
             if holds_alt || target.cursor_captured() == window.cursor_captured {
@@ -374,8 +392,54 @@ impl Sharing {
         let stream_id = input.stream_id();
         let window = self.shared.iter().find(|window| window.is_watched_by(&device.public_key, stream_id) && Self::controllable(window, device));
         let Some(window) = window.filter(|_| !self.paused) else { return };
-        let target = Target { kind: window.kind, handle: window.handle, client_only: window.hide_frame, stream_width: window.stream_width, stream_height: window.stream_height };
-        self.remote.apply(&device.public_key, &target, input);
+        self.remote.apply(&device.public_key, &window.target(), input);
+    }
+
+    pub fn on_clipboard(&mut self, device: &Device, stream_id: u16, seq: u32, part: u16, count: u16, data: Vec<u8>) {
+        let allowed = !self.paused
+            && device.clipboard
+            && self.shared.iter().any(|window| window.is_watched_by(&device.public_key, stream_id) && Self::controllable(window, device));
+        if !allowed {
+            return;
+        }
+        let Some(text) = self.clipboard.parts.entry((device.public_key.clone(), stream_id)).or_default().add(seq, part, count, data) else { return };
+        if self.clipboard.last.as_deref() != Some(text.as_str()) {
+            crate::system::copy_text(&text);
+            self.clipboard.last = Some(text);
+        }
+    }
+
+    // What was on the clipboard when control began stays on the PC; only later copies are sent.
+    pub fn poll_clipboard(&mut self, endpoint: &mut Endpoint) {
+        let mut targets: Vec<(String, u16)> = Vec::new();
+        for window in self.shared.iter().filter(|_| !self.paused) {
+            for watcher in &window.watchers {
+                let allowed = endpoint.book().find(&watcher.device_key).is_some_and(|device| device.clipboard && Self::controllable(window, device));
+                if allowed {
+                    targets.push((watcher.device_key.clone(), watcher.stream_id));
+                }
+            }
+        }
+        if targets.is_empty() {
+            self.clipboard.seen_change = None;
+            self.clipboard.parts.clear();
+            return;
+        }
+        let Some(change) = crate::system::clipboard_change() else { return };
+        if self.clipboard.seen_change.replace(change).is_none_or(|before| before == change) {
+            return;
+        }
+        let Some(text) = crate::system::clipboard_text(MAX_CLIPBOARD_BYTES) else { return };
+        if self.clipboard.last.as_deref() == Some(text.as_str()) {
+            return;
+        }
+        self.clipboard.next_seq = self.clipboard.next_seq.wrapping_add(1);
+        for (device_key, stream_id) in targets {
+            for part in clipboard::parts(stream_id, self.clipboard.next_seq, &text).unwrap_or_default() {
+                endpoint.send_to(&device_key, &part);
+            }
+        }
+        self.clipboard.last = Some(text);
     }
 
     pub fn on_rumble(&mut self, device_key: &str, stream_id: u16, pad: u8, large: u8, small: u8, endpoint: &mut Endpoint) {
@@ -440,6 +504,7 @@ impl Sharing {
                         has_audio: window.with_audio,
                         has_alpha: window.with_alpha,
                         controllable: Self::controllable(window, device),
+                        clipboard: Self::controllable(window, device) && device.clipboard,
                         title: window.shown_title.clone(),
                         ..Default::default()
                     }
@@ -460,24 +525,8 @@ impl Sharing {
     }
 
     pub fn enforce(&mut self, endpoint: &Endpoint) {
-        let devices: Vec<Device> = endpoint.book().devices().to_vec();
-        let mut changed = false;
-        for device in &devices {
-            for index in 0..self.shared.len() {
-                if Self::allowed(&self.shared[index], device) {
-                    continue;
-                }
-                let before = self.shared[index].watchers.len();
-                self.shared[index].watchers.retain(|watcher| watcher.device_key != device.public_key);
-                if self.shared[index].watchers.len() != before {
-                    changed = true;
-                    self.stop_capture_if_idle(index);
-                }
-            }
-        }
-        if changed {
-            self.touched(endpoint);
-        }
+        let book = endpoint.book();
+        self.drop_watchers(endpoint, |window, watcher| book.find(&watcher.device_key).is_some_and(|device| !Self::allowed(window, device)));
     }
 
     pub fn set_paused(&mut self, paused: bool, endpoint: &Endpoint) {
@@ -752,18 +801,7 @@ impl Sharing {
     }
 
     pub fn unsubscribe(&mut self, device_key: &str, stream_id: u16, endpoint: &Endpoint) {
-        let mut changed = false;
-        for index in 0..self.shared.len() {
-            let before = self.shared[index].watchers.len();
-            self.shared[index].watchers.retain(|watcher| !watcher.is_stream(device_key, stream_id));
-            if self.shared[index].watchers.len() != before {
-                self.stop_capture_if_idle(index);
-                changed = true;
-            }
-        }
-        if changed {
-            self.touched(endpoint);
-        }
+        self.drop_watchers(endpoint, |_, watcher| watcher.is_stream(device_key, stream_id));
     }
 
     pub fn resend(&mut self, device_key: &str, stream_id: u16, frame_id: i32, indexes: &[u16], endpoint: &mut Endpoint) {
@@ -806,14 +844,22 @@ impl Sharing {
     }
 
     pub fn drop_device(&mut self, device_key: &str, endpoint: &Endpoint) {
+        self.drop_watchers(endpoint, |_, watcher| watcher.device_key == device_key);
+    }
+
+    fn drop_watchers(&mut self, endpoint: &Endpoint, gone: impl Fn(&SharedWindow, &Watcher) -> bool) {
         let mut changed = false;
         for index in 0..self.shared.len() {
-            let before = self.shared[index].watchers.len();
-            self.shared[index].watchers.retain(|watcher| watcher.device_key != device_key);
-            if self.shared[index].watchers.len() != before {
-                changed = true;
-                self.stop_capture_if_idle(index);
+            let window = &mut self.shared[index];
+            let mut watchers = std::mem::take(&mut window.watchers);
+            let before = watchers.len();
+            watchers.retain(|watcher| !gone(window, watcher));
+            let dropped = watchers.len() != before;
+            window.watchers = watchers;
+            if dropped && self.shared[index].watchers.is_empty() {
+                self.stop_capture(index);
             }
+            changed |= dropped;
         }
         if changed {
             self.touched(endpoint);
@@ -866,12 +912,6 @@ impl Sharing {
     fn save_all(&mut self) {
         let text = encode_shares(&self.shared);
         (self.save)(&text);
-    }
-
-    fn stop_capture_if_idle(&mut self, index: usize) {
-        if self.shared[index].watchers.is_empty() {
-            self.stop_capture(index);
-        }
     }
 
     fn stop_capture(&mut self, index: usize) {

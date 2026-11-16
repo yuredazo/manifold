@@ -10,6 +10,10 @@ pub const DEFAULT_FPS: u8 = 30;
 pub const MAX_FPS: u8 = 60;
 pub const MAX_ALPHA_WIDTH: u16 = 3840;
 pub const MAX_ALPHA_HEIGHT: u16 = 2048;
+pub const MAX_CLIPBOARD_BYTES: usize = 65_536;
+// What is left of one datagram after the message header and the clipboard fields.
+pub const CLIPBOARD_CHUNK: usize = MAX_PAYLOAD - 5 - 10;
+pub const MAX_CLIPBOARD_PARTS: usize = MAX_CLIPBOARD_BYTES.div_ceil(CLIPBOARD_CHUNK);
 
 // Length is counted in UTF-16 units, as the other hubs count it.
 pub fn is_valid_name(name: &str) -> bool {
@@ -30,6 +34,8 @@ pub struct FeedInfo {
     pub has_alpha: bool,
     // The receiving device may steer this feed with its mouse. Bit 3 of the flags byte.
     pub controllable: bool,
+    // While steering it, the two devices share their clipboards. Bit 4.
+    pub clipboard: bool,
     pub title: String,
 }
 
@@ -169,6 +175,8 @@ pub enum Control {
     // How hard a game drives the two motors of the receiver's controller, 0 to 255, large then small. The publisher repeats
     // it while the controller is in use, so the receiver stops on its own when it stops hearing it.
     Rumble { stream_id: u16, pad: u8, large: u8, small: u8 },
+    // One part of copied text, either way while a feed is controlled. seq names the copy; its parts are put back in order.
+    Clipboard { stream_id: u16, seq: u32, part: u16, count: u16, data: Vec<u8> },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -205,11 +213,13 @@ const KEY: u8 = 22;
 const TEXT: u8 = 23;
 const GAMEPAD: u8 = 24;
 const RUMBLE: u8 = 25;
+const CLIPBOARD: u8 = 26;
 pub const MAX_TEXT_BYTES: usize = 200;
 const AUDIO_BIT: u8 = 1;
 const SOUND_ONLY_BIT: u8 = 2;
 const ALPHA_BIT: u8 = 4;
 const CONTROL_BIT: u8 = 8;
+const CLIPBOARD_BIT: u8 = 16;
 const BUTTON_DOWN_BIT: u8 = 1;
 const BUTTON_AT_BIT: u8 = 2;
 
@@ -234,10 +244,6 @@ pub fn encode_ack(id: i32) -> Vec<u8> {
     out
 }
 
-fn clamp16(value: u16) -> [u8; 2] {
-    value.to_be_bytes()
-}
-
 pub fn encode(id: i32, control: &Control) -> Vec<u8> {
     let (kind, body): (u8, Vec<u8>) = match control {
         Control::Ping => (PING, vec![]),
@@ -252,23 +258,33 @@ pub fn encode(id: i32, control: &Control) -> Vec<u8> {
         Control::TimeRequest(sent_at) => (TIME_REQUEST, sent_at.to_be_bytes().to_vec()),
         Control::TimeReply(sent_at) => (TIME_REPLY, sent_at.to_be_bytes().to_vec()),
         Control::SenderStats { stream_id, bitrate_kbps, fps10, encode_ms10, send_ms10 } => {
-            (SENDER_STATS, [clamp16(*stream_id), clamp16(*bitrate_kbps), clamp16(*fps10), clamp16(*encode_ms10), clamp16(*send_ms10)].concat())
+            (SENDER_STATS, be16(&[*stream_id, *bitrate_kbps, *fps10, *encode_ms10, *send_ms10]))
         }
         Control::Nack { stream_id, frame_id, indexes } => (NACK, encode_nack(*stream_id, *frame_id, indexes)),
-        Control::StreamReport { stream_id, window_ms, fragments, resend_requests, lost_frames, jitter_ms10 } => (
-            STREAM_REPORT,
-            [clamp16(*stream_id), clamp16(*window_ms), clamp16(*fragments), clamp16(*resend_requests), clamp16(*lost_frames), clamp16(*jitter_ms10)].concat(),
-        ),
+        Control::StreamReport { stream_id, window_ms, fragments, resend_requests, lost_frames, jitter_ms10 } => {
+            (STREAM_REPORT, be16(&[*stream_id, *window_ms, *fragments, *resend_requests, *lost_frames, *jitter_ms10]))
+        }
         Control::Addresses(addresses) => (ADDRESSES, encode_addresses(addresses)),
         Control::Input(input) => encode_input(input),
         Control::PointerCaptured { stream_id, captured } => (POINTER_CAPTURED, [&stream_id.to_be_bytes()[..], &[*captured as u8]].concat()),
         Control::Rumble { stream_id, pad, large, small } => (RUMBLE, [&stream_id.to_be_bytes()[..], &[*pad, *large, *small]].concat()),
+        Control::Clipboard { stream_id, seq, part, count, data } => {
+            let mut body = stream_id.to_be_bytes().to_vec();
+            body.extend_from_slice(&seq.to_be_bytes());
+            body.extend(be16(&[*part, *count]));
+            body.extend_from_slice(&data[..data.len().min(CLIPBOARD_CHUNK)]);
+            (CLIPBOARD, body)
+        }
     };
     let mut out = Vec::with_capacity(5 + body.len());
     out.push(kind);
     out.extend_from_slice(&id.to_be_bytes());
     out.extend_from_slice(&body);
     out
+}
+
+fn be16(values: &[u16]) -> Vec<u8> {
+    values.iter().flat_map(|value| value.to_be_bytes()).collect()
 }
 
 fn encode_input(input: &Input) -> (u8, Vec<u8>) {
@@ -311,10 +327,7 @@ fn encode_input(input: &Input) -> (u8, Vec<u8>) {
             KEY
         }
         Input::Text { seq, text, .. } => {
-            let mut end = text.len().min(MAX_TEXT_BYTES);
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
+            let end = text.floor_char_boundary(MAX_TEXT_BYTES);
             out.extend_from_slice(&seq.to_be_bytes());
             out.push(end as u8);
             out.extend_from_slice(&text.as_bytes()[..end]);
@@ -353,9 +366,7 @@ fn encode_subscribe(request: &Subscribe) -> Vec<u8> {
     assert!(name.len() <= 255, "feed name too long");
     let with_fps = request.alpha || request.fps != DEFAULT_FPS;
     let mut out = Vec::with_capacity(12 + name.len());
-    for value in [request.stream_id, request.width, request.height, request.bitrate_kbps] {
-        out.extend_from_slice(&value.to_be_bytes());
-    }
+    out.extend(be16(&[request.stream_id, request.width, request.height, request.bitrate_kbps]));
     out.push(name.len() as u8);
     out.extend_from_slice(name);
     out.push(request.audio as u8);
@@ -387,7 +398,8 @@ fn encode_feeds(feeds: &[FeedInfo]) -> Vec<u8> {
             (if feed.has_audio { AUDIO_BIT } else { 0 })
                 | (if feed.sound_only { SOUND_ONLY_BIT } else { 0 })
                 | (if feed.has_alpha { ALPHA_BIT } else { 0 })
-                | (if feed.controllable { CONTROL_BIT } else { 0 }),
+                | (if feed.controllable { CONTROL_BIT } else { 0 })
+                | (if feed.clipboard { CLIPBOARD_BIT } else { 0 }),
         );
         if used + entry.len() > MAX_PAYLOAD - 5 {
             break;
@@ -491,6 +503,12 @@ impl<'a> Reader<'a> {
         Some(i64::from_be_bytes(self.take(8)?.try_into().ok()?))
     }
 
+    fn rest(&mut self) -> &'a [u8] {
+        let part = &self.bytes[self.at.min(self.bytes.len())..];
+        self.at = self.bytes.len();
+        part
+    }
+
     fn string(&mut self, length: usize) -> Option<String> {
         Some(String::from_utf8_lossy(self.take(length)?).into_owned())
     }
@@ -564,6 +582,12 @@ pub fn decode(bytes: &[u8]) -> Option<Decoded> {
         .map(Control::Input),
         POINTER_CAPTURED => (|| Some(Control::PointerCaptured { stream_id: reader.u16()?, captured: reader.u8()? != 0 }))(),
         RUMBLE => (|| Some(Control::Rumble { stream_id: reader.u16()?, pad: reader.u8()?, large: reader.u8()?, small: reader.u8()? }))(),
+        CLIPBOARD => (|| {
+            let (stream_id, seq, part, count) = (reader.u16()?, reader.u32()?, reader.u16()?, reader.u16()?);
+            let data = reader.rest().to_vec();
+            let valid = part < count && count as usize <= MAX_CLIPBOARD_PARTS && data.len() <= CLIPBOARD_CHUNK;
+            valid.then_some(Control::Clipboard { stream_id, seq, part, count, data })
+        })(),
         _ => None,
     };
     Some(control.map_or(Decoded::Unrecognized(id), |control| Decoded::Message(id, control)))
@@ -628,6 +652,7 @@ fn read_feeds(reader: &mut Reader) -> Option<Vec<FeedInfo>> {
             sound_only: flags & SOUND_ONLY_BIT != 0,
             has_alpha: flags & ALPHA_BIT != 0,
             controllable: flags & CONTROL_BIT != 0,
+            clipboard: flags & CLIPBOARD_BIT != 0,
             title: String::new(),
         }));
     }

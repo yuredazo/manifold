@@ -1,5 +1,4 @@
-#ifndef RUNNER_H264_ENCODER_H_
-#define RUNNER_H264_ENCODER_H_
+#pragma once
 
 #include <windows.h>
 #include <strmif.h>
@@ -42,4 +41,3 @@ class H264Encoder {
   std::atomic<int> pending_bitrate_kbps_{0};
 };
 
-#endif  // RUNNER_H264_ENCODER_H_

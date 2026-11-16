@@ -355,6 +355,3 @@ void CameraCapturer::RequestKeyframe() { impl_->pump.RequestKeyframe(); }
 
 void CameraCapturer::SetBitrate(int bitrate_kbps) { impl_->pump.SetBitrate(bitrate_kbps); }
 
-int CameraCapturer::width() const { return impl_->out_width; }
-
-int CameraCapturer::height() const { return impl_->out_height; }

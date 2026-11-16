@@ -3,7 +3,7 @@ mod grab;
 mod sound;
 
 use super::{Captured, ShareKind, Shareable, StartRequest, emit};
-use crate::x11::{self, MONITOR_TAG};
+use crate::system::x11::{self, MONITOR_TAG};
 use encode::VideoEncoder;
 use grab::{Grab, Grabber, Source};
 use std::collections::HashMap;

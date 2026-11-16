@@ -11,7 +11,7 @@
 #include <SpoutDX.h>
 
 #include "nv12_converter.h"
-#include "utils.h"
+#include "text.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -144,6 +144,3 @@ void SpoutCapturer::RequestKeyframe() { impl_->pump.RequestKeyframe(); }
 
 void SpoutCapturer::SetBitrate(int bitrate_kbps) { impl_->pump.SetBitrate(bitrate_kbps); }
 
-int SpoutCapturer::width() const { return impl_->out_width; }
-
-int SpoutCapturer::height() const { return impl_->out_height; }

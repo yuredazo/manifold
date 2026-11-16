@@ -32,9 +32,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mkzk.manifold.Manifold
 import dev.mkzk.manifold.hub.R
 import dev.mkzk.manifold.hub.broker.ui.AppsScreen
-import dev.mkzk.manifold.hub.broker.ui.LiveScreen
-import dev.mkzk.manifold.hub.broker.ui.PreviewStats
-import dev.mkzk.manifold.hub.broker.ui.SourceStatus
+import dev.mkzk.manifold.hub.live.LiveScreen
+import dev.mkzk.manifold.hub.live.PreviewStats
+import dev.mkzk.manifold.hub.live.SourceStatus
 import dev.mkzk.manifold.hub.network.REMOTE_PREFIX
 import dev.mkzk.manifold.hub.network.ui.DevicesScreen
 import dev.mkzk.manifold.hub.screen.ScreenShareAction
@@ -110,7 +110,7 @@ internal fun HubShell(
             HorizontalPager(pager, Modifier.padding(padding).fillMaxSize(), beyondViewportPageCount = 1, key = { it }) { page ->
                 when (Tab.entries[page]) {
                     Tab.Live -> LiveScreen(
-                        graph.registry, snapshot, networkState.feedTitles, previewStats, sources, networkState.controllable, networkState.captured, graph.network::sendInput, graph.network.rumbles,
+                        graph.registry, snapshot, networkState.feedTitles, previewStats, sources, networkState.controllable, networkState.captured, graph.network::sendInput, graph.network.rumbles, graph.network.clipboard,
                         notificationsOn, openNotificationSettings, Modifier,
                     )
                     Tab.Apps -> AppsScreen(graph.registry, snapshot.apps, snapshot.pending, Modifier)

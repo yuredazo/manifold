@@ -1,5 +1,4 @@
-#ifndef RUNNER_FRAME_SOURCE_H_
-#define RUNNER_FRAME_SOURCE_H_
+#pragma once
 
 #include <algorithm>
 
@@ -13,9 +12,5 @@ class FrameSource {
   virtual void Stop() = 0;
   virtual void RequestKeyframe() = 0;
   virtual void SetBitrate(int bitrate_kbps) = 0;
-
-  virtual int width() const = 0;
-  virtual int height() const = 0;
 };
 
-#endif  // RUNNER_FRAME_SOURCE_H_

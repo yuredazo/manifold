@@ -12,6 +12,8 @@ import dev.mkzk.manifold.hub.broker.SenderLink
 import dev.mkzk.manifold.hub.network.codec.AacDecoder
 import dev.mkzk.manifold.hub.network.codec.AlphaUnpacker
 import dev.mkzk.manifold.hub.network.codec.H264Decoder
+import dev.mkzk.manifold.hub.network.protocol.ClipboardAssembler
+import dev.mkzk.manifold.hub.network.protocol.ClipboardParts
 import dev.mkzk.manifold.hub.network.protocol.Control
 import dev.mkzk.manifold.hub.network.protocol.ControlCodec
 import dev.mkzk.manifold.hub.network.protocol.Device
@@ -68,9 +70,13 @@ internal sealed interface RemoteAction {
     data class Pad(val index: Int, val state: PadState) : RemoteAction
 
     data object Release : RemoteAction
+
+    data class Clipboard(val text: String) : RemoteAction
 }
 
 internal class PadRumble(val subscriptionId: String, val pad: Int, val large: Int, val small: Int)
+
+internal class CopiedText(val subscriptionId: String, val text: String)
 
 internal class RemoteFeeds(
     private val endpoint: Endpoint,
@@ -82,6 +88,7 @@ internal class RemoteFeeds(
     private val onControllable: (Set<String>) -> Unit = {},
     private val onCaptured: (Set<String>) -> Unit = {},
     private val onRumble: (PadRumble) -> Unit = {},
+    private val onClipboard: (CopiedText) -> Unit = {},
     private val profile: () -> StreamProfile = { StreamProfile.Balanced },
 ) {
     private class Received(
@@ -145,6 +152,12 @@ internal class RemoteFeeds(
     private val titles = HashMap<String, Map<String, String>>()
     private val controllable = HashMap<String, Set<String>>()
     private val captured = HashSet<String>()
+    private val clipboardFeeds = HashMap<String, Set<String>>()
+    private val clipboardParts = HashMap<Pair<String, Int>, ClipboardAssembler>()
+
+    // The text both sides hold, sent or received, so a copy is never sent back to where it came from.
+    private var lastClipboard: String? = null
+    private var clipboardSeq = 0
 
     fun update(device: Device, feeds: List<FeedInfo>) {
         val known = senders.getOrPut(device.publicKey) { HashMap() }
@@ -170,6 +183,7 @@ internal class RemoteFeeds(
         }
         publishTitles(device.publicKey, feeds.mapNotNull { feed -> known[feed.name]?.let { it.registryName to feed.title } }.filter { it.second.isNotEmpty() }.toMap())
         publishControllable(device.publicKey, feeds.filter { it.controllable }.mapNotNullTo(HashSet()) { known[it.name]?.registryName })
+        clipboardFeeds[device.publicKey] = feeds.filter { it.clipboard }.mapTo(HashSet()) { it.name }
     }
 
     private fun publishControllable(deviceKey: String, mine: Set<String>) {
@@ -182,6 +196,13 @@ internal class RemoteFeeds(
     fun sendInput(subscriptionId: String, action: RemoteAction) {
         val stream = streams.values.firstOrNull { it.subscriptionId == subscriptionId } ?: return
         val id = stream.streamId
+        if (action is RemoteAction.Clipboard) {
+            if (stream.feed !in clipboardFeeds[stream.deviceKey].orEmpty() || action.text == lastClipboard) return
+            val parts = ClipboardParts.of(id, ++clipboardSeq, action.text) ?: return
+            lastClipboard = action.text
+            parts.forEach { endpoint.sendClipboard(stream.deviceKey, it) }
+            return
+        }
         if (action is RemoteAction.Text) {
             var rest = action.text.toByteArray(Charsets.UTF_8)
             while (rest.isNotEmpty()) {
@@ -200,8 +221,18 @@ internal class RemoteFeeds(
             is RemoteAction.Text -> return
             is RemoteAction.Pad -> Control.Gamepad(id, ++stream.inputSeq, action.index, action.state)
             RemoteAction.Release -> Control.Release(id, ++stream.inputSeq, stream.keySeq)
+            is RemoteAction.Clipboard -> return
         }
         endpoint.sendInput(stream.deviceKey, input)
+    }
+
+    fun onClipboard(device: Device, part: Control.Clipboard) {
+        val stream = streams[device.publicKey to part.streamId] ?: return
+        if (stream.feed !in clipboardFeeds[device.publicKey].orEmpty()) return
+        val text = clipboardParts.getOrPut(device.publicKey to part.streamId) { ClipboardAssembler() }.add(part) ?: return
+        if (text == lastClipboard) return
+        lastClipboard = text
+        onClipboard(CopiedText(stream.subscriptionId, text))
     }
 
     fun onRumble(device: Device, rumble: Control.Rumble) {

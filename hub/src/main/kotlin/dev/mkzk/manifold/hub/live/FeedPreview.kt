@@ -1,6 +1,8 @@
-package dev.mkzk.manifold.hub.broker.ui
+package dev.mkzk.manifold.hub.live
 
 import android.app.PictureInPictureParams
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
@@ -24,7 +26,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +43,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.VolumeOff
@@ -72,13 +74,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -89,6 +91,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -105,6 +108,18 @@ import dev.mkzk.manifold.hub.R
 import dev.mkzk.manifold.hub.broker.Owner
 import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.broker.SenderRow
+import dev.mkzk.manifold.hub.live.control.ButtonEditor
+import dev.mkzk.manifold.hub.live.control.ButtonLayouts
+import dev.mkzk.manifold.hub.live.control.DirectionPad
+import dev.mkzk.manifold.hub.live.control.GameButtons
+import dev.mkzk.manifold.hub.live.control.PAD_REPEAT_MS
+import dev.mkzk.manifold.hub.live.control.PadReader
+import dev.mkzk.manifold.hub.live.control.RemoteKeyboard
+import dev.mkzk.manifold.hub.live.control.Stick
+import dev.mkzk.manifold.hub.live.control.forwardKey
+import dev.mkzk.manifold.hub.live.control.rememberLoupe
+import dev.mkzk.manifold.hub.live.control.remoteMouse
+import dev.mkzk.manifold.hub.network.CopiedText
 import dev.mkzk.manifold.hub.network.PadRumble
 import dev.mkzk.manifold.hub.network.RemoteAction
 import kotlinx.coroutines.delay
@@ -141,6 +156,7 @@ internal fun FeedPreview(
     captured: Set<String>,
     sendInput: (String, RemoteAction) -> Unit,
     rumbles: Flow<PadRumble>,
+    copied: Flow<CopiedText>,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -166,7 +182,7 @@ internal fun FeedPreview(
     val loupe = rememberLoupe(shownView)
     val controlPrefs = remember { context.getSharedPreferences(CONTROL_PREFS, Context.MODE_PRIVATE) }
     var magnify by remember { mutableStateOf(controlPrefs.getBoolean(MAGNIFY_KEY, true)) }
-    val buttonLayouts = remember { ButtonLayouts(context, context.getString(R.string.layout_default, 1)) }
+    val buttonLayouts = remember { ButtonLayouts(context, context.getString(R.string.layout_default, 1), context.getString(R.string.layout_controller)) }
     var editingButtons by remember(feed.name) { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val gameOnPc = session.subscription?.let { it in captured } ?: false
@@ -256,6 +272,28 @@ internal fun FeedPreview(
                         pads.repeat()
                     }
                 }
+                LaunchedEffect(copied) {
+                    val clipboard = view.context.getSystemService(ClipboardManager::class.java)
+                    copied.collect { text ->
+                        if (text.subscriptionId == session.subscription) clipboard?.setPrimaryClip(ClipData.newPlainText(title, text.text))
+                    }
+                }
+                val clipboard = remember(view) { view.context.getSystemService(ClipboardManager::class.java) }
+                val controlSince = remember(session) { System.currentTimeMillis() }
+                // What was copied before control began stays on the phone.
+                fun sendCopy() {
+                    val clip = clipboard?.primaryClip?.takeIf { it.itemCount > 0 && it.description.timestamp >= controlSince } ?: return
+                    val text = clip.getItemAt(0).coerceToText(view.context)?.toString()
+                    if (!text.isNullOrEmpty()) steer(RemoteAction.Clipboard(text))
+                }
+                DisposableEffect(clipboard, steer) {
+                    val copied = ClipboardManager.OnPrimaryClipChangedListener { sendCopy() }
+                    clipboard?.addPrimaryClipChangedListener(copied)
+                    onDispose { clipboard?.removePrimaryClipChangedListener(copied) }
+                }
+                // Android lets only the app in front read the clipboard, so a copy made in another app is picked up on return.
+                val focused = LocalWindowInfo.current.isWindowFocused
+                LaunchedEffect(focused) { if (focused) sendCopy() }
                 LaunchedEffect(pads, rumbles) {
                     rumbles.collect { rumble -> if (rumble.subscriptionId == session.subscription) pads.rumble(rumble.pad, rumble.large, rumble.small) }
                 }
@@ -271,8 +309,10 @@ internal fun FeedPreview(
                 if (typing) {
                     RemoteKeyboard(steer, Modifier.align(Alignment.BottomCenter).padding(horizontal = if (beside >= RailWidth) beside else 0.dp))
                 } else if (game && !editingButtons) {
-                    DirectionPad(steer, Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).fillMaxHeight(0.5f))
-                    GameButtons(buttonLayouts.current, speed, steer)
+                    if (buttonLayouts.current.buttons.none { it.stick == Stick.LEFT }) {
+                        DirectionPad(steer, Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).fillMaxHeight(0.5f))
+                    }
+                    GameButtons(buttonLayouts.current, pads, speed, steer)
                 }
                 if (editingButtons) ButtonEditor(buttonLayouts, onDone = { editingButtons = false })
             }
@@ -587,7 +627,7 @@ private fun rememberPictureInPicture(ratio: Float, enabled: Boolean, onModeChang
     // Android refuses shapes wider than about 2.39 to 1 or taller than 1 to 2.39.
     val shape = Rational((ratio.coerceIn(0.42f, 2.39f) * 1000).toInt(), 1000)
     DisposableEffect(activity, shape, supported) {
-        if (!supported || activity == null) return@DisposableEffect onDispose {}
+        if (!supported) return@DisposableEffect onDispose {}
         val builder = PictureInPictureParams.Builder().setAspectRatio(shape)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) builder.setAutoEnterEnabled(true)
         val params = builder.build()
@@ -605,7 +645,7 @@ private fun rememberPictureInPicture(ratio: Float, enabled: Boolean, onModeChang
             activity.setPictureInPictureParams(off.build())
         }
     }
-    if (!supported || activity == null) return null
+    if (!supported) return null
     return { activity.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(shape).build()) }
 }
 

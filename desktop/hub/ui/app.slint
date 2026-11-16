@@ -61,6 +61,7 @@ export struct DeviceDetail {
     send-camera: bool,
     send-spout: bool,
     control: bool,
+    clipboard: bool,
     refused: [string],
 }
 
@@ -85,6 +86,7 @@ export struct Choice {
 export global Ui {
     in-out property <int> tab: 0;
     in property <bool> linux;
+    in property <int> repaint;
     in-out property <int> sheet: 0;
 
     in property <[WatchGroup]> watch-groups;
@@ -156,6 +158,7 @@ export global Ui {
     callback set-send-camera(string, bool);
     callback set-send-spout(string, bool);
     callback set-control(string, bool);
+    callback set-clipboard(string, bool);
     callback unpair(string);
     callback open-pair();
     callback close-sheet();
@@ -909,10 +912,19 @@ component DeviceSheet inherits Page {
                 divided: true;
                 enabled: Ui.device.send;
                 icon: @image-url("icons/mouse-pointer-2.svg");
-                title: "Control with its mouse";
+                title: "Control PC";
                 detail: Ui.device.send ? "The windows and displays it watches" : "Needs Windows and displays on";
                 on: Ui.device.control;
                 toggled(on) => { Ui.set-control(Ui.device.key, on); }
+            }
+            SwitchTile {
+                divided: true;
+                enabled: Ui.device.send && Ui.device.control;
+                icon: @image-url("icons/copy.svg");
+                title: "Share clipboard";
+                detail: Ui.device.control ? "Copy on one, paste on the other while it controls" : "Needs Control PC on";
+                on: Ui.device.clipboard;
+                toggled(on) => { Ui.set-clipboard(Ui.device.key, on); }
             }
             if !Ui.linux: SwitchTile { divided: true; icon: @image-url("icons/camera.svg"); title: "Cameras"; on: Ui.device.send-camera; toggled(on) => { Ui.set-send-camera(Ui.device.key, on); } }
             if !Ui.linux: SwitchTile { divided: true; icon: @image-url("icons/layers.svg"); title: "Spout senders"; on: Ui.device.send-spout; toggled(on) => { Ui.set-send-spout(Ui.device.key, on); } }
@@ -1282,7 +1294,9 @@ export component AppWindow inherits Window {
     width: 380px;
     height: 600px;
     no-frame: true;
-    background: Theme.background;
+    // Windows wipes the window while a UAC prompt or the lock screen is up, and the renderer copies only what changed.
+    // A colour one step off for every other repaint makes the whole window change, so it is all copied again.
+    background: Math.mod(Ui.repaint, 2) == 0 ? Theme.background : #131419;
     callback drag();
     callback minimize();
     callback close-window();

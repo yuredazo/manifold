@@ -1,5 +1,4 @@
-#ifndef RUNNER_MFT_H_
-#define RUNNER_MFT_H_
+#pragma once
 
 #include <mfapi.h>
 #include <mftransform.h>
@@ -21,4 +20,3 @@ bool Feed(IMFTransform& transform, IMFSample& input, DWORD output_size, const Ou
 
 }  // namespace mft
 
-#endif  // RUNNER_MFT_H_

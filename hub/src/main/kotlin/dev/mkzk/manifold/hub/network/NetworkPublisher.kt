@@ -125,7 +125,7 @@ internal class NetworkPublisher(
 
         val pipe = if (request.audio && feed.hasAudio) ParcelFileDescriptor.createPipe() else null
         val audio = pipe?.let { (source, _) -> openAudio(source, current, request.streamId, key) }
-        val audioSink = if (audio != null) pipe?.get(1) else null
+        val audioSink = if (audio != null) pipe[1] else null
         if (audio == null) pipe?.forEach { runCatching { it.close() } }
 
         val link = object : ReceiverLink {

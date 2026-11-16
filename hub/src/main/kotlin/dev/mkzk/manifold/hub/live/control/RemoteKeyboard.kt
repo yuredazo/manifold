@@ -1,4 +1,4 @@
-package dev.mkzk.manifold.hub.broker.ui
+package dev.mkzk.manifold.hub.live.control
 
 import android.view.KeyEvent
 import androidx.compose.foundation.background

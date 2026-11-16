@@ -122,6 +122,7 @@ fn device_detail(device: Option<&DeviceView>) -> DeviceDetail {
         send_camera: device.send_camera,
         send_spout: device.send_spout,
         control: device.control,
+        clipboard: device.clipboard,
         refused: LISTS.with(|lists| {
             fill(&lists.refused, device.refused.iter().map(|line| text(line.as_str())).collect());
             ModelRc::from(lists.refused.clone())
@@ -268,6 +269,7 @@ pub fn apply(app: &AppWindow, snapshot: Snapshot) {
     hub.set_close_to_tray(snapshot.close_to_tray);
     hub.set_check_on_launch(snapshot.check_on_launch);
     hub.set_run_as_admin(snapshot.run_as_admin);
+    hub.set_repaint(snapshot.repaint as i32);
     hub.set_secure_desktop(snapshot.secure_desktop);
     hub.set_secure_detail(text(match (snapshot.secure_busy, snapshot.secure_failed, snapshot.secure_outdated) {
         (true, _, _) => "Waiting for Windows",
@@ -361,6 +363,7 @@ pub fn bind(app: &AppWindow, out: Sender<Input>) {
     on!(on_set_send_camera, |key, on| Command::SetSendCamera(key.into(), on));
     on!(on_set_send_spout, |key, on| Command::SetSendSpout(key.into(), on));
     on!(on_set_control, |key, on| Command::SetControl(key.into(), on));
+    on!(on_set_clipboard, |key, on| Command::SetClipboard(key.into(), on));
     on!(on_unpair, |key| Command::Unpair(key.into()));
     on!(on_allow_pairing, | | Command::OpenPairing);
     on!(on_stop_pairing, | | Command::ClosePairing);
@@ -461,7 +464,7 @@ pub fn bind(app: &AppWindow, out: Sender<Input>) {
         hub.set_tab(1);
         sender(Command::Share(choice, options));
     });
-    let sender = send.clone();
+    let sender = send;
     hub.on_update_pressed(move || {
         let ready = SHOWN.with_borrow(|shown| matches!(shown.snapshot.as_ref().map(|snapshot| &snapshot.update), Some(UpdateState::Available(_))));
         sender(if ready { Command::InstallUpdate } else { Command::CheckUpdates });

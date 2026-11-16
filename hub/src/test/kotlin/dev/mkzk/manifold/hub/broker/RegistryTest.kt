@@ -173,9 +173,21 @@ class RegistryTest {
         registry.addSender(sender, info("avatar", width = 100), appA)
 
         registry.updateSender(sender.key, info("avatar", width = 999), appB.uid)
-        registry.removeSender(sender.key, appB.uid)
+        assertFalse(registry.removeSender(sender.key, appB.uid))
 
         assertEquals(100, registry.state.value.senders.single().width)
+        assertTrue(registry.removeSender(sender.key, appA.uid))
+        assertTrue(registry.state.value.senders.isEmpty())
+    }
+
+    @Test
+    fun oneAppCannotRemoveAnotherAppsReceiver() {
+        val registry = Registry()
+        val receiver = FakeReceiver()
+        registry.addReceiver(receiver, appA)
+
+        assertFalse(registry.removeReceiver(receiver.key, appB.uid))
+        assertTrue(registry.removeReceiver(receiver.key, appA.uid))
     }
 
     @Test

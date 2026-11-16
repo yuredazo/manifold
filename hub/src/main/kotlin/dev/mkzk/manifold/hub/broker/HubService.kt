@@ -55,8 +55,7 @@ class HubService : Service() {
         override fun unregisterSender(callback: IManifoldSender?) {
             if (callback == null) return
             val key = callback.asBinder()
-            registry.removeSender(key, Binder.getCallingUid())
-            unwatch(key, Role.SENDER)
+            if (registry.removeSender(key, Binder.getCallingUid())) unwatch(key, Role.SENDER)
         }
 
         override fun registerReceiver(callback: IManifoldReceiver?) {
@@ -72,8 +71,7 @@ class HubService : Service() {
         override fun unregisterReceiver(callback: IManifoldReceiver?) {
             if (callback == null) return
             val key = callback.asBinder()
-            registry.removeReceiver(key, Binder.getCallingUid())
-            unwatch(key, Role.RECEIVER)
+            if (registry.removeReceiver(key, Binder.getCallingUid())) unwatch(key, Role.RECEIVER)
         }
 
         override fun subscribe(

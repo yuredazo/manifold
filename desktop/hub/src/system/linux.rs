@@ -47,8 +47,12 @@ pub fn local_addresses() -> Vec<Ipv4Addr> {
     found
 }
 
+pub fn secure_desktop_up() -> bool {
+    false
+}
+
 pub fn window_alive(handle: i64) -> bool {
-    crate::x11::shared().is_some_and(|desktop| desktop.window_exists(handle as u32))
+    crate::system::x11::shared().is_some_and(|desktop| desktop.window_exists(handle as u32))
 }
 
 fn spawn_quietly(command: &mut Command) -> Option<std::process::Child> {
@@ -59,6 +63,15 @@ pub fn open_url(url: &str) {
     if let Some(mut child) = spawn_quietly(Command::new("xdg-open").arg(url)) {
         std::thread::spawn(move || child.wait());
     }
+}
+
+// Reading the X11 clipboard is not done yet, so on Linux only the phone's copies arrive.
+pub fn clipboard_change() -> Option<u32> {
+    None
+}
+
+pub fn clipboard_text(_max_bytes: usize) -> Option<String> {
+    None
 }
 
 pub fn copy_text(text: &str) {

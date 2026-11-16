@@ -1,5 +1,4 @@
-#ifndef RUNNER_FRAME_PUMP_H_
-#define RUNNER_FRAME_PUMP_H_
+#pragma once
 
 #include <atomic>
 #include <chrono>
@@ -47,4 +46,3 @@ class FramePump {
   std::thread thread_;
 };
 
-#endif  // RUNNER_FRAME_PUMP_H_

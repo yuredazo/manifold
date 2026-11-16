@@ -1,5 +1,4 @@
-#ifndef RUNNER_SECURE_LINK_H_
-#define RUNNER_SECURE_LINK_H_
+#pragma once
 
 #include <windows.h>
 
@@ -95,4 +94,3 @@ inline bool WriteMessage(HANDLE pipe, Kind kind, const void* body, uint32_t size
 
 }  // namespace secure_link
 
-#endif  // RUNNER_SECURE_LINK_H_

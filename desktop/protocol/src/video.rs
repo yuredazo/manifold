@@ -231,7 +231,7 @@ impl FrameBuffer {
 
     fn skip_to_keyframe(&mut self) {
         let next = self.next_id;
-        let Some(keyframe) = self.pending.iter().find(|(key, partial)| partial.keyframe && key.0 != next && key.0.wrapping_sub(next) > 0).map(|(key, _)| key.0) else {
+        let Some(keyframe) = self.pending.iter().find(|(key, partial)| partial.keyframe && key.0.wrapping_sub(next) > 0).map(|(key, _)| key.0) else {
             return;
         };
         while self.next_id != keyframe {

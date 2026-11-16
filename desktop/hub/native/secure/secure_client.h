@@ -1,5 +1,4 @@
-#ifndef RUNNER_SECURE_CLIENT_H_
-#define RUNNER_SECURE_CLIENT_H_
+#pragma once
 
 #include <windows.h>
 
@@ -19,4 +18,3 @@ RECT PrimaryMonitor();
 
 }  // namespace secure_client
 
-#endif  // RUNNER_SECURE_CLIENT_H_

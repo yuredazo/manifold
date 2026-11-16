@@ -6,7 +6,7 @@ use manifold_protocol::endpoint::{
 };
 use manifold_protocol::session::TYPE_DATA;
 use manifold_protocol::video::{Frame, FrameBuffer, split};
-use manifold_protocol::wire::{Address, TYPE_HELLO};
+use manifold_protocol::wire::{Address, HandshakePacket, TYPE_HELLO, encode_handshake};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -435,6 +435,67 @@ fn a_recorded_hello_cannot_be_replayed() {
     world.pump();
 
     assert_eq!(answers(&world), before, "no second answer");
+}
+
+fn bad_hello(seed: u8) -> Vec<u8> {
+    let message = (0..96u8).map(|at| at.wrapping_mul(31).wrapping_add(seed)).collect();
+    encode_handshake(&HandshakePacket { kind: TYPE_HELLO, step: 0, sender_index: 7, receiver_index: 0, message })
+}
+
+// Alpha restarts and dials in again without any time passing; Beta keeps running, and with it its count of hellos.
+fn dial_in_now(world: &mut World) -> bool {
+    let before = world.nodes[BETA].links_up().len();
+    world.restart(ALPHA);
+    let address = world.address(BETA);
+    world.dial(ALPHA, BETA, vec![address]);
+    world.pump();
+    world.nodes[BETA].links_up().len() > before
+}
+
+#[test]
+fn a_flood_of_hellos_from_one_address_is_cut_to_the_rate() {
+    let mut world = paired_world();
+    let alpha_address = world.address(ALPHA);
+    for seed in 0..100 {
+        world.with(BETA, |endpoint| endpoint.on_datagram(alpha_address.clone(), &bad_hello(seed)));
+    }
+    let reports = world.nodes[BETA].logs().iter().filter(|line| line.starts_with("hellos from 10.0.0.1 arrive faster")).count();
+    assert_eq!(reports, 1);
+
+    assert!(!dial_in_now(&mut world), "dropped while over the rate");
+    world.advance(2000);
+    assert!(world.linked_both(ALPHA, BETA), "the next hello a second later is heard");
+}
+
+#[test]
+fn a_flood_from_one_address_does_not_slow_another() {
+    let mut world = paired_world();
+    for seed in 0..100 {
+        world.with(BETA, |endpoint| endpoint.on_datagram(Address::new("10.0.0.66", 4000), &bad_hello(seed)));
+    }
+    assert!(dial_in_now(&mut world));
+}
+
+// Two hubs on one phone, or an address that now belongs to another device: the hellos meant for the other one keep
+// failing here, once a second each, and must not shut the sender out.
+#[test]
+fn hellos_meant_for_another_device_at_this_address_do_not_shut_the_sender_out() {
+    let mut world = paired_world();
+    let alpha_address = world.address(ALPHA);
+    for seed in 0..60 {
+        world.with(BETA, |endpoint| endpoint.on_datagram(alpha_address.clone(), &bad_hello(seed)));
+        world.advance(1000);
+    }
+    assert!(dial_in_now(&mut world));
+}
+
+#[test]
+fn a_paired_device_reconnecting_often_is_never_held_back() {
+    let mut world = paired_world();
+    for _ in 0..10 {
+        assert!(dial_in_now(&mut world));
+        world.advance(1000);
+    }
 }
 
 #[test]

@@ -77,9 +77,6 @@ impl Watching {
             },
             self.events.clone(),
         );
-        let mut buffer = FrameBuffer::default();
-        buffer.max_wait = profile.hold_ms() as i64 * 1_000_000;
-        buffer.keyframe_max_wait = profile.keyframe_wait_ms() as i64 * 1_000_000;
         self.sessions.push(ViewerSession {
             stream_id,
             device_key: device.public_key.clone(),
@@ -88,7 +85,7 @@ impl Watching {
             device_name: device.name.clone(),
             sound_only: feed.sound_only,
             with_audio: feed.has_audio,
-            buffer,
+            buffer: FrameBuffer::default(),
             keyframes: KeyframeRequests::default(),
             player,
             frames: 0,
@@ -218,10 +215,6 @@ impl Watching {
                 session.player.send(PlayerInput::Retitle(format!("{} · {}", session.label, session.device_name)));
             }
         }
-    }
-
-    pub fn on_player_closed(&mut self, stream_id: u16, endpoint: &mut Endpoint) {
-        self.stop(stream_id, endpoint);
     }
 }
 

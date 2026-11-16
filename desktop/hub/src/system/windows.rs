@@ -1,6 +1,7 @@
 use super::{HIDDEN_FLAG, LocalTime};
 use std::ffi::c_void;
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL, HWND};
@@ -10,7 +11,7 @@ use windows::Win32::NetworkManagement::IpHelper::{
 use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
 use windows::Win32::Networking::WinHttp::*;
 use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
-use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData};
 use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ, RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
@@ -66,6 +67,15 @@ pub fn local_addresses() -> Vec<Ipv4Addr> {
     vec![]
 }
 
+// A bare program name is also looked up in this app's folder, which the user can write to, and the hub may run as
+// administrator, so the Windows tools it starts are named by their full path.
+pub fn system_program(relative: &str) -> PathBuf {
+    let mut buffer = [0u16; 260];
+    let length = unsafe { windows::Win32::System::SystemInformation::GetSystemDirectoryW(Some(&mut buffer)) } as usize;
+    let directory = if length > 0 && length < buffer.len() { String::from_utf16_lossy(&buffer[..length]) } else { r"C:\Windows\System32".to_string() };
+    PathBuf::from(directory).join(relative)
+}
+
 pub fn local_time() -> LocalTime {
     let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     LocalTime {
@@ -79,12 +89,52 @@ pub fn local_time() -> LocalTime {
     }
 }
 
+// A UAC prompt or the lock screen is the input desktop then, and nothing but SYSTEM may open it.
+pub fn secure_desktop_up() -> bool {
+    use windows::Win32::System::StationsAndDesktops::{CloseDesktop, DESKTOP_CONTROL_FLAGS, DESKTOP_READOBJECTS, GetUserObjectInformationW, OpenInputDesktop, UOI_NAME};
+    let Ok(desktop) = (unsafe { OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS) }) else { return true };
+    let mut name = [0u16; 64];
+    let mut needed = 0;
+    let read = unsafe { GetUserObjectInformationW(windows::Win32::Foundation::HANDLE(desktop.0), UOI_NAME, Some(name.as_mut_ptr().cast()), (name.len() * 2) as u32, Some(&mut needed)) };
+    let _ = unsafe { CloseDesktop(desktop) };
+    let length = name.iter().position(|unit| *unit == 0).unwrap_or(name.len());
+    read.is_ok() && !String::from_utf16_lossy(&name[..length]).eq_ignore_ascii_case("Default")
+}
+
 pub fn window_alive(handle: i64) -> bool {
     unsafe { IsWindow(Some(HWND(handle as isize as *mut c_void))) }.as_bool()
 }
 
 pub fn open_url(url: &str) {
     unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(url), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
+}
+
+// Counts every change to the clipboard, so a poll can tell a new copy from the same one without reading it.
+pub fn clipboard_change() -> Option<u32> {
+    Some(unsafe { windows::Win32::System::DataExchange::GetClipboardSequenceNumber() })
+}
+
+pub fn clipboard_text(max_bytes: usize) -> Option<String> {
+    unsafe {
+        OpenClipboard(None).ok()?;
+        let text = (|| {
+            let memory = HGLOBAL(GetClipboardData(CF_UNICODETEXT).ok()?.0);
+            // UTF-16 takes at most twice the bytes of UTF-8 for the same text, plus the terminator.
+            if windows::Win32::System::Memory::GlobalSize(memory) > max_bytes * 2 + 2 {
+                return None;
+            }
+            let units = GlobalLock(memory) as *const u16;
+            if units.is_null() {
+                return None;
+            }
+            let length = (0..).take_while(|&at| *units.add(at) != 0).count();
+            let text = String::from_utf16_lossy(std::slice::from_raw_parts(units, length));
+            let _ = GlobalUnlock(memory);
+            Some(text)
+        })();
+        let _ = CloseClipboard();
+        text
+    }
 }
 
 pub fn copy_text(text: &str) {
@@ -231,7 +281,7 @@ fn set_run_key(on: bool) {
 }
 
 fn schtasks(arguments: &[&str]) -> Option<String> {
-    let output = Command::new("schtasks.exe").args(arguments).creation_flags(CREATE_NO_WINDOW).output().ok()?;
+    let output = Command::new(system_program("schtasks.exe")).args(arguments).creation_flags(CREATE_NO_WINDOW).output().ok()?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 

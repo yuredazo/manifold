@@ -19,8 +19,6 @@ mod tray;
 mod ui;
 mod update;
 mod watching;
-#[cfg(target_os = "linux")]
-mod x11;
 
 use hub::{Command, Hub, Input};
 use slint::ComponentHandle;

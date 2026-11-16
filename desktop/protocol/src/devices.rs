@@ -26,6 +26,7 @@ pub struct Device {
     pub send_camera: bool,
     pub send_spout: bool,
     pub control: bool,
+    pub clipboard: bool,
     pub others: Vec<String>,
 }
 
@@ -88,7 +89,7 @@ impl DeviceBook {
     }
 
     pub fn put(&mut self, device: Device) {
-        let device = Device { name: clean(&device.name), ..device };
+        let device = Device { name: clean_name(&device.name), ..device };
         match self.entries.iter_mut().find(|known| known.public_key == device.public_key) {
             Some(known) => *known = device,
             None => self.entries.push(device),
@@ -115,13 +116,13 @@ impl DeviceBook {
         let text = self
             .entries
             .iter()
-            .map(|d| [d.public_key.clone(), d.name.clone(), d.addresses().join(","), d.receive.to_string(), d.send.to_string(), d.send_camera.to_string(), d.send_spout.to_string(), d.control.to_string()].join("\t"))
+            .map(|d| [d.public_key.clone(), d.name.clone(), d.addresses().join(","), d.receive.to_string(), d.send.to_string(), d.send_camera.to_string(), d.send_spout.to_string(), d.control.to_string(), d.clipboard.to_string()].join("\t"))
             .collect::<Vec<_>>()
             .join("\n");
         (self.save)(&text);
     }
 
-    // A book from before cameras, Spout or control has fewer fields, and what is missing stays off.
+    // A book from before cameras, Spout, control or the clipboard has fewer fields, and what is missing stays off.
     fn parse(&mut self, line: &str) {
         let parts: Vec<&str> = line.split('\t').collect();
         if parts.len() < 5 || parts[0].len() != 2 * KEY_LENGTH || from_hex(parts[0]).is_none() {
@@ -138,15 +139,19 @@ impl DeviceBook {
             send_camera: parts.get(5) == Some(&"true"),
             send_spout: parts.get(6) == Some(&"true"),
             control: parts.get(7) == Some(&"true"),
+            clipboard: parts.get(8) == Some(&"true"),
         };
         self.entries.retain(|known| known.public_key != device.public_key);
         self.entries.push(device);
     }
 }
 
-fn clean(name: &str) -> String {
-    let cleaned = name.replace(['\t', '\n'], " ");
-    let trimmed = cleaned.trim();
-    let units: Vec<u16> = trimmed.encode_utf16().take(MAX_NAME_LENGTH).collect();
+pub(crate) fn clean_name(name: &str) -> String {
+    truncate_name(name.replace(['\t', '\n'], " ").trim())
+}
+
+// Names are capped in UTF-16 units, as the other hubs count them.
+pub(crate) fn truncate_name(name: &str) -> String {
+    let units: Vec<u16> = name.encode_utf16().take(MAX_NAME_LENGTH).collect();
     String::from_utf16_lossy(&units)
 }

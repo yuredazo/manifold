@@ -84,6 +84,7 @@ pub enum Command {
     SetSendCamera(String, bool),
     SetSendSpout(String, bool),
     SetControl(String, bool),
+    SetClipboard(String, bool),
     Unpair(String),
     Watch(String, String),
     StopWatching(String, String),
@@ -144,6 +145,7 @@ pub struct DeviceView {
     pub send_camera: bool,
     pub send_spout: bool,
     pub control: bool,
+    pub clipboard: bool,
     pub address: String,
     pub fingerprint: String,
     pub offered: usize,
@@ -217,6 +219,8 @@ pub struct Snapshot {
     pub update: UpdateState,
     // The update is unpacked and its swap is waiting for this process to exit.
     pub restart: bool,
+    // Bumped when a UAC prompt or the lock screen goes away, which leaves the window to be painted again whole.
+    pub repaint: u32,
 }
 
 struct Listening {
@@ -251,6 +255,8 @@ pub struct Hub {
     secure_busy: bool,
     secure_failed: Option<bool>,
     ticks: u64,
+    desktop_away: bool,
+    repaint: u32,
     redial_now: bool,
     dirty: bool,
     quit: bool,
@@ -299,6 +305,8 @@ impl Hub {
             secure_busy: false,
             secure_failed: None,
             ticks: 0,
+            desktop_away: false,
+            repaint: 0,
             redial_now: false,
             dirty: true,
             quit: false,
@@ -366,7 +374,7 @@ impl Hub {
                 self.discovery.hear(found, host, now_ms());
                 self.dirty = true;
             }
-            Input::PlayerClosed(stream_id) => self.watching.on_player_closed(stream_id, &mut self.endpoint),
+            Input::PlayerClosed(stream_id) => self.watching.stop(stream_id, &mut self.endpoint),
             Input::Resolved(address, ip) => match ip {
                 Some(ip) => {
                     self.resolved.insert(address.host.clone(), ip);
@@ -473,6 +481,7 @@ impl Hub {
             Command::SetSendCamera(key, on) => self.update_device(&key, |device| Device { send_camera: on, ..device.clone() }),
             Command::SetSendSpout(key, on) => self.update_device(&key, |device| Device { send_spout: on, ..device.clone() }),
             Command::SetControl(key, on) => self.update_device(&key, |device| Device { control: on, ..device.clone() }),
+            Command::SetClipboard(key, on) => self.update_device(&key, |device| Device { clipboard: on, ..device.clone() }),
             Command::Unpair(key) => {
                 self.sharing.drop_device(&key, &self.endpoint);
                 self.watching.stop_where(&mut self.endpoint, |session| session.device_key == key);
@@ -647,14 +656,10 @@ impl Hub {
         let _ = std::thread::Builder::new().name("receive".into()).spawn(move || {
             let mut buffer = vec![0u8; 65_536];
             while !stopping.load(Ordering::Relaxed) {
-                match receiver.recv_from(&mut buffer) {
-                    Ok((size, SocketAddr::V4(from))) => {
-                        if out.send(Input::Datagram(from, buffer[..size].to_vec())).is_err() {
-                            break;
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(_) => {}
+                if let Ok((size, SocketAddr::V4(from))) = receiver.recv_from(&mut buffer)
+                    && out.send(Input::Datagram(from, buffer[..size].to_vec())).is_err()
+                {
+                    break;
                 }
             }
         });
@@ -691,11 +696,18 @@ impl Hub {
     }
 
     fn tick(&mut self) {
+        let away = system::secure_desktop_up();
+        if self.desktop_away && !away {
+            self.repaint = self.repaint.wrapping_add(1);
+            self.dirty = true;
+        }
+        self.desktop_away = away;
         self.endpoint.tick();
         let now = now_ms();
         self.sharing.tick(now, &self.endpoint);
         self.sharing.poll_capture(&mut self.endpoint);
         self.sharing.repeat_rumble(&mut self.endpoint);
+        self.sharing.poll_clipboard(&mut self.endpoint);
         self.watching.tick(now, &mut self.endpoint);
         if self.listening.is_none() {
             return;
@@ -798,7 +810,7 @@ impl Hub {
             }
             Event::PairingFailed(reason) => self.set_pairing(Pairing::Failed(reason)),
             Event::LinkUp(device, address) => {
-                let key = device.public_key.clone();
+                let key = device.public_key;
                 if !self.online.contains(&key) {
                     self.online.push(key.clone());
                 }
@@ -822,7 +834,6 @@ impl Hub {
                 self.dirty = true;
             }
             Event::LinkResumed(device) => self.watching.on_link_resumed(&device),
-            Event::ConnectFailed(_) => {}
             Event::Feeds(device, feeds) => {
                 self.refused.remove(&device.public_key);
                 self.watching.on_feeds(&device, &feeds, &mut self.endpoint);
@@ -851,12 +862,12 @@ impl Hub {
                 self.sharing.on_input(&device, &input);
                 self.dirty |= missing != self.sharing.pads_need_driver();
             }
-            Event::PointerCaptured(..) | Event::Rumble { .. } => {}
+            Event::ConnectFailed(_) | Event::PointerCaptured(..) | Event::Rumble { .. } | Event::SenderStats { .. } => {}
+            Event::Clipboard { device, stream_id, seq, part, count, data } => self.sharing.on_clipboard(&device, stream_id, seq, part, count, data),
             Event::Nack { device, stream_id, frame_id, indexes } => self.sharing.resend(&device.public_key, stream_id, frame_id, &indexes, &mut self.endpoint),
             Event::StreamReport { device, stream_id, fragments, resend_requests, lost_frames, .. } => {
                 self.sharing.on_report(&device.public_key, stream_id, fragments, resend_requests, lost_frames)
             }
-            Event::SenderStats { .. } => {}
             Event::Video(device, stream_id, fragment) => self.watching.on_video(&device, stream_id, &fragment),
             Event::Audio(device, stream_id, _, frame) => self.watching.on_audio(&device, stream_id, frame),
             Event::Log(message) => self.storage.append(LINK_LOG, &format!("{} {message}", local_timestamp())),
@@ -880,6 +891,7 @@ impl Hub {
                     send_camera: device.send_camera,
                     send_spout: device.send_spout,
                     control: device.control,
+                    clipboard: device.clipboard,
                     address: device.address.clone().unwrap_or_default(),
                     fingerprint: readable_fingerprint(&device.fingerprint()),
                     offered: self.remote_feeds.get(&device.public_key).map(Vec::len).unwrap_or(0),
@@ -965,6 +977,7 @@ impl Hub {
             secure_failed: self.secure_failed,
             update: self.update.clone(),
             restart: self.restart,
+            repaint: self.repaint,
         }
     }
 }

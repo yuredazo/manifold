@@ -1,6 +1,6 @@
 use super::{Rect, Target};
 use crate::capture::ShareKind;
-use crate::x11::{self, Desktop};
+use crate::system::x11::{self, Desktop};
 use evdev::uinput::VirtualDevice;
 use evdev::{AbsInfo, AbsoluteAxisCode, AttributeSet, BusType, EventSummary, EventType, FFEffectCode, FFEffectKind, InputEvent, InputId, KeyCode, UInputCode, UinputAbsSetup};
 use manifold_protocol::control::{MouseButton, PadState};

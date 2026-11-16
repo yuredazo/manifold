@@ -78,6 +78,7 @@ internal class Network(
             onControllable = { names -> flow.update { it.copy(controllable = names) } },
             onCaptured = { ids -> flow.update { it.copy(captured = ids) } },
             onRumble = { rumble -> rumbleFlow.tryEmit(rumble) },
+            onClipboard = { copied -> clipboardFlow.tryEmit(copied) },
             profile = profile,
             onRefused = { deviceKey, feed, reason ->
                 flow.update { it.copy(refused = it.refused + (deviceKey to (it.refused[deviceKey].orEmpty() + (feed to reason)))) }
@@ -89,6 +90,8 @@ internal class Network(
     private val flow = MutableStateFlow(NetworkState())
     private val rumbleFlow = MutableSharedFlow<PadRumble>(extraBufferCapacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val rumbles: SharedFlow<PadRumble> = rumbleFlow
+    private val clipboardFlow = MutableSharedFlow<CopiedText>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val clipboard: SharedFlow<CopiedText> = clipboardFlow
     val state: StateFlow<NetworkState> = flow
     val devices: StateFlow<List<Device>> = book.devices
 
@@ -167,6 +170,10 @@ internal class Network(
 
         override fun onPointerCaptured(device: Device, streamId: Int, captured: Boolean) {
             remote.onPointerCaptured(device, streamId, captured)
+        }
+
+        override fun onClipboard(device: Device, part: Control.Clipboard) {
+            remote.onClipboard(device, part)
         }
 
         override fun onRumble(device: Device, rumble: Control.Rumble) {

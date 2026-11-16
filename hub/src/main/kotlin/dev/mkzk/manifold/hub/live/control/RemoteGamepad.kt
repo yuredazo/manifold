@@ -1,4 +1,4 @@
-package dev.mkzk.manifold.hub.broker.ui
+package dev.mkzk.manifold.hub.live.control
 
 import android.content.Context
 import android.media.AudioAttributes
@@ -17,50 +17,52 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-private const val UP = 0x0001
-private const val DOWN = 0x0002
-private const val LEFT = 0x0004
-private const val RIGHT = 0x0008
-private const val START = 0x0010
-private const val BACK = 0x0020
-private const val LEFT_THUMB = 0x0040
-private const val RIGHT_THUMB = 0x0080
-private const val LEFT_SHOULDER = 0x0100
-private const val RIGHT_SHOULDER = 0x0200
-private const val GUIDE = 0x0400
-private const val A = 0x1000
-private const val B = 0x2000
-private const val X = 0x4000
-private const val Y = 0x8000
+internal const val PAD_UP = 0x0001
+internal const val PAD_DOWN = 0x0002
+internal const val PAD_LEFT = 0x0004
+internal const val PAD_RIGHT = 0x0008
+internal const val PAD_START = 0x0010
+internal const val PAD_BACK = 0x0020
+internal const val PAD_LEFT_THUMB = 0x0040
+internal const val PAD_RIGHT_THUMB = 0x0080
+internal const val PAD_LEFT_SHOULDER = 0x0100
+internal const val PAD_RIGHT_SHOULDER = 0x0200
+internal const val PAD_GUIDE = 0x0400
+internal const val PAD_A = 0x1000
+internal const val PAD_B = 0x2000
+internal const val PAD_X = 0x4000
+internal const val PAD_Y = 0x8000
 // Outside XInput's 16 bits: pads without analog triggers press these as keys.
-private const val LEFT_TRIGGER_KEY = 0x10000
-private const val RIGHT_TRIGGER_KEY = 0x20000
+internal const val PAD_LEFT_TRIGGER_KEY = 0x10000
+internal const val PAD_RIGHT_TRIGGER_KEY = 0x20000
 private const val MAX_PADS = 4
 internal const val PAD_REPEAT_MS = 200L
+// The on-screen controller takes a pad slot like a real one; no input device has this id.
+internal const val SCREEN_PAD = Int.MIN_VALUE
 // The PC repeats the motor levels every 250 ms, so this much quiet means the link or the PC went away.
 private const val RUMBLE_SILENCE_MS = 1_000L
 // A waveform this long, looped, holds a level until the next one replaces it.
 private const val RUMBLE_STEP_MS = 1_000L
 
 private fun buttonOf(event: KeyEvent): Int? = when (event.keyCode) {
-    KeyEvent.KEYCODE_BUTTON_A -> A
-    KeyEvent.KEYCODE_BUTTON_B -> B
-    KeyEvent.KEYCODE_BUTTON_X -> X
-    KeyEvent.KEYCODE_BUTTON_Y -> Y
-    KeyEvent.KEYCODE_BUTTON_L1 -> LEFT_SHOULDER
-    KeyEvent.KEYCODE_BUTTON_R1 -> RIGHT_SHOULDER
-    KeyEvent.KEYCODE_BUTTON_L2 -> LEFT_TRIGGER_KEY
-    KeyEvent.KEYCODE_BUTTON_R2 -> RIGHT_TRIGGER_KEY
-    KeyEvent.KEYCODE_BUTTON_THUMBL -> LEFT_THUMB
-    KeyEvent.KEYCODE_BUTTON_THUMBR -> RIGHT_THUMB
-    KeyEvent.KEYCODE_BUTTON_START -> START
-    KeyEvent.KEYCODE_BUTTON_SELECT -> BACK
-    KeyEvent.KEYCODE_BUTTON_MODE -> GUIDE
+    KeyEvent.KEYCODE_BUTTON_A -> PAD_A
+    KeyEvent.KEYCODE_BUTTON_B -> PAD_B
+    KeyEvent.KEYCODE_BUTTON_X -> PAD_X
+    KeyEvent.KEYCODE_BUTTON_Y -> PAD_Y
+    KeyEvent.KEYCODE_BUTTON_L1 -> PAD_LEFT_SHOULDER
+    KeyEvent.KEYCODE_BUTTON_R1 -> PAD_RIGHT_SHOULDER
+    KeyEvent.KEYCODE_BUTTON_L2 -> PAD_LEFT_TRIGGER_KEY
+    KeyEvent.KEYCODE_BUTTON_R2 -> PAD_RIGHT_TRIGGER_KEY
+    KeyEvent.KEYCODE_BUTTON_THUMBL -> PAD_LEFT_THUMB
+    KeyEvent.KEYCODE_BUTTON_THUMBR -> PAD_RIGHT_THUMB
+    KeyEvent.KEYCODE_BUTTON_START -> PAD_START
+    KeyEvent.KEYCODE_BUTTON_SELECT -> PAD_BACK
+    KeyEvent.KEYCODE_BUTTON_MODE -> PAD_GUIDE
     // A keyboard's arrows are DPAD keys too, so only a controller's count.
-    KeyEvent.KEYCODE_DPAD_UP -> UP.takeIf { event.isFromSource(InputDevice.SOURCE_GAMEPAD) }
-    KeyEvent.KEYCODE_DPAD_DOWN -> DOWN.takeIf { event.isFromSource(InputDevice.SOURCE_GAMEPAD) }
-    KeyEvent.KEYCODE_DPAD_LEFT -> LEFT.takeIf { event.isFromSource(InputDevice.SOURCE_GAMEPAD) }
-    KeyEvent.KEYCODE_DPAD_RIGHT -> RIGHT.takeIf { event.isFromSource(InputDevice.SOURCE_GAMEPAD) }
+    KeyEvent.KEYCODE_DPAD_UP -> PAD_UP.takeIf { event.isFromSource(InputDevice.SOURCE_GAMEPAD) }
+    KeyEvent.KEYCODE_DPAD_DOWN -> PAD_DOWN.takeIf { event.isFromSource(InputDevice.SOURCE_GAMEPAD) }
+    KeyEvent.KEYCODE_DPAD_LEFT -> PAD_LEFT.takeIf { event.isFromSource(InputDevice.SOURCE_GAMEPAD) }
+    KeyEvent.KEYCODE_DPAD_RIGHT -> PAD_RIGHT.takeIf { event.isFromSource(InputDevice.SOURCE_GAMEPAD) }
     else -> null
 }
 
@@ -79,8 +81,8 @@ private class Pad(val index: Int) {
 
     fun state() = PadState(
         buttons = (keys or hat) and 0xFFFF,
-        leftTrigger = if (keys and LEFT_TRIGGER_KEY != 0) 255 else leftTrigger,
-        rightTrigger = if (keys and RIGHT_TRIGGER_KEY != 0) 255 else rightTrigger,
+        leftTrigger = if (keys and PAD_LEFT_TRIGGER_KEY != 0) 255 else leftTrigger,
+        rightTrigger = if (keys and PAD_RIGHT_TRIGGER_KEY != 0) 255 else rightTrigger,
         leftX = leftX,
         leftY = leftY,
         rightX = rightX,
@@ -137,9 +139,20 @@ internal class PadReader(context: Context, private val send: (RemoteAction) -> U
         pad.rightTrigger = trigger(max(axis(MotionEvent.AXIS_RTRIGGER), axis(MotionEvent.AXIS_GAS)))
         val hatX = axis(MotionEvent.AXIS_HAT_X)
         val hatY = axis(MotionEvent.AXIS_HAT_Y)
-        pad.hat = (if (hatX < -0.5f) LEFT else if (hatX > 0.5f) RIGHT else 0) or (if (hatY < -0.5f) UP else if (hatY > 0.5f) DOWN else 0)
+        pad.hat = (if (hatX < -0.5f) PAD_LEFT else if (hatX > 0.5f) PAD_RIGHT else 0) or (if (hatY < -0.5f) PAD_UP else if (hatY > 0.5f) PAD_DOWN else 0)
         pad.push()
         return true
+    }
+
+    // Having no motors, the on-screen pad rumbles through the phone, which setRumble falls back to.
+    fun screen(keys: Int, leftX: Int, leftY: Int, rightX: Int, rightY: Int) {
+        val pad = padFor(SCREEN_PAD) ?: return
+        pad.keys = keys
+        pad.leftX = leftX
+        pad.leftY = leftY
+        pad.rightX = rightX
+        pad.rightY = rightY
+        pad.push()
     }
 
     fun repeat() {

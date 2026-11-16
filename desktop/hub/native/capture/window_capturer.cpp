@@ -281,6 +281,3 @@ void WindowCapturer::RequestKeyframe() { impl_->pump.RequestKeyframe(); }
 
 void WindowCapturer::SetBitrate(int bitrate_kbps) { impl_->pump.SetBitrate(bitrate_kbps); }
 
-int WindowCapturer::width() const { return impl_->out_width; }
-
-int WindowCapturer::height() const { return impl_->out_height; }

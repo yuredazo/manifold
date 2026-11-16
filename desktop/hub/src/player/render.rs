@@ -277,7 +277,7 @@ impl Renderer {
                     MaxDepth: 1.0,
                 };
                 self.context.RSSetViewports(Some(&[viewport]));
-                self.context.OMSetRenderTargets(Some(&[Some(target.clone())]), None);
+                self.context.OMSetRenderTargets(Some(&[Some(target)]), None);
                 self.context.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                 self.context.VSSetShader(&self.vertex, None);
                 self.context.PSSetShader(&self.pixel, None);

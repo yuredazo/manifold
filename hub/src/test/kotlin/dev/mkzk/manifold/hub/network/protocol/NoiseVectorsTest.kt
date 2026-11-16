@@ -4,6 +4,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 private fun String.hex(): ByteArray = ByteArray(length / 2) { substring(it * 2, it * 2 + 2).toInt(16).toByte() }
 
@@ -15,7 +16,7 @@ class NoiseVectorsTest {
     }
 
     private fun vectors(): List<Vector> {
-        val text = javaClass.getResourceAsStream("/noise_vectors.txt")!!.bufferedReader().readText()
+        val text = File("../fixtures/noise_vectors.txt").readText().replace("\r\n", "\n")
         return text.split("\n\n").filter { it.isNotBlank() }.map { block ->
             val lines = block.lines().filter { it.isNotBlank() }
             val fields = HashMap<String, String>()

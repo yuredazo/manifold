@@ -19,14 +19,7 @@ pub struct Beacon {
 pub fn encode(beacon: &Beacon) -> Vec<u8> {
     let id = from_hex(&beacon.id).filter(|id| id.len() == ID_BYTES).expect("the id is 8 bytes of hex");
     assert!(beacon.port != 0, "a beacon needs a port");
-    let mut name = beacon.name.as_str();
-    while name.len() > MAX_NAME_BYTES {
-        let mut cut = name.len() - 1;
-        while !name.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        name = &name[..cut];
-    }
+    let name = &beacon.name[..beacon.name.floor_char_boundary(MAX_NAME_BYTES)];
     let mut out = MAGIC.to_vec();
     out.push(VERSION);
     out.extend_from_slice(&beacon.port.to_be_bytes());
