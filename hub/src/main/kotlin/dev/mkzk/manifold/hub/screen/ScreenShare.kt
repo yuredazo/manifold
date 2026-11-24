@@ -18,6 +18,7 @@ import dev.mkzk.manifold.hub.R
 import dev.mkzk.manifold.hub.broker.Owner
 import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.broker.SenderLink
+import dev.mkzk.manifold.hub.gl.SurfaceFanout
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -112,7 +113,7 @@ internal class ScreenShare(private val registry: Registry, savedMuted: Set<Strin
         private val main = Handler(Looper.getMainLooper())
         private val watching = HashSet<String>()
         private var size = measure()
-        private val frames = ScreenFrames(size.width, size.height, FEED_FPS)
+        private val frames = SurfaceFanout(size.width, size.height, FEED_FPS)
         private val voice: SoundCapture? = if (sound) openSound(projection, excludedUids(mutedPackages.value), ::soundLost) else null
         private var screen: VirtualDisplay? = null
 

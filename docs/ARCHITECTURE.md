@@ -42,8 +42,8 @@ The code is in `hub/src/main/kotlin/dev/mkzk/manifold/hub/`, one package per fea
 | `network/protocol` | Noise handshakes, sessions, packet formats, control messages, the paired-device list and `Endpoint`, the state machine that ties them together. No Android code. |
 | `network/stream` | Media on top of the protocol: rebuilding frames and asking for missing pieces, bitrate control, the playout clock and stream statistics. |
 | `network/codec` | `MediaCodec` wrappers for H.264 and AAC, the alpha packing passes, the audio pacer and the sample clock. |
-| `gl` | The EGL context that the alpha passes and the screen share draw with. |
-| `screen` | Sharing the phone's screen as a feed: capture, OpenGL drawing into each watcher's surface, sound capture and the foreground service. |
+| `gl` | The EGL context that the alpha passes and the screen share draw with, and `SurfaceFanout`, which draws one picture into each watcher's surface. |
+| `screen` | Sharing the phone's screen as a feed: capture, sound capture and the foreground service. |
 | `update` | Finding a release, downloading it and handing it to the system installer. |
 | `settings` | The Settings tab, its update card, About and the acknowledgements. |
 | `notify` | Notification channel setup shared by the services. |

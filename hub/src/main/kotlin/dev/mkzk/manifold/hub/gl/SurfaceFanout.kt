@@ -1,4 +1,4 @@
-package dev.mkzk.manifold.hub.screen
+package dev.mkzk.manifold.hub.gl
 
 import android.graphics.SurfaceTexture
 import android.opengl.EGLSurface
@@ -6,11 +6,9 @@ import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import android.util.Log
 import android.view.Surface
-import dev.mkzk.manifold.hub.gl.GlContext
-import dev.mkzk.manifold.hub.gl.QUAD_VERTEX
 import kotlin.math.min
 
-private const val TAG = "ScreenFrames"
+private const val TAG = "SurfaceFanout"
 private const val NANOS_PER_SECOND = 1_000_000_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
 
@@ -28,7 +26,7 @@ void main() {
  * Android 14 lets one screen capture drive a single virtual display, so every watcher's encoder is fed by drawing that
  * display's picture once per frame into each of their surfaces.
  */
-internal class ScreenFrames(private var width: Int, private var height: Int, maxFps: Int) {
+internal class SurfaceFanout(private var width: Int, private var height: Int, maxFps: Int) {
     private class Output(val id: String, val target: EGLSurface, val width: Int, val height: Int)
 
     private val gl = GlContext(withAlpha = false)
