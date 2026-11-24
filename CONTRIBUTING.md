@@ -6,7 +6,7 @@ Before a larger change, open an issue to say what you plan. Installed apps and o
 
 ## Building and testing
 
-Android needs JDK 17 and the Android SDK (compile SDK 36):
+Android needs JDK 17 and the Android SDK (compile SDK 37):
 
 ```sh
 ./gradlew :hub:assembleDebug      # the hub
