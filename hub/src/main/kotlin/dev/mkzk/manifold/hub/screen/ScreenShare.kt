@@ -41,7 +41,7 @@ internal fun scaledCapture(widthPixels: Int, heightPixels: Int, dpi: Int): Captu
 
 /** The whole screen as a feed, drawn only while somebody watches. */
 internal class ScreenShare(private val registry: Registry, savedMuted: Set<String>, private val saveMuted: (Set<String>) -> Unit) {
-    data class State(val sharing: Boolean = false, val sound: Boolean = false, val failed: Boolean = false)
+    data class State(val sharing: Boolean = false, val sound: Boolean = false, val failed: Boolean = false, val feed: String? = null)
 
     private val current = MutableStateFlow(State())
     val state: StateFlow<State> = current
@@ -64,7 +64,7 @@ internal class ScreenShare(private val registry: Registry, savedMuted: Set<Strin
         try {
             val started = Session(context.applicationContext, projection, sound, ::stop)
             session = started
-            current.value = State(sharing = true, sound = started.hasSound)
+            current.value = State(sharing = true, sound = started.hasSound, feed = started.feed)
         } catch (e: RuntimeException) {
             Log.w(TAG, "cannot share the screen", e)
             runCatching { projection.stop() }
@@ -119,6 +119,9 @@ internal class ScreenShare(private val registry: Registry, savedMuted: Set<Strin
 
         val hasSound get() = voice != null
 
+        lateinit var feed: String
+            private set
+
         // Once Android reports the size of what is captured, which for a single app is the app's window and not the display, it is
         // the only size to follow.
         private var contentKnown = false
@@ -151,7 +154,7 @@ internal class ScreenShare(private val registry: Registry, savedMuted: Set<Strin
                 )
                 displays.registerDisplayListener(displayListener, main)
                 val owner = Owner(ownUid, context.packageName, context.getString(R.string.app_name))
-                checkNotNull(registry.addSender(this, info(), owner)) { "the hub refused the feed" }
+                feed = checkNotNull(registry.addSender(this, info(), owner)) { "the hub refused the feed" }
             } catch (e: RuntimeException) {
                 close()
                 throw e

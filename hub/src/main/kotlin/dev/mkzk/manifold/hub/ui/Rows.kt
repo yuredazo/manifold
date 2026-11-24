@@ -15,12 +15,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +33,10 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,7 +44,7 @@ import androidx.compose.ui.unit.dp
 
 private val RowShape = RoundedCornerShape(18.dp)
 
-internal val ControlShape = RoundedCornerShape(8.dp)
+private val ControlShape = RoundedCornerShape(8.dp)
 
 /** Secondary text is dimmed from the main text color, since the wallpaper-based palette makes the usual grey too faint. */
 @Composable
@@ -175,4 +182,29 @@ internal fun SwitchRow(
             )
         },
     )
+}
+
+@Composable
+internal fun LiveShareButton(icon: ImageVector, watchers: Int, label: String, open: () -> Unit) {
+    val live = MaterialTheme.colorScheme.error
+    // As wide as the icon button it replaces, so starting a share moves nothing in the bar.
+    Box(
+        Modifier
+            .minimumInteractiveComponentSize()
+            .clearAndSetSemantics {
+                contentDescription = label
+                role = Role.Button
+                onClick { open(); true }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        BadgedBox(badge = { if (watchers > 0) Badge { Text(watchers.toString()) } }) {
+            Box(
+                Modifier.size(40.dp).clip(ControlShape).border(1.dp, live.copy(alpha = 0.6f), ControlShape).clickable(onClick = open),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = live, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
 }

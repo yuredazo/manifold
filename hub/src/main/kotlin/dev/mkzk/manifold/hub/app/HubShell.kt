@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mkzk.manifold.Manifold
 import dev.mkzk.manifold.hub.R
 import dev.mkzk.manifold.hub.broker.ui.AppsScreen
+import dev.mkzk.manifold.hub.camera.CameraShareAction
 import dev.mkzk.manifold.hub.live.LiveScreen
 import dev.mkzk.manifold.hub.live.PreviewStats
 import dev.mkzk.manifold.hub.live.SourceStatus
@@ -59,6 +60,7 @@ internal fun HubShell(
     notificationsOn: Boolean,
     openNotificationSettings: () -> Unit,
     startScreenShare: (Boolean) -> Unit,
+    startCameraShare: () -> Unit,
 ) {
     val snapshot by graph.registry.state.collectAsStateWithLifecycle()
     val network = graph.network
@@ -96,8 +98,10 @@ internal fun HubShell(
         Scaffold(
             topBar = {
                 val ownPackage = LocalContext.current.packageName
+                val watchersOf = { feed: String? -> snapshot.senders.firstOrNull { it.packageName == ownPackage && it.name == feed }?.watchers ?: 0 }
                 TopBar(titles, pager) {
-                    ScreenShareAction(graph.screenShare, snapshot.senders.firstOrNull { it.packageName == ownPackage }?.watchers ?: 0, startScreenShare)
+                    CameraShareAction(graph.cameraShare, watchersOf, startCameraShare)
+                    ScreenShareAction(graph.screenShare, watchersOf, startScreenShare)
                 }
             },
             bottomBar = {

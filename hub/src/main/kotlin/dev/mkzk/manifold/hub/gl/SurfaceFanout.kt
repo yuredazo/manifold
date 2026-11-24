@@ -4,6 +4,7 @@ import android.graphics.SurfaceTexture
 import android.opengl.EGLSurface
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
+import android.opengl.Matrix
 import android.util.Log
 import android.view.Surface
 import kotlin.math.min
@@ -23,8 +24,8 @@ void main() {
 """
 
 /**
- * Android 14 lets one screen capture drive a single virtual display, so every watcher's encoder is fed by drawing that
- * display's picture once per frame into each of their surfaces.
+ * Android 14 lets one screen capture drive a single virtual display, and a camera session feeds one stream, so every
+ * watcher's encoder is fed by drawing that one picture once per frame into each of their surfaces.
  */
 internal class SurfaceFanout(private var width: Int, private var height: Int, maxFps: Int) {
     private class Output(val id: String, val target: EGLSurface, val width: Int, val height: Int)
@@ -32,6 +33,8 @@ internal class SurfaceFanout(private var width: Int, private var height: Int, ma
     private val gl = GlContext(withAlpha = false)
     private val outputs = LinkedHashMap<String, Output>()
     private val textureMatrix = FloatArray(16)
+    private val turnMatrix = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
+    private val drawMatrix = FloatArray(16)
     private val minInterval = NANOS_PER_SECOND / maxFps * 9 / 10
     private val redraw = Runnable {
         redrawQueued = false
@@ -89,11 +92,21 @@ internal class SurfaceFanout(private var width: Int, private var height: Int, ma
         gl.handler.post { outputs.remove(id)?.let { gl.destroy(it.target) } }
     }
 
-    fun resize(width: Int, height: Int) {
+    fun resize(width: Int, height: Int, bufferWidth: Int = width, bufferHeight: Int = height, clockwise: Int = 0, mirror: Boolean = false) {
+        // Set at once, not on the GL thread: a camera session configured right after reads the size from the surface.
+        frames?.setDefaultBufferSize(bufferWidth, bufferHeight)
         gl.handler.post {
             this.width = width
             this.height = height
-            frames?.setDefaultBufferSize(width, height)
+            // Maps a point of the output to the point of the picture drawn there, so the picture turns the other way.
+            Matrix.setIdentityM(turnMatrix, 0)
+            Matrix.translateM(turnMatrix, 0, 0.5f, 0.5f, 0f)
+            Matrix.rotateM(turnMatrix, 0, clockwise.toFloat(), 0f, 0f, 1f)
+            Matrix.translateM(turnMatrix, 0, -0.5f, -0.5f, 0f)
+            if (mirror) {
+                Matrix.translateM(turnMatrix, 0, 1f, 0f, 0f)
+                Matrix.scaleM(turnMatrix, 0, -1f, 1f, 1f)
+            }
             hasFrame = false
         }
     }
@@ -120,6 +133,7 @@ internal class SurfaceFanout(private var width: Int, private var height: Int, ma
             return
         }
         source.getTransformMatrix(textureMatrix)
+        Matrix.multiplyMM(drawMatrix, 0, textureMatrix, 0, turnMatrix, 0)
         hasFrame = true
         // A feed that draws faster than it announces would be encoded at its own speed, and the screen goes faster than the stream.
         // The frame that comes too soon is drawn when its turn comes, so a screen that stops moving never stays one frame behind.
@@ -152,7 +166,7 @@ internal class SurfaceFanout(private var width: Int, private var height: Int, ma
         GLES20.glUseProgram(program)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture)
-        GLES20.glUniformMatrix4fv(matrixLocation, 1, false, textureMatrix, 0)
+        GLES20.glUniformMatrix4fv(matrixLocation, 1, false, drawMatrix, 0)
         gl.drawQuad()
 
         // The encoder stamps its frames with this, and the hub reads the same clock when sending.

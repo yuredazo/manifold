@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import dev.mkzk.manifold.hub.camera.CameraShareRequest
 import dev.mkzk.manifold.hub.network.NetworkService
 import dev.mkzk.manifold.hub.screen.ScreenShareRequest
 
@@ -26,6 +27,7 @@ class HubActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshNotificationState() }
 
     private val screenShareRequest = ScreenShareRequest(this)
+    private val cameraShareRequest = CameraShareRequest(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,7 +43,7 @@ class HubActivity : ComponentActivity() {
 
         setContent {
             val wallpaperColors by graph.theme.wallpaperColors.collectAsState()
-            HubTheme(wallpaperColors) { HubShell(graph, notificationsOn, ::openNotificationSettings, screenShareRequest::begin) }
+            HubTheme(wallpaperColors) { HubShell(graph, notificationsOn, ::openNotificationSettings, screenShareRequest::begin, cameraShareRequest::begin) }
         }
     }
 

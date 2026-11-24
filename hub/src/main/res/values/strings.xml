@@ -87,7 +87,8 @@
     <string name="screen_notice_text">Devices you allowed can watch what you share.</string>
     <string name="screen_share">Share screen</string>
     <string name="screen_sharing_title">Sharing your screen</string>
-    <string name="screen_sharing">Sharing</string>
+    <string name="screen_live">Screen, %1$d watching</string>
+    <string name="screen_live_idle">Screen, nobody watching yet</string>
     <string name="screen_watching">%1$d watching</string>
     <string name="screen_nobody_watching">Nobody is watching yet</string>
     <string name="screen_menu_note">You may get to pick a single app next.</string>
@@ -105,6 +106,29 @@
     <string name="screen_start">Start sharing</string>
     <string name="screen_stop">Stop sharing</string>
     <string name="screen_failed">The screen could not be shared.</string>
+
+    <string name="channel_camera">Camera sharing</string>
+    <string name="camera_notice_title">Sharing your camera</string>
+    <string name="camera_notice_text">Devices you allowed can watch what you share.</string>
+    <string name="camera_share">Share camera</string>
+    <string name="camera_sharing_title">Sharing your camera</string>
+    <string name="camera_live">Camera, %1$d watching</string>
+    <string name="camera_live_idle">Camera, nobody watching yet</string>
+    <string name="camera_watching">%1$d watching</string>
+    <string name="camera_nobody_watching">Nobody is watching yet</string>
+    <string name="camera_back">Back camera</string>
+    <string name="camera_front">Front camera</string>
+    <string name="camera_flip_to_front">Switch to the front camera</string>
+    <string name="camera_flip_to_back">Switch to the back camera</string>
+    <string name="camera_taken">In use by another app</string>
+    <string name="camera_lock">Lock rotation</string>
+    <string name="camera_lock_hint">Keep the picture as it is now</string>
+    <string name="camera_mirror">Mirror</string>
+    <string name="camera_mirror_hint">Flip left and right</string>
+    <string name="camera_start">Start sharing</string>
+    <string name="camera_stop">Stop sharing</string>
+    <string name="camera_failed">The camera could not be shared.</string>
+    <string name="camera_allow_in_settings">Allow camera access in Settings to share it.</string>
 
     <string name="live_empty_title">No feeds yet</string>
     <string name="live_empty_body">Feeds from your apps and devices show up here.</string>

@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- Only asked for when the owner shares the screen with sound: Android requires it to copy what the phone plays. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Android only allows the connectedDevice service type together with one of a short list of
@@ -53,6 +56,11 @@
             android:name=".screen.ScreenShareService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+
+        <service
+            android:name=".camera.CameraShareService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
 
         <!-- Sent by the system when an app is uninstalled. Its decision is dropped so a later
              install starts undecided instead of inheriting the old one. -->

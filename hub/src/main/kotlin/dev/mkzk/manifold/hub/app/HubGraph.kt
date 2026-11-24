@@ -4,11 +4,14 @@ import android.app.Application
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.SharedPreferences
+import android.hardware.camera2.CameraManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
 import dev.mkzk.manifold.hub.broker.AccessBook
+import dev.mkzk.manifold.hub.camera.CameraShare
+import dev.mkzk.manifold.hub.camera.Lens
 import dev.mkzk.manifold.hub.broker.Registry
 import dev.mkzk.manifold.hub.network.KeystoreSealer
 import dev.mkzk.manifold.hub.network.Network
@@ -28,6 +31,8 @@ private const val DEVICES_KEY = "devices"
 private const val CHECK_KEY = "update_check"
 private const val PROFILE_KEY = "stream_profile"
 private const val MUTED_KEY = "screen_muted"
+private const val CAMERA_LOCKED_KEY = "camera_locked"
+private const val CAMERA_MIRRORED_KEY = "camera_mirrored"
 private const val WALLPAPER_KEY = "wallpaper_colors"
 
 /** The one place that knows how the features are connected. Services and receivers get theirs through [hubGraph]. */
@@ -37,6 +42,7 @@ internal class HubGraph(app: Application) {
     val updater: Updater
     val streamPreference: StreamPreference
     val screenShare: ScreenShare
+    val cameraShare: CameraShare
     val theme: ThemePreference
 
     init {
@@ -73,6 +79,12 @@ internal class HubGraph(app: Application) {
 
         screenShare = ScreenShare(registry, settings.getStringSet(MUTED_KEY, null).orEmpty().toSet()) {
             settings.edit().putStringSet(MUTED_KEY, it).apply()
+        }
+        val mirrored = settings.getStringSet(CAMERA_MIRRORED_KEY, null).orEmpty().mapNotNullTo(mutableSetOf()) { name ->
+            Lens.entries.firstOrNull { it.name == name }
+        }
+        cameraShare = CameraShare(registry, app.getSystemService(CameraManager::class.java), settings.getBoolean(CAMERA_LOCKED_KEY, false), mirrored) { locked, lenses ->
+            settings.edit().putBoolean(CAMERA_LOCKED_KEY, locked).putStringSet(CAMERA_MIRRORED_KEY, lenses.mapTo(mutableSetOf()) { it.name }).apply()
         }
     }
 

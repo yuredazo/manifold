@@ -44,16 +44,17 @@ The code is in `hub/src/main/kotlin/dev/mkzk/manifold/hub/`, one package per fea
 | `network/codec` | `MediaCodec` wrappers for H.264 and AAC, the alpha packing passes, the audio pacer and the sample clock. |
 | `gl` | The EGL context that the alpha passes and the screen share draw with, and `SurfaceFanout`, which draws one picture into each watcher's surface. |
 | `screen` | Sharing the phone's screen as a feed: capture, sound capture and the foreground service. |
+| `camera` | Sharing the back or front camera as a feed: Camera2 capture, turning the picture with the phone, its sheet and the foreground service. |
 | `update` | Finding a release, downloading it and handing it to the system installer. |
 | `settings` | The Settings tab, its update card, About and the acknowledgements. |
 | `notify` | Notification channel setup shared by the services. |
 | `ui` | The panels, rows, sheets and icon badges every screen is built from, so sizes and spacing are defined once. |
 
-`HubApp.onCreate` builds one `HubGraph`, which creates the `Registry`, `Network`, `Updater` and `ScreenShare` and hands each what it needs. Components the system creates (services, receivers, the activity) reach the graph with `context.hubGraph`. Everything else gets its dependencies as constructor or composable parameters, so a class can be built in a unit test without the app.
+`HubApp.onCreate` builds one `HubGraph`, which creates the `Registry`, `Network`, `Updater`, `ScreenShare` and `CameraShare` and hands each what it needs. Components the system creates (services, receivers, the activity) reach the graph with `context.hubGraph`. Everything else gets its dependencies as constructor or composable parameters, so a class can be built in a unit test without the app.
 
 Dependency rules, which the compiler does not enforce because `internal` is per module, so check imports in review:
 
-- `broker` imports only `app` (for `hubGraph`), `notify` and `ui`. `network`, `screen` and `live` use the `Registry` the way an app does, by registering senders and receivers.
+- `broker` imports only `app` (for `hubGraph`), `notify` and `ui`. `network`, `screen`, `camera` and `live` use the `Registry` the way an app does, by registering senders and receivers.
 - `network/protocol` imports no other package and no Android class. `stream` and `codec` import `protocol`.
 - Only `app` imports `live`, `settings` and the tab screens.
 
